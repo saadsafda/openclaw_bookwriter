@@ -1,0 +1,30 @@
+# OS metadata
+.DS_Store
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Local environment and editor settings
+.env
+.env.*
+.vscode/
+
+# Project runtime/cache artifacts
+.openclaw_cache/
+.openclaw_session_id
+.openclaw_heading_cache.json
+
+# Build/output directories
+web_outputs/
+web_uploads/
