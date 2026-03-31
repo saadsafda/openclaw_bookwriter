@@ -98,19 +98,14 @@ You can stop and rerun safely. Cached prompts are reused automatically unless `-
 
 ## Web UI (Optional)
 
-Run:
-
 ```bash
+source .venv/bin/activate
 python3 app.py
 ```
 
 Open: `http://127.0.0.1:5000`
 
-Notes:
-
-- Upload a `.docx` or provide a local path in the UI.
-- Web mode currently uses a minimal command path under the hood.
-- For full option control, use the CLI directly.
+**For a full step-by-step walkthrough, see [WEB_UI_GUIDE.md](WEB_UI_GUIDE.md).**
 
 ## Standalone Utilities
 
