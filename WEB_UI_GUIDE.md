@@ -112,6 +112,9 @@ When the job finishes (status shows ✅):
 - Click **"Final File"** (blue button, top right) to download the completed book.
 - Click **"Raw Output"** to download the unformatted version.
 
+If the TOC page shows **"Update this field to see Table of Contents."**, this is expected.
+Open the downloaded `.docx` in Word, go to **References → Table of Contents**, and pick your preferred TOC style (for example, Automatic Table). Word will generate the full index on that page.
+
 ---
 
 ## 4. Replacing Images
@@ -198,7 +201,115 @@ Before clicking "Generate New Images," you can change these in the sidebar:
 
 ---
 
-## 7. File Locations
+## 7. Kindle & Paperback Format Flow
+
+When a book is generated, BookWriter automatically produces **two print-ready files**:
+
+| File | Purpose |
+|---|---|
+| `*_kindle.docx` | Formatted for Kindle Direct Publishing (eBook) |
+| `*_paperback.docx` | Formatted for KDP Paperback (print) |
+
+### Kindle Format
+
+The Kindle file is optimized for eBook readers:
+
+| Page | Content | Layout |
+|---|---|---|
+| **Page 1** | Title page (book title, subtitle, author) | Vertically centered |
+| **Page 2** | Copyright & legal notice | Vertically centered |
+| **Page 3** | Free Bonus page | Vertically centered |
+| **Page 4** | Table of Contents (Smart Identification) | Starts from top |
+| **Page 5+** | Chapters with images | Starts from top |
+
+- First 3 pages are **vertically centered** on the page.
+- TOC and all body content start from the **top of the page**.
+- Each chapter heading and its image are kept on the **same page**.
+- Body text never appears on an image page — it starts on the next page.
+- Large images are **automatically scaled** to fit within the page.
+
+### Paperback Format
+
+The Paperback file follows professional print book conventions:
+
+| Page | Content | Position | Page Number |
+|---|---|---|---|
+| **Page 1** | Title page | Right (recto), centered | No |
+| **Page 2** | Copyright | Left (verso), centered | No |
+| **Page 3** | Free Bonus page | Right (recto), centered | No |
+| **Page 4** | Table of Contents | Left/Right, top | No |
+| **First chapter** | Chapter 1 heading + image | Right (recto), top | **Page 1** |
+
+- **Right-page (recto) chapter starts:** Every chapter always begins on a right-hand page. Word will insert a blank page if needed.
+- **Page numbering starts at Chapter 1** — not on front matter or TOC.
+- **Odd pages** (right side) show page numbers on the right. **Even pages** (left side) show them on the left.
+- **Gutter margin** is automatically calculated based on estimated page count (thicker books need wider gutters for binding).
+- Heading + image are always on the **same page**. Body text starts on the next page.
+
+---
+
+## 8. Table of Contents (Smart Identification)
+
+BookWriter uses a **native Word TOC field** — the same "Smart Identification" style available in Word's References tab. This means:
+
+- ✅ **Clickable entries** — click any TOC line to jump to that chapter
+- ✅ **Dot leaders + page numbers** — professional formatting
+- ✅ **Multi-level** — Heading 1, 2, and 3 appear with proper indentation
+- ✅ **Auto-updated** — Word rebuilds the TOC when you open the file
+
+### What Gets Detected as a Heading
+
+BookWriter uses smart identification to find headings automatically:
+
+| Pattern | Example | Level |
+|---|---|---|
+| `Chapter X: Title` | Chapter 1: Getting Started | Heading 1 |
+| `Chapter Word: Title` | Chapter One: The Journey | Heading 1 |
+| `Part X` | Part I: The Beginning | Heading 1 |
+| `Act X` | Act III — Climax | Heading 1 |
+| `Book X` | Book Two: Return | Heading 1 |
+| Front/back matter | Introduction, Conclusion, Epilogue, Prologue, Foreword, Preface | Heading 1 |
+| Extended matter | Acknowledgments, About the Author, Dedication, Glossary, Appendix, Afterword, Bibliography | Heading 1 |
+| Roman numerals | III. The Battle | Heading 1 |
+| Numbered title | 1: The Beginning | Heading 1 |
+| Bold/large/caps text | Short bold or ALL CAPS lines | Heading 1 |
+| `Section X` | Section 3: Details | Heading 2 |
+| Numbered sub | 1. Choosing the Right Venue | Heading 2 |
+| Dash sub | - Setting Up Your Space | Heading 2 |
+
+### How to Update the TOC in Word
+
+When you open the generated `.docx` file in Microsoft Word:
+
+1. If you see **"Update this field to see Table of Contents."** on the TOC page, the TOC field is waiting for Word to build the index.
+2. Go to **References → Table of Contents** and choose your preferred TOC style (for example, Automatic Table).
+3. If Word prompts for field updates, click **Yes**.
+4. If the TOC is still not populated:
+  - Click anywhere inside the TOC.
+  - Right-click → **Update Field**.
+  - Choose **"Update entire table"** → click **OK**.
+5. The TOC will populate with all chapters, dot leaders, and correct page numbers.
+
+Alternative quick method:
+
+1. Word may prompt **"This document contains fields that may refer to other files. Do you want to update?"** — Click **Yes**.
+2. If it doesn't auto-update:
+   - Click anywhere inside the TOC.
+   - Right-click → **Update Field**.
+   - Choose **"Update entire table"** → click **OK**.
+3. The TOC will populate with all chapters, dot leaders, and correct page numbers.
+
+> **Tip:** Always update the TOC after making any edits to the document, so page numbers stay accurate.
+
+### How to See the TOC in macOS Pages / Google Docs
+
+- **macOS Pages:** Open the `.docx` file. Go to **View → Table of Contents** in the sidebar. Pages reads the heading styles and shows the TOC.
+- **Google Docs:** Upload the `.docx` to Google Drive → Open with Google Docs. Go to **Insert → Table of contents** to re-insert it, or use the existing one. Click entries to navigate.
+- **LibreOffice Writer:** Open the file. Right-click the TOC → **Update Index/Table**.
+
+---
+
+## 9. File Locations
 
 | File/Folder | Purpose |
 |---|---|
@@ -209,7 +320,7 @@ Before clicking "Generate New Images," you can change these in the sidebar:
 
 ---
 
-## 8. Quick Reference
+## 10. Quick Reference
 
 | Action | How |
 |---|---|
@@ -222,4 +333,4 @@ Before clicking "Generate New Images," you can change these in the sidebar:
 
 ---
 
-*OpenClaw BookWriter — Web UI Guide — March 2026*
+*OpenClaw BookWriter — Web UI Guide — April 2026*

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 format_docx.py
 
@@ -344,25 +343,17 @@ def format_document(in_path: Path, out_path: Path) -> None:
                 ch_num = ""
                 ch_title = t
 
-            # CHAPTER X label
-            label_p = doc.add_paragraph()
-            _add_page_break_before(label_p)
-            label_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            lr = label_p.add_run(f"CHAPTER {ch_num}" if ch_num else "CHAPTER")
-            _set_run_font(lr, FONT_NAME, 12, BROWN, bold=True)
-            _set_paragraph_spacing(label_p, before_pt=36, after_pt=4)
-            # Letter-spacing
-            rPr = lr._r.get_or_add_rPr()
-            spacing_el = OxmlElement("w:spacing")
-            spacing_el.set(qn("w:val"), "60")
-            rPr.append(spacing_el)
+            # Combined chapter heading (no separate label)
+            label_text = f"Chapter {ch_num}" if ch_num else "Chapter"
+            title_text = ch_title if ch_title else t
+            combined = f"{label_text}: {title_text}" if title_text else label_text
 
-            # Chapter title
-            ct_p = doc.add_paragraph()
-            ct_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            ct_r = ct_p.add_run(ch_title if ch_title else t)
-            _set_run_font(ct_r, FONT_NAME, 22, NAVY, bold=True)
-            _set_paragraph_spacing(ct_p, before_pt=6, after_pt=4)
+            ch_p = doc.add_paragraph()
+            _add_page_break_before(ch_p)
+            ch_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            cr = ch_p.add_run(combined)
+            _set_run_font(cr, FONT_NAME, 22, NAVY, bold=True)
+            _set_paragraph_spacing(ch_p, before_pt=36, after_pt=4)
 
             # Double-rule divider
             _add_double_rule(doc, color_hex="1B3A5C",

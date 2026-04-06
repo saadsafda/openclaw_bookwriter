@@ -10,6 +10,9 @@ Turn a `.docx` outline into a drafted, formatted, and optionally illustrated boo
 4. Auto-formats the document for print-style layout.
 5. Runs a clarity pass (Hemingway via Playwright) when available.
 6. Optionally inserts one AI image per main heading.
+7. Produces KDP-focused deliverables after image attachment:
+   - `*_kindle.docx` (clickable TOC + front-matter placeholders)
+   - `*_paperback.docx` (6x9 no-bleed setup + TOC + front-matter placeholders)
 
 ## Requirements
 
@@ -77,6 +80,8 @@ The pipeline can produce:
 - `<name>.docx` (written progressively, unless custom output path is used)
 - `<name>_formatted.docx`
 - `<name>_formatted_clear.docx` (if clarity pass runs successfully)
+- `<name>_formatted_clear_kindle.docx` (KDP Kindle variant)
+- `<name>_formatted_clear_paperback.docx` (KDP Paperback variant)
 
 If images are enabled, they are inserted into the latest final file.
 
@@ -128,10 +133,17 @@ Image only:
 python3 openclaw_image_maker.py --heading "Chapter 1" --openai-api-key "$OPENAI_API_KEY" --output chapter1.png
 ```
 
+KDP deliverables only:
+
+```bash
+python3 kdp_docx_formatter.py /path/to/final_post_image.docx
+```
+
 ## Project Files
 
 - `openclaw_docx_writer.py` main pipeline (write + format + clarity + images)
 - `format_docx.py` document styling
+- `kdp_docx_formatter.py` KDP Kindle/Paperback formatter
 - `clarity_agent.py` Hemingway automation
 - `openclaw_image_maker.py` image generation helper
 - `app.py` Flask web interface

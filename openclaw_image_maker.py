@@ -149,7 +149,14 @@ def load_env_file(env_path: Path) -> None:
         os.environ.setdefault(key, value)
 
 
+def _strip_chapter_prefix(heading: str) -> str:
+    """Remove 'Chapter X:' or 'CHAPTER X:' prefix from heading text."""
+    cleaned = re.sub(r"^(?:chapter\s+\d+\s*[:\-–—]\s*)", "", heading, flags=re.IGNORECASE).strip()
+    return cleaned if cleaned else heading
+
+
 def build_image_prompt_from_paragraph(heading: str, paragraph_text: str, template: str) -> str:
+    heading = _strip_chapter_prefix(heading)
     short_context = paragraph_text[:200].strip() if paragraph_text else ""
     heading_keywords = extract_heading_keywords(heading=heading)
     theme_guidance = infer_theme_guidance(heading=heading, paragraph_text=short_context)

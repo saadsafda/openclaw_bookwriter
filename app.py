@@ -52,6 +52,8 @@ class Job:
     input_docx: str
     output_docx: str
     final_docx: str
+    kindle_docx: str = ""
+    paperback_docx: str = ""
     status: str = "queued"
     current_action: str = ""
     error: str = ""
@@ -155,6 +157,38 @@ def _stream_command(job: Job, cmd: list[str]) -> None:
         raise RuntimeError(f"Command failed with exit code {rc}")
 
 
+def _run_kdp_formatting(job: Job, source_doc: Path) -> tuple[Path, Path]:
+    kindle_doc = source_doc.with_stem(source_doc.stem + "_kindle")
+    paperback_doc = source_doc.with_stem(source_doc.stem + "_paperback")
+    cfg = dict(job.config)
+
+    cmd = [
+        str(PYTHON_BIN),
+        str(ROOT_DIR / "kdp_docx_formatter.py"),
+        str(source_doc),
+        "--kindle-output",
+        str(kindle_doc),
+        "--paperback-output",
+        str(paperback_doc),
+        "--title-placeholder",
+        str(cfg.get("title_placeholder", "Book Title Placeholder")),
+        "--author-placeholder",
+        str(cfg.get("author_placeholder", "Author Name")),
+    ]
+
+    estimated_pages = int(cfg.get("estimated_pages", 0) or 0)
+    if estimated_pages > 0:
+        cmd.extend(["--estimated-pages", str(estimated_pages)])
+
+    _append_log(job, "Formatting KDP deliverables (Kindle + Paperback)...")
+    _stream_command(job, cmd)
+
+    if not kindle_doc.exists() or not paperback_doc.exists():
+        raise RuntimeError("KDP formatter completed but output files were not found.")
+
+    return kindle_doc, paperback_doc
+
+
 def _run_generation(job_id: str) -> None:
     job = _get_job(job_id)
     cfg = dict(job.config)
@@ -188,10 +222,15 @@ def _run_generation(job_id: str) -> None:
             job.final_docx = str(final_doc)
 
         headings = _list_image_headings(final_doc) if final_doc.exists() else []
+        kindle_doc, paperback_doc = _run_kdp_formatting(job, final_doc)
         with job.lock:
             job.headings = headings
+            job.kindle_docx = str(kindle_doc)
+            job.paperback_docx = str(paperback_doc)
 
         _append_log(job, f"Ready. Final document: {final_doc}")
+        _append_log(job, f"Kindle output: {kindle_doc}")
+        _append_log(job, f"Paperback output: {paperback_doc}")
         _set_status(job, "success", action="", error="")
     except Exception as exc:
         _append_log(job, f"ERROR: {exc}")
@@ -237,11 +276,16 @@ def _run_replace_images(job_id: str, headings: list[str], overrides: dict[str, A
             _stream_command(job, cmd)
 
         headings_after = _list_image_headings(final_doc) if final_doc.exists() else []
+        kindle_doc, paperback_doc = _run_kdp_formatting(job, final_doc)
         with job.lock:
             job.headings = headings_after
             job.final_docx = str(final_doc)
+            job.kindle_docx = str(kindle_doc)
+            job.paperback_docx = str(paperback_doc)
 
         _append_log(job, "Image replacement completed.")
+        _append_log(job, f"Kindle output refreshed: {kindle_doc}")
+        _append_log(job, f"Paperback output refreshed: {paperback_doc}")
         _set_status(job, "success", action="", error="")
     except Exception as exc:
         _append_log(job, f"ERROR: {exc}")
@@ -317,6 +361,9 @@ def create_job() -> Any:
         "image_quality": (request.form.get("image_quality") or DEFAULTS["image_quality"]).strip() or DEFAULTS["image_quality"],
         "image_width": _parse_float(request.form.get("image_width"), float(DEFAULTS["image_width"])),
         "openai_api_key": (request.form.get("openai_api_key") or "").strip(),
+        "title_placeholder": (request.form.get("title_placeholder") or "Book Title Placeholder").strip() or "Book Title Placeholder",
+        "author_placeholder": (request.form.get("author_placeholder") or "Author Name").strip() or "Author Name",
+        "estimated_pages": _parse_int(request.form.get("estimated_pages"), 0),
     }
 
     if cfg["image_prompt_variant"] not in image_maker.PROMPT_VARIANTS:
@@ -327,6 +374,8 @@ def create_job() -> Any:
         input_docx=str(input_doc),
         output_docx=str(output_doc),
         final_docx=str(output_doc),
+        kindle_docx="",
+        paperback_docx="",
         status="queued",
         config=cfg,
     )
@@ -354,6 +403,8 @@ def job_status(job_id: str) -> Any:
                 "input_docx": job.input_docx,
                 "output_docx": job.output_docx,
                 "final_docx": job.final_docx,
+                "kindle_docx": job.kindle_docx,
+                "paperback_docx": job.paperback_docx,
                 "headings": list(job.headings),
                 "created_at": job.created_at,
                 "updated_at": job.updated_at,
@@ -417,11 +468,13 @@ def download_file(job_id: str, kind: str) -> Any:
             "input": Path(job.input_docx),
             "output": Path(job.output_docx),
             "final": Path(job.final_docx),
+            "kindle": Path(job.kindle_docx) if job.kindle_docx else None,
+            "paperback": Path(job.paperback_docx) if job.paperback_docx else None,
         }
     target = mapping.get(kind)
     if target is None:
         abort(404)
-    if not target.exists():
+    if not target.exists() or not target.is_file():
         abort(404, description="File does not exist yet")
     return send_file(target, as_attachment=True)
 
