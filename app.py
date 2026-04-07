@@ -17,6 +17,7 @@ from werkzeug.utils import secure_filename
 
 import openclaw_image_maker as image_maker
 import openclaw_docx_writer as writer
+import pub_listing_agent
 
 ROOT_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = ROOT_DIR / "web_uploads"
@@ -58,6 +59,7 @@ class Job:
     current_action: str = ""
     error: str = ""
     headings: list[str] = field(default_factory=list)
+    listing: dict[str, Any] = field(default_factory=dict)
     logs: list[str] = field(default_factory=list)
     config: dict[str, Any] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
@@ -406,6 +408,7 @@ def job_status(job_id: str) -> Any:
                 "kindle_docx": job.kindle_docx,
                 "paperback_docx": job.paperback_docx,
                 "headings": list(job.headings),
+                "listing": dict(job.listing) if job.listing else {},
                 "created_at": job.created_at,
                 "updated_at": job.updated_at,
             }
@@ -458,6 +461,78 @@ def replace_images(job_id: str) -> Any:
     t = threading.Thread(target=_run_replace_images, args=(job_id, normalized, overrides), daemon=True)
     t.start()
     return jsonify({"ok": True, "queued": len(normalized)})
+
+
+def _run_generate_listing(job_id: str, title_override: str) -> None:
+    job = _get_job(job_id)
+
+    with job.lock:
+        final_doc = Path(job.final_docx or job.output_docx)
+        base_cfg = dict(job.config)
+
+    _set_status(job, "running", action="generating_listing", error="")
+    _append_log(job, "Starting publishing listing generation...")
+
+    try:
+        title = title_override or base_cfg.get("title_placeholder", "")
+
+        def _progress(step: str, msg: str) -> None:
+            _append_log(job, f"[{step}] {msg}")
+
+        result = pub_listing_agent.generate_listing(
+            docx_path=final_doc,
+            title=title,
+            agent_id="pub-listing-agent-1",
+            timeout_s=base_cfg.get("timeout", 180),
+            callback=_progress,
+        )
+
+        listing_data = {
+            "title": result.title,
+            "subtitles": result.subtitles,
+            "description": result.description,
+            "ebook_categories": result.ebook_categories,
+            "paperback_categories": result.paperback_categories,
+        }
+
+        with job.lock:
+            job.listing = listing_data
+
+        _append_log(job, f"Subtitles: {len(result.subtitles)} ideas generated")
+        _append_log(job, f"Description: {len(result.description.split())} words")
+        _append_log(job, f"Ebook categories: {len(result.ebook_categories)}")
+        _append_log(job, f"Paperback categories: {len(result.paperback_categories)}")
+        _append_log(job, "Publishing listing generation complete.")
+        _set_status(job, "success", action="", error="")
+    except Exception as exc:
+        _append_log(job, f"ERROR: {exc}")
+        _set_status(job, "error", action="", error=str(exc))
+
+
+@app.post("/api/jobs/<job_id>/generate-listing")
+def generate_listing(job_id: str) -> Any:
+    job = _get_job(job_id)
+    payload = request.get_json(silent=True) or {}
+    title_override = str(payload.get("title", "")).strip()
+
+    with job.lock:
+        if job.status == "running":
+            return jsonify({"error": "Job is busy. Wait for current task to finish."}), 409
+        final_doc = Path(job.final_docx)
+
+    if not final_doc.exists():
+        return jsonify({"error": "Final document not found. Generate the book first."}), 400
+
+    t = threading.Thread(target=_run_generate_listing, args=(job_id, title_override), daemon=True)
+    t.start()
+    return jsonify({"ok": True})
+
+
+@app.get("/api/jobs/<job_id>/listing")
+def get_listing(job_id: str) -> Any:
+    job = _get_job(job_id)
+    with job.lock:
+        return jsonify(job.listing or {})
 
 
 @app.get("/api/jobs/<job_id>/download/<kind>")

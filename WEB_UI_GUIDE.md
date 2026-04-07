@@ -110,10 +110,33 @@ Leave defaults if unsure — they work well for most books.
 When the job finishes (status shows ✅):
 
 - Click **"Final File"** (blue button, top right) to download the completed book.
+- Click **"Kindle"** (top right) to download the Kindle-ready file (*_kindle.docx).
+- Click **"Paperback"** (top right) to download the Paperback-ready file (*_paperback.docx).
 - Click **"Raw Output"** to download the unformatted version.
 
 If the TOC page shows **"Update this field to see Table of Contents."**, this is expected.
 Open the downloaded `.docx` in Word, go to **References → Table of Contents**, and pick your preferred TOC style (for example, Automatic Table). Word will generate the full index on that page.
+
+### Step 6 — Generate Publishing Listing
+
+After the book is generated and formatted, you can create your KDP listing assets — subtitle ideas, the book description (also used on the paperback back cover), and Amazon category selections — all in one click.
+
+1. After the job completes, an amber **"Pub Listing"** button appears at the bottom, next to the purple "Replace image..." button.
+2. Click **"Pub Listing"**.
+3. The terminal output box shows live progress as the agent works through three steps:
+   - **Subtitle ideas** (5-10 options using proven frameworks)
+   - **Book description** (170-220 words, ready for the Amazon listing and paperback back cover)
+   - **Category selection** (3 Kindle + 3 Paperback categories from Amazon's full list)
+4. When finished, a formatted result card appears in the chat showing:
+   - **Subtitle Ideas** — numbered list of 5-10 options
+   - **Book Description** — full description text with word count
+   - **Ebook Categories (Kindle)** — 3 deep, long-tail categories from different top-level parents
+   - **Paperback Categories** — 3 deep, long-tail categories from different top-level parents
+5. Copy the results you want to use for your KDP listing.
+
+> **Tip:** The description is written to work on both the Amazon product page and the paperback back cover. Run this step before designing the back cover so you have the text ready.
+
+> **Note:** Categories follow two rules — they go as deep as possible in the Amazon category tree (long-tail) and each one is under a different top-level parent to maximize visibility across different shopper audiences.
 
 ---
 
@@ -165,6 +188,7 @@ Before clicking "Generate New Images," you can change these in the sidebar:
 | 🔘 **Idle** | No job running, ready to start |
 | 🔄 **generating_book** | Writing text and creating images |
 | 🔄 **replacing_images** | Regenerating selected images |
+| 🔄 **generating_listing** | Creating subtitles, description, and categories |
 | ✅ **success** | Job completed — download is ready |
 | ❌ **error** | Something went wrong — check the terminal log |
 
@@ -329,6 +353,7 @@ Alternative quick method:
 | Generate a book | Upload `.docx` → configure sidebar → click **Write** |
 | Download result | Click **Final File** button (top right, after job completes) |
 | Replace images | Click **Replace image...** → select headings → click **Generate New Images** |
+| Generate listing | Click **Pub Listing** → wait for results card → copy subtitles, description, categories |
 | Stop the server | Press `Ctrl+C` in the Terminal window |
 
 ---
