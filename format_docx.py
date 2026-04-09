@@ -48,11 +48,12 @@ FONT_NAME = "Georgia"
 # ── Regex patterns (mirror the writer's detection) ──────────────────
 CHAPTER_RE  = re.compile(r"^Chapter\s+(\d+)\s*[:\s–—-]\s*(.*)", re.IGNORECASE)
 INTRO_CONCL = re.compile(r"^(Introduction|Conclusion|Epilogue|Foreword|Preface)\s*:?\s*(.*)", re.IGNORECASE)
-THING_RE    = re.compile(r"^-\s+Thing\s+(\d+)\s*:\s*(.*)", re.IGNORECASE)
-BULLET_RE   = re.compile(r"^-\s+(.+)")
+THING_RE    = re.compile(r"^[\-•*–—]\s+Thing\s+(\d+)\s*:\s*(.*)", re.IGNORECASE)
+BULLET_RE   = re.compile(r"^[\-•*–—]\s+(.+)")
 FOCUS_RE    = re.compile(r"^Focus:\s*(.*)", re.IGNORECASE)
 NUMBERED_RE = re.compile(r"^(\d+)\.\s+(.+)")  # "1. Some heading text"
 HEADING_STYLE_RE = re.compile(r"^Heading\s+\d+$", re.IGNORECASE)
+LIST_BULLET_STYLE_RE = re.compile(r"^List Bullet(?: \d+)?$", re.IGNORECASE)
 
 
 # ── Low-level XML helpers ───────────────────────────────────────────
@@ -207,6 +208,14 @@ def _setup_footer(section, book_title: str):
 
 # ── Classify each paragraph ────────────────────────────────────────
 
+def _is_bare_outline_topic(t: str) -> bool:
+    """Detect short phrase-like outline items with no bullet/number prefix."""
+    if not t:
+        return False
+    words = t.split()
+    return 2 <= len(words) <= 15 and len(t) <= 120 and t[-1] != '.'
+
+
 def classify(text: str, style_name: str):
     """Return a tag describing this paragraph's role."""
     t = text.strip()
@@ -217,6 +226,9 @@ def classify(text: str, style_name: str):
     # Title style
     if sn.lower() == "title":
         return "title"
+    # Word "List Bullet" style → treat as bullet subheading
+    if LIST_BULLET_STYLE_RE.match(sn):
+        return "bullet"
     # Heading style → check content
     if HEADING_STYLE_RE.match(sn):
         if CHAPTER_RE.match(t):
@@ -237,6 +249,9 @@ def classify(text: str, style_name: str):
         return "bullet"
     if FOCUS_RE.match(t):
         return "focus"
+    # Bare outline topic: short phrase that isn't a heading or body prose
+    if _is_bare_outline_topic(t):
+        return "bare_topic"
     return "body"
 
 
@@ -437,7 +452,14 @@ def format_document(in_path: Path, out_path: Path) -> None:
             fr = fp.add_run(f"Focus: {content}")
             _set_run_font(fr, FONT_NAME, 12, BROWN, italic=True)
             continue
-
+        # ── Bare outline topic (plain-text subheading) ──────────
+        if tag == "bare_topic":
+            btp = doc.add_paragraph()
+            btp.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            _set_paragraph_spacing(btp, before_pt=18, after_pt=6)
+            btr = btp.add_run(t)
+            _set_run_font(btr, FONT_NAME, 14, NAVY, bold=True)
+            continue
         # ── Body text ───────────────────────────────────────────
         bp = doc.add_paragraph()
         bp.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY

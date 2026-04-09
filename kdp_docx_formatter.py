@@ -16,7 +16,8 @@ from docx.text.paragraph import Paragraph
 CHAPTER_RE = re.compile(r"^Chapter\s+\d+(?:\s*[:\-–—]\s*.*)?$", re.IGNORECASE)
 CHAPTER_LABEL_RE = re.compile(r"^CHAPTER\s+\d+$", re.IGNORECASE)
 FRONT_BACK_RE = re.compile(r"^(Introduction|Conclusion|Epilogue|Foreword|Preface|Prologue)\b", re.IGNORECASE)
-SUBHEADING_RE = re.compile(r"^(\d+\.\s+.+|-\s+.+|Focus:\s+.+)$", re.IGNORECASE)
+SUBHEADING_RE = re.compile(r"^(\d+\.\s+.+|[\-•*–—]\s+.+|Focus:\s+.+)$", re.IGNORECASE)
+LIST_BULLET_STYLE_RE = re.compile(r"^List Bullet(?: \d+)?$", re.IGNORECASE)
 
 # ── Smart heading identification patterns ──────────────────────────────────
 _NUMBER_WORDS = (
@@ -475,10 +476,18 @@ def _set_heading_styles_and_collect_bookmarks(doc: Document, body_start_idx: int
             continue
 
         # ── Heading 2 detection (smart) ─────────────────────────────────
+        # Bare outline topic: short phrase, not a heading, no trailing period
+        is_bare_topic = (
+            2 <= len(text.split()) <= 15
+            and len(text) <= 120
+            and text[-1] != '.'
+        ) if text else False
         is_sub_heading = (
             style_name.startswith("heading 2")
+            or LIST_BULLET_STYLE_RE.match(style_name) is not None
             or SUBHEADING_RE.match(text) is not None
             or SECTION_RE.match(text) is not None
+            or is_bare_topic
         )
 
         if is_sub_heading:
