@@ -86,9 +86,10 @@ PLAIN_HEADING_RE = re.compile(
 # Matches bullet-point subheadings: "- Thing N: ...", "- Welcome...", "Focus: ..."
 # Also matches numbered subheadings: "1. Some heading text", "2. Another heading"
 SUBHEADING_RE = re.compile(
-    r"^(-\s+\S.{10,}|Focus:\s+.+|\d+\.\s+\S.+)",
+    r"^([\-•*–—]\s+\S.+|Focus:\s+.+|\d+\.\s+\S.+)",
     re.IGNORECASE,
 )
+LIST_BULLET_STYLE_RE = re.compile(r"^List Bullet(?: \d+)?$", re.IGNORECASE)
 CHAPTER_LABEL_ONLY_RE = re.compile(r"^CHAPTER\s+\d+$", re.IGNORECASE)
 
 def is_heading_paragraph(p) -> bool:
@@ -110,10 +111,38 @@ def is_subheading_paragraph(p) -> bool:
         # Skip if it already has a docx heading style
         if HEADING_RE.match(name):
             return False
+        if LIST_BULLET_STYLE_RE.match(name):
+            return True
     except Exception:
         return False
     text = (p.text or "").strip()
-    return bool(SUBHEADING_RE.match(text))
+    if SUBHEADING_RE.match(text):
+        return True
+    # Bare outline topic: short phrase that isn't a heading or body prose.
+    # Catches plain-text outline items like "Why AI matters for kids today"
+    if text and not is_heading_paragraph(p):
+        words = text.split()
+        # Exclude lines that end with a period (likely body sentences),
+        # but allow question marks (e.g. 'Is AI actually "thinking"?')
+        if 2 <= len(words) <= 15 and len(text) <= 120 and text[-1] != '.':
+            return True
+    return False
+
+
+def paragraph_looks_like_body(p: Paragraph) -> bool:
+    """Heuristic for already-generated prose."""
+    text = (p.text or "").strip()
+    if not text:
+        return False
+    if is_heading_paragraph(p) or is_subheading_paragraph(p):
+        return False
+
+    word_count = len(text.split())
+    sentence_count = sum(text.count(ch) for ch in ".!?")
+    # Short lines without sentence-ending punctuation are outline topics, not body
+    if word_count <= 15 and len(text) <= 120 and not text[-1] in '.!?':
+        return False
+    return word_count >= 35 or len(text) >= 220 or sentence_count >= 2
 
 
 def insert_paragraph_after(paragraph, text: str, style: str = "Normal") -> Paragraph:
@@ -123,7 +152,10 @@ def insert_paragraph_after(paragraph, text: str, style: str = "Normal") -> Parag
     new_p = OxmlElement("w:p")
     paragraph._p.addnext(new_p)
     new_para = Paragraph(new_p, paragraph._parent)
-    new_para.style = style
+    try:
+        new_para.style = paragraph._parent.part.document.styles[style]
+    except (KeyError, Exception):
+        new_para.style = style
     new_para.add_run(text)
     return new_para
 
@@ -352,10 +384,17 @@ class Cache:
     def get(self, cache_key: str) -> Optional[str]:
         f = self._key_file(cache_key)
         if f.exists():
+            if f.stat().st_size == 0:
+                return None
             return f.read_text(encoding="utf-8")
         return None
 
     def set(self, cache_key: str, text: str) -> None:
+        if not (text or "").strip():
+            f = self._key_file(cache_key)
+            if f.exists():
+                f.unlink(missing_ok=True)
+            return
         self.path.mkdir(parents=True, exist_ok=True)
         self._key_file(cache_key).write_text(text, encoding="utf-8")
 
@@ -456,7 +495,7 @@ def build_prompt(heading: str, words_min: int, words_max: int, tone: str) -> str
 
 
 def build_subheading_prompt(subheading: str, words_min: int, words_max: int, tone: str) -> str:
-    clean = re.sub(r"^-\s+", "", subheading).strip()
+    clean = re.sub(r"^[\-•*–—]\s+", "", subheading).strip()
     # Strip leading "Thing N: " label if present
     clean = re.sub(r"^Thing\s+\d+:\s*", "", clean, flags=re.IGNORECASE).strip()
     # Strip leading numbered list prefix: "1. ", "12. ", etc.
@@ -1089,6 +1128,16 @@ def main() -> int:
 
     doc = Document(str(in_path))
 
+    # Pre-scan to count total work items for progress reporting.
+    total_items = 0
+    for _p in doc.paragraphs:
+        if is_heading_paragraph(_p) or is_subheading_paragraph(_p):
+            if (_p.text or "").strip():
+                total_items += 1
+    print(f"Found {total_items} headings/subheadings to process.")
+    processed_items = 0
+    run_start = time.time()
+
     # We'll iterate by index because we need to look at nearby paragraphs.
     i = 0
     while i < len(doc.paragraphs):
@@ -1105,15 +1154,17 @@ def main() -> int:
             i += 1
             continue
 
-        print(f"Processing heading:    {heading[:80]}" if is_h else f"Processing subheading: {heading[:80]}")
+        processed_items += 1
+        elapsed = time.time() - run_start
+        elapsed_str = time.strftime("%H:%M:%S", time.gmtime(elapsed))
+        tag = "heading" if is_h else "subheading"
+        print(f"[{processed_items}/{total_items}] [{elapsed_str}] Processing {tag}: {heading[:80]}", flush=True)
 
         # If next paragraph is non-empty normal content, text is already present.
         next_check: Optional[Any] = doc.paragraphs[i + 1] if (i + 1) < len(doc.paragraphs) else None
         has_existing_content = (
             next_check is not None
-            and (next_check.text or "").strip() != ""
-            and not is_heading_paragraph(next_check)
-            and not is_subheading_paragraph(next_check)
+            and paragraph_looks_like_body(next_check)
         )
         skip_text_generation = (not args.force) and has_existing_content
 
@@ -1134,8 +1185,9 @@ def main() -> int:
         cached = cache.get(cache_key)
         if cached is not None:
             generated = cached
-            print("  text from cache")
+            print("  text from cache", flush=True)
         else:
+            call_start = time.time()
             generated = call_openclaw(
                 agent_id=args.agent,
                 message=prompt,
@@ -1144,7 +1196,12 @@ def main() -> int:
                 timeout_s=args.timeout,
                 session_id=session_id,
             )
+            call_dur = time.time() - call_start
             cache.set(cache_key, generated)
+            remaining = total_items - processed_items
+            eta_s = call_dur * remaining
+            eta_str = time.strftime("%H:%M:%S", time.gmtime(eta_s))
+            print(f"  generated ({call_dur:.0f}s) — ~{remaining} left, ETA ~{eta_str}", flush=True)
             if args.sleep > 0:
                 time.sleep(args.sleep)
 
@@ -1152,8 +1209,7 @@ def main() -> int:
         next_para: Optional[Any] = doc.paragraphs[i + 1] if (i + 1) < len(doc.paragraphs) else None
         next_is_content = (
             next_para is not None
-            and not is_heading_paragraph(next_para)
-            and not is_subheading_paragraph(next_para)
+            and paragraph_looks_like_body(next_para)
         )
 
         if next_is_content and (args.force or (next_para.text or "").strip() == ""):
@@ -1206,7 +1262,7 @@ def main() -> int:
         if changed:
             out_path.parent.mkdir(parents=True, exist_ok=True)
             doc.save(str(out_path))
-            print(f"  Saved: {out_path}")
+            print(f"  Saved: {out_path}", flush=True)
 
         # Move forward (safe even if doc.paragraphs grows)
         i += 1
