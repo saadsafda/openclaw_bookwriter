@@ -113,8 +113,8 @@ def infer_theme_guidance(heading: str, paragraph_text: str) -> str:
     notes: list[str] = []
 
     if any(k in text for k in ROMANCE_HINTS):
-        notes.append("Treat engagement as romantic commitment before marriage.")
-        notes.append("Show an engagement ring and a couple or proposal cue.")
+        notes.append("Romantic theme: show warmth and connection between a couple.")
+        notes.append("Vary the scene — could be walking together, sharing a meal, dancing, stargazing, or exchanging gifts. Avoid defaulting to a one-knee proposal every time.")
         notes.append("If people appear, depict consenting adults age 25+; keep scene non-sexual and fully clothed.")
 
     if "getting started" in text or "first step" in text or "begin" in text:
@@ -377,6 +377,7 @@ def main() -> int:
                     help="Title text to overlay (default: --heading)")
     ap.add_argument("--compose-font-size", type=int, default=88,
                     help="Font size for --compose-title mode")
+    ap.add_argument("--guidance", default="", help="Extra user guidance appended to the image prompt (e.g. 'show a cozy dinner scene, not a proposal')")
     ap.add_argument("--force", action="store_true", help="Regenerate even if a cache hit exists")
     args = ap.parse_args()
 
@@ -394,6 +395,10 @@ def main() -> int:
             paragraph_text=args.paragraph,
             template=template,
         )
+
+    # Append user guidance to steer the image in a different direction
+    if args.guidance.strip():
+        prompt += f" Additional guidance: {args.guidance.strip()}"
 
     cache_dir = Path(args.cache)
     output_path = Path(args.output)

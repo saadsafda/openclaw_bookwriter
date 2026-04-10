@@ -273,6 +273,8 @@ def _run_replace_images(job_id: str, headings: list[str], overrides: dict[str, A
             ]
             if cfg.get("openai_api_key"):
                 cmd.extend(["--openai-api-key", str(cfg["openai_api_key"])])
+            if cfg.get("image_guidance"):
+                cmd.extend(["--image-guidance", str(cfg["image_guidance"])])
 
             _append_log(job, f"Heading: {heading}")
             _stream_command(job, cmd)
@@ -286,6 +288,60 @@ def _run_replace_images(job_id: str, headings: list[str], overrides: dict[str, A
             job.paperback_docx = str(paperback_doc)
 
         _append_log(job, "Image replacement completed.")
+        _append_log(job, f"Kindle output refreshed: {kindle_doc}")
+        _append_log(job, f"Paperback output refreshed: {paperback_doc}")
+        _set_status(job, "success", action="", error="")
+    except Exception as exc:
+        _append_log(job, f"ERROR: {exc}")
+        _set_status(job, "error", action="", error=str(exc))
+
+
+def _run_rewrite_paragraphs(job_id: str, headings: list[str], overrides: dict[str, Any]) -> None:
+    job = _get_job(job_id)
+
+    with job.lock:
+        final_doc = Path(job.final_docx or job.output_docx)
+        base_cfg = dict(job.config)
+
+    cfg = {**base_cfg, **overrides}
+
+    _set_status(job, "running", action="rewriting_paragraphs", error="")
+    _append_log(job, f"Rewriting paragraphs for {len(headings)} heading(s)...")
+
+    try:
+        for heading in headings:
+            cmd = [
+                str(PYTHON_BIN),
+                str(ROOT_DIR / "openclaw_docx_writer.py"),
+                str(final_doc),
+                "--agent",
+                str(cfg["agent"]),
+                "--rewrite-heading",
+                heading,
+                "--tone",
+                str(cfg.get("tone", DEFAULTS["tone"])),
+                "--words",
+                str(cfg.get("words", DEFAULTS["words"])),
+                "--words-max",
+                str(cfg.get("words_max", DEFAULTS["words_max"])),
+                "--subwords",
+                str(cfg.get("subwords", DEFAULTS["subwords"])),
+                "--subwords-max",
+                str(cfg.get("subwords_max", DEFAULTS["subwords_max"])),
+            ]
+            if cfg.get("rewrite_guidance"):
+                cmd.extend(["--rewrite-guidance", str(cfg["rewrite_guidance"])])
+
+            _append_log(job, f"Heading: {heading}")
+            _stream_command(job, cmd)
+
+        kindle_doc, paperback_doc = _run_kdp_formatting(job, final_doc)
+        with job.lock:
+            job.final_docx = str(final_doc)
+            job.kindle_docx = str(kindle_doc)
+            job.paperback_docx = str(paperback_doc)
+
+        _append_log(job, "Paragraph rewrite completed.")
         _append_log(job, f"Kindle output refreshed: {kindle_doc}")
         _append_log(job, f"Paperback output refreshed: {paperback_doc}")
         _set_status(job, "success", action="", error="")
@@ -453,12 +509,48 @@ def replace_images(job_id: str) -> Any:
         "image_quality": str(payload.get("image_quality") or "").strip() or job.config.get("image_quality", DEFAULTS["image_quality"]),
         "image_width": _parse_float(str(payload.get("image_width") or ""), float(job.config.get("image_width", DEFAULTS["image_width"]))),
         "openai_api_key": str(payload.get("openai_api_key") or "").strip() or job.config.get("openai_api_key", ""),
+        "image_guidance": str(payload.get("image_guidance") or "").strip(),
     }
 
     if overrides["image_prompt_variant"] not in image_maker.PROMPT_VARIANTS:
         return jsonify({"error": "Invalid image prompt variant"}), 400
 
     t = threading.Thread(target=_run_replace_images, args=(job_id, normalized, overrides), daemon=True)
+    t.start()
+    return jsonify({"ok": True, "queued": len(normalized)})
+
+
+@app.post("/api/jobs/<job_id>/rewrite-paragraphs")
+def rewrite_paragraphs(job_id: str) -> Any:
+    job = _get_job(job_id)
+    payload = request.get_json(silent=True) or {}
+    headings = payload.get("headings") or []
+    if not isinstance(headings, list):
+        return jsonify({"error": "headings must be an array"}), 400
+
+    normalized = [str(h).strip() for h in headings if str(h).strip()]
+    if not normalized:
+        return jsonify({"error": "Select at least one heading"}), 400
+
+    with job.lock:
+        if job.status == "running":
+            return jsonify({"error": "Job is busy. Wait for current task to finish."}), 409
+        final_doc = Path(job.final_docx)
+
+    if not final_doc.exists():
+        return jsonify({"error": "Final document not found for this job"}), 400
+
+    overrides = {
+        "agent": str(payload.get("agent") or "").strip() or job.config.get("agent", DEFAULTS["agent"]),
+        "tone": str(payload.get("tone") or "").strip() or job.config.get("tone", DEFAULTS["tone"]),
+        "words": int(payload.get("words") or job.config.get("words", DEFAULTS["words"])),
+        "words_max": int(payload.get("words_max") or job.config.get("words_max", DEFAULTS["words_max"])),
+        "subwords": int(payload.get("subwords") or job.config.get("subwords", DEFAULTS["subwords"])),
+        "subwords_max": int(payload.get("subwords_max") or job.config.get("subwords_max", DEFAULTS["subwords_max"])),
+        "rewrite_guidance": str(payload.get("rewrite_guidance") or "").strip(),
+    }
+
+    t = threading.Thread(target=_run_rewrite_paragraphs, args=(job_id, normalized, overrides), daemon=True)
     t.start()
     return jsonify({"ok": True, "queued": len(normalized)})
 

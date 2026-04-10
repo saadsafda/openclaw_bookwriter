@@ -733,6 +733,7 @@ def generate_image_via_image_maker(
     prompt_variant: str = "rich-scene-no-text",
     cache_dir: str = ".openclaw_cache/images",
     force: bool = False,
+    image_guidance: str = "",
 ) -> Path:
     """Generate an image by calling openclaw_image_maker.py as a subprocess."""
     script = Path(__file__).resolve().parent / "openclaw_image_maker.py"
@@ -749,6 +750,8 @@ def generate_image_via_image_maker(
     ]
     if openai_api_key:
         cmd.extend(["--openai-api-key", openai_api_key])
+    if image_guidance.strip():
+        cmd.extend(["--guidance", image_guidance.strip()])
     if force:
         cmd.append("--force")
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -927,6 +930,7 @@ def insert_images_into_document(
     prompt_variant: str = "rich-scene-no-text",
     sleep_s: float = 0.0,
     image_heading_filter: str = "",
+    image_guidance: str = "",
     **_kwargs,
 ) -> tuple[int, int]:
     if not doc_path.exists():
@@ -963,8 +967,9 @@ def insert_images_into_document(
 
         # Get the paragraph text after this heading for richer prompt context
         paragraph_text = _get_paragraph_text_after(doc, heading_index)
+        guidance_tag = image_guidance.strip() if image_guidance else ""
         image_cache_key = hashlib.sha256(
-            f"image::{image_model}::{image_size}::{image_quality}::{heading}".encode("utf-8")
+            f"image::{image_model}::{image_size}::{image_quality}::{heading}::{guidance_tag}".encode("utf-8")
         ).hexdigest()
         image_output = image_cache_path / f"{image_cache_key}.png"
         image_path = None if effective_force else find_cached_image(image_cache_path, image_cache_key)
@@ -982,6 +987,7 @@ def insert_images_into_document(
                 prompt_variant=prompt_variant,
                 cache_dir=str(image_cache_path),
                 force=effective_force,
+                image_guidance=guidance_tag,
             )
             if sleep_s > 0:
                 time.sleep(sleep_s)
@@ -1043,6 +1049,12 @@ def main() -> int:
                     help="Image quality (e.g. standard/hd for dall-e-3, high for gpt-image-1)")
     ap.add_argument("--image-heading", default="",
                     help="Only (re)generate the image for headings containing this text (case-insensitive substring match). Implies --force for the matched heading(s).")
+    ap.add_argument("--image-guidance", default="",
+                    help="Extra user guidance appended to the image prompt to steer replacement images (e.g. 'show a cozy dinner scene, not a proposal')")
+    ap.add_argument("--rewrite-heading", default="",
+                    help="Re-generate the text paragraph for headings containing this text (case-insensitive substring match). Requires --agent.")
+    ap.add_argument("--rewrite-guidance", default="",
+                    help="Extra guidance appended to the text prompt when rewriting (e.g. 'make it more humorous' or 'focus on practical tips')")
     args = ap.parse_args()
 
     # Load .env from project cwd and script directory (without overriding shell env vars).
@@ -1102,6 +1114,7 @@ def main() -> int:
                 prompt_variant=args.image_prompt_variant,
                 sleep_s=args.sleep,
                 image_heading_filter=args.image_heading,
+                image_guidance=args.image_guidance,
             )
             print(f"Done: inserted={inserted}, replaced={replaced}. File: {target}")
         except Exception as e:
@@ -1109,8 +1122,77 @@ def main() -> int:
             return 1
         return 0
 
+    # --rewrite-heading: re-generate the text paragraph for matching headings and exit.
+    if args.rewrite_heading:
+        if not args.agent:
+            print("ERROR: --rewrite-heading requires --agent.", file=sys.stderr)
+            return 2
+        target = out_path
+        print(f"Rewriting paragraph for heading matching '{args.rewrite_heading}' in {target}")
+
+        # Resolve session for OpenClaw calls
+        if args.session_id:
+            rw_session = args.session_id
+        elif session_file.exists():
+            rw_session = session_file.read_text(encoding="utf-8").strip() or str(uuid.uuid4())
+        else:
+            rw_session = str(uuid.uuid4())
+
+        doc = Document(str(target))
+        rewritten = 0
+        i = 0
+        while i < len(doc.paragraphs):
+            p = doc.paragraphs[i]
+            is_h = is_heading_paragraph(p)
+            is_sub = (not is_h) and is_subheading_paragraph(p)
+            if not is_h and not is_sub:
+                i += 1
+                continue
+            heading = (p.text or "").strip()
+            if not heading or args.rewrite_heading.lower() not in heading.lower():
+                i += 1
+                continue
+
+            # Find the body paragraph right after this heading
+            next_para = doc.paragraphs[i + 1] if (i + 1) < len(doc.paragraphs) else None
+            if next_para is None or not paragraph_looks_like_body(next_para):
+                print(f"  skipping '{heading[:60]}' — no body paragraph found after it")
+                i += 1
+                continue
+
+            tag = "heading" if is_h else "subheading"
+            print(f"  rewriting {tag}: {heading[:80]}")
+
+            if is_h:
+                prompt = build_prompt(heading=heading, words_min=words_min, words_max=words_max, tone=args.tone)
+            else:
+                prompt = build_subheading_prompt(subheading=heading, words_min=subwords_min, words_max=subwords_max, tone=args.tone)
+
+            # Append user guidance to steer the rewrite
+            if args.rewrite_guidance.strip():
+                prompt += f"\n\nAdditional guidance from the author: {args.rewrite_guidance.strip()}"
+
+            generated = call_openclaw(
+                agent_id=args.agent,
+                message=prompt,
+                local=args.local,
+                thinking=args.thinking,
+                timeout_s=args.timeout,
+                session_id=rw_session,
+            )
+            next_para.text = generated
+            rewritten += 1
+            print(f"  rewritten ({len(generated)} chars)")
+
+            i += 1
+
+        if rewritten > 0:
+            doc.save(str(target))
+        print(f"Done: rewritten={rewritten}. File: {target}")
+        return 0
+
     if not args.agent:
-        print("ERROR: --agent is required (unless using --image-heading).", file=sys.stderr)
+        print("ERROR: --agent is required (unless using --image-heading or --rewrite-heading).", file=sys.stderr)
         return 2
 
     # Resolve session ID: explicit > persisted > new
