@@ -40,8 +40,18 @@
             
             <form id="config-form" class="space-y-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Writer Agent</label>
-                    <input type="text" name="agent" value="{{ defaults.agent }}" class="w-full bg-gray-50 border border-gray-300 text-gray-900 rounded-lg p-2.5 text-sm" />
+                    <label class="block text-sm font-medium text-gray-700 mb-1"><i class="fas fa-robot text-blue-500 mr-1"></i> Writer Agent</label>
+                    <select name="agent" id="openclawAgent" class="w-full bg-gray-50 border border-gray-300 text-gray-900 rounded-lg p-2.5 text-sm">
+                        <option value="{{ defaults.agent }}">Loading agents...</option>
+                    </select>
+                    <p class="text-[11px] text-gray-400 mt-1" id="agentStatusHint">Fetching agents...</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1"><i class="fas fa-brain text-purple-500 mr-1"></i> OpenClaw Model</label>
+                    <select id="openclawModel" class="w-full bg-gray-50 border border-gray-300 text-gray-900 rounded-lg p-2.5 text-sm">
+                        <option value="">Loading models...</option>
+                    </select>
+                    <p class="text-[11px] text-gray-400 mt-1" id="modelStatusHint">Fetching available models...</p>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Writing Tone</label>
@@ -82,7 +92,10 @@
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-gray-700 mb-1">Model</label>
-                        <input type="text" name="image_model" id="imageModel" value="{{ defaults.image_model }}" class="w-full bg-white border border-gray-300 rounded p-1.5 text-sm">
+                        <select name="image_model" id="imageModel" class="w-full bg-white border border-gray-300 rounded p-1.5 text-sm">
+                            <option value="gpt-image-1" {% if defaults.image_model == 'gpt-image-1' %}selected{% endif %}>gpt-image-1</option>
+                            <option value="dall-e-3" {% if defaults.image_model == 'dall-e-3' %}selected{% endif %}>dall-e-3</option>
+                        </select>
                     </div>
                     <div class="grid grid-cols-2 gap-2">
                         <div>
@@ -261,6 +274,149 @@
                 };
                 imgToggle.addEventListener('change', updateImgSettings);
             }
+
+            // --- OpenClaw Model dropdown ---
+            const modelSelect = document.getElementById("openclawModel");
+            const modelHint = document.getElementById("modelStatusHint");
+
+            async function loadModels(forceRefresh) {
+                modelSelect.innerHTML = '<option value="">Loading models...</option>';
+                modelHint.textContent = "Fetching available models...";
+                modelHint.classList.remove("text-red-400");
+                modelHint.classList.add("text-gray-400");
+                try {
+                    const url = forceRefresh ? "/api/openclaw-models?refresh=1" : "/api/openclaw-models";
+                    const res = await fetch(url);
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || "Failed to fetch models");
+                    const models = data.models || [];
+                    const current = data.default || "";
+
+                    modelSelect.innerHTML = "";
+                    models.forEach(m => {
+                        const opt = document.createElement("option");
+                        opt.value = m.key;
+                        let label = m.name || m.key;
+                        const badges = [];
+                        if (m.tags && m.tags.includes("default")) badges.push("★ default");
+                        if (m.missing) badges.push("missing");
+                        else if (m.available === false) badges.push("unavailable");
+                        if (badges.length) label += ` (${badges.join(", ")})`;
+                        opt.textContent = label;
+                        opt.disabled = !!m.missing;
+                        if (m.key === current) opt.selected = true;
+                        modelSelect.appendChild(opt);
+                    });
+                    const active = models.find(m => m.key === current);
+                    modelHint.textContent = active ? `Active: ${active.name || current}` : `Active: ${current}`;
+                    modelHint.classList.remove("text-red-400");
+                    modelHint.classList.add("text-gray-400");
+                } catch (e) {
+                    modelSelect.innerHTML = '<option value="">Click retry below</option>';
+                    modelHint.innerHTML = `${e.message} — <a href="#" id="retry-models" class="underline text-indigo-500">Retry</a>`;
+                    modelHint.classList.remove("text-gray-400");
+                    modelHint.classList.add("text-red-400");
+                    document.getElementById("retry-models")?.addEventListener("click", (ev) => { ev.preventDefault(); loadModels(true); });
+                }
+            }
+
+            modelSelect.addEventListener("change", async () => {
+                const chosen = modelSelect.value;
+                if (!chosen) return;
+                modelHint.textContent = "Switching model...";
+                try {
+                    const res = await fetch("/api/openclaw-models/set", {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({ model: chosen })
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || "Failed");
+                    const opt = modelSelect.options[modelSelect.selectedIndex];
+                    modelHint.textContent = `Active: ${opt.textContent.replace(/ \(.*\)$/, "")}`;
+                    modelHint.classList.remove("text-red-400");
+                    modelHint.classList.add("text-gray-400");
+                } catch (e) {
+                    modelHint.textContent = `Error: ${e.message}`;
+                    modelHint.classList.add("text-red-400");
+                }
+            });
+
+            loadModels();
+
+            // --- OpenClaw Agent dropdown ---
+            const agentSelect = document.getElementById("openclawAgent");
+            const agentHint = document.getElementById("agentStatusHint");
+            const defaultAgent = "{{ defaults.agent }}";
+            const agentModelMap = {};  // agentId → model key
+
+            async function loadAgents(forceRefresh) {
+                agentSelect.innerHTML = `<option value="${defaultAgent}">Loading agents...</option>`;
+                agentHint.textContent = "Fetching agents...";
+                agentHint.classList.remove("text-red-400");
+                agentHint.classList.add("text-gray-400");
+                try {
+                    const url = forceRefresh ? "/api/openclaw-agents?refresh=1" : "/api/openclaw-agents";
+                    const res = await fetch(url);
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || "Failed to fetch agents");
+                    const agents = data.agents || [];
+
+                    agentSelect.innerHTML = "";
+                    agents.forEach(a => {
+                        const opt = document.createElement("option");
+                        opt.value = a.id;
+                        let label = a.name || a.id;
+                        if (a.model) {
+                            label += ` — ${a.model.split("/").pop()}`;
+                            agentModelMap[a.id] = a.model;
+                        }
+                        if (a.isDefault) label += " (★ default)";
+                        opt.textContent = label;
+                        if (a.id === defaultAgent) opt.selected = true;
+                        agentSelect.appendChild(opt);
+                    });
+                    agentHint.textContent = `${agents.length} agent(s) available`;
+                } catch (e) {
+                    agentSelect.innerHTML = `<option value="${defaultAgent}">${defaultAgent}</option>`;
+                    agentHint.innerHTML = `${e.message} — <a href="#" id="retry-agents" class="underline text-indigo-500">Retry</a>`;
+                    agentHint.classList.remove("text-gray-400");
+                    agentHint.classList.add("text-red-400");
+                    document.getElementById("retry-agents")?.addEventListener("click", (ev) => { ev.preventDefault(); loadAgents(true); });
+                }
+            }
+
+            agentSelect.addEventListener("change", async () => {
+                const agentId = agentSelect.value;
+                const agentModel = agentModelMap[agentId];
+                if (!agentModel) return;
+
+                // Select the matching model in the model dropdown
+                const modelOpt = Array.from(modelSelect.options).find(o => o.value === agentModel);
+                if (modelOpt) {
+                    modelSelect.value = agentModel;
+                    // Also set it as the active model in OpenClaw
+                    modelHint.textContent = "Switching model...";
+                    try {
+                        const res = await fetch("/api/openclaw-models/set", {
+                            method: "POST",
+                            headers: {"Content-Type": "application/json"},
+                            body: JSON.stringify({ model: agentModel })
+                        });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.error || "Failed");
+                        modelHint.textContent = `Active: ${modelOpt.textContent.replace(/ \(.*\)$/, "")}`;
+                        modelHint.classList.remove("text-red-400");
+                        modelHint.classList.add("text-gray-400");
+                    } catch (e) {
+                        modelHint.textContent = `Error: ${e.message}`;
+                        modelHint.classList.add("text-red-400");
+                    }
+                }
+                agentHint.textContent = `Agent: ${agentId} → model: ${agentModel.split("/").pop()}`;
+            });
+
+            loadAgents();
 
             function escapeHtml(text) {
                 const div = document.createElement('div');

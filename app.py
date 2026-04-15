@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import shlex
 import subprocess
 import sys
@@ -644,6 +645,109 @@ def download_file(job_id: str, kind: str) -> Any:
     if not target.exists() or not target.is_file():
         abort(404, description="File does not exist yet")
     return send_file(target, as_attachment=True)
+
+
+# ----------------------------
+# OpenClaw model & agent management
+# ----------------------------
+
+_MODEL_CACHE: dict[str, Any] = {"data": None, "ts": 0.0}
+_AGENT_CACHE: dict[str, Any] = {"data": None, "ts": 0.0}
+_MODEL_CACHE_TTL = 300  # seconds
+_AGENT_CACHE_TTL = 300
+
+
+@app.get("/api/openclaw-models")
+def list_openclaw_models() -> Any:
+    """Return available OpenClaw models + current default."""
+    now = time.time()
+    refresh = request.args.get("refresh") == "1"
+
+    # Serve from cache if fresh enough
+    if not refresh and _MODEL_CACHE["data"] and (now - _MODEL_CACHE["ts"]) < _MODEL_CACHE_TTL:
+        return jsonify(_MODEL_CACHE["data"])
+
+    try:
+        models_proc = subprocess.run(
+            ["openclaw", "models", "list", "--json"],
+            capture_output=True, text=True, timeout=60,
+        )
+        if models_proc.returncode != 0:
+            return jsonify({"error": f"openclaw models list failed: {models_proc.stderr.strip()}"}), 500
+        models_data = json.loads(models_proc.stdout)
+
+        status_proc = subprocess.run(
+            ["openclaw", "models", "status", "--json"],
+            capture_output=True, text=True, timeout=60,
+        )
+        default_model = ""
+        if status_proc.returncode == 0:
+            status_data = json.loads(status_proc.stdout)
+            default_model = status_data.get("defaultModel", "")
+
+        result = {
+            "models": models_data.get("models", []),
+            "default": default_model,
+        }
+        _MODEL_CACHE["data"] = result
+        _MODEL_CACHE["ts"] = now
+        return jsonify(result)
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "OpenClaw CLI timed out. Make sure the gateway is running (openclaw gateway)."}), 504
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.post("/api/openclaw-models/set")
+def set_openclaw_model() -> Any:
+    """Switch the default OpenClaw model."""
+    payload = request.get_json(silent=True) or {}
+    model_key = str(payload.get("model") or "").strip()
+    if not model_key:
+        return jsonify({"error": "model is required"}), 400
+
+    try:
+        proc = subprocess.run(
+            ["openclaw", "models", "set", model_key],
+            capture_output=True, text=True, timeout=60,
+        )
+        if proc.returncode != 0:
+            return jsonify({"error": f"Failed to set model: {proc.stderr.strip() or proc.stdout.strip()}"}), 500
+        # Invalidate cache so next fetch reflects the change
+        _MODEL_CACHE["data"] = None
+        _MODEL_CACHE["ts"] = 0.0
+        return jsonify({"ok": True, "model": model_key})
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "OpenClaw CLI timed out. Make sure the gateway is running (openclaw gateway)."}), 504
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/api/openclaw-agents")
+def list_openclaw_agents() -> Any:
+    """Return available OpenClaw agents."""
+    now = time.time()
+    refresh = request.args.get("refresh") == "1"
+
+    if not refresh and _AGENT_CACHE["data"] and (now - _AGENT_CACHE["ts"]) < _AGENT_CACHE_TTL:
+        return jsonify(_AGENT_CACHE["data"])
+
+    try:
+        proc = subprocess.run(
+            ["openclaw", "agents", "list", "--json"],
+            capture_output=True, text=True, timeout=60,
+        )
+        if proc.returncode != 0:
+            return jsonify({"error": f"openclaw agents list failed: {proc.stderr.strip()}"}), 500
+        agents = json.loads(proc.stdout)
+        result = {"agents": agents}
+        _AGENT_CACHE["data"] = result
+        _AGENT_CACHE["ts"] = now
+        return jsonify(result)
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "OpenClaw CLI timed out. Make sure the gateway is running (openclaw gateway)."}), 504
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 if __name__ == "__main__":
