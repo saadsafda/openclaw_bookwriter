@@ -47,6 +47,19 @@
             </div>
         </div>
 
+        <!-- Search -->
+        <div class="px-3 pt-3 pb-1">
+            <div class="relative">
+                <i class="fas fa-search absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none"></i>
+                <input id="history-search" type="text" placeholder="Search books..."
+                    class="w-full bg-gray-800 border border-gray-700 text-sm text-gray-200 placeholder-gray-500 rounded-md pl-8 pr-8 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500" />
+                <button id="history-search-clear" type="button"
+                    class="hidden absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-200 text-xs" title="Clear search">
+                    <i class="fas fa-times-circle"></i>
+                </button>
+            </div>
+        </div>
+
         <!-- Book History -->
         <div class="flex-1 overflow-y-auto custom-scrollbar" id="history-panel">
             <div class="px-3 py-3">
@@ -290,6 +303,8 @@
             const statusBadge = document.getElementById("status-badge");
             const layoutPath = document.getElementById("layoutPath");
             const fileUpload = document.getElementById("file-upload");
+            const historySearch = document.getElementById("history-search");
+            const historySearchClear = document.getElementById("history-search-clear");
             
             let currentLogBox = null;
 
@@ -322,53 +337,130 @@
                 return '<i class="fas fa-circle text-gray-600 text-[10px]"></i>';
             }
 
+            let historyBooks = [];
+            let historySearchQuery = "";
+
             async function loadHistory() {
                 try {
                     const res = await fetch("/api/books");
                     const data = await res.json();
-                    const books = data.books || [];
-                    historyList.innerHTML = "";
-                    if (books.length === 0) {
-                        historyList.innerHTML = '<div class="px-3 py-4 text-xs text-gray-600 italic text-center">No books yet. Upload a .docx to get started.</div>';
-                        return;
-                    }
-                    books.forEach(b => {
-                        const el = document.createElement("div");
-                        const isActive = b.id === activeBookId;
-                        el.className = `group flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${isActive ? 'bg-gray-700 text-white' : 'text-gray-300 hover:bg-gray-800 hover:text-white'}`;
-                        el.dataset.bookId = b.id;
-                        const writtenPill = b.pre_written
-                            ? '<span class="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-green-900/60 text-green-300 border border-green-700 font-semibold" title="Uploaded file already contained full written text">Already Written</span>'
-                            : '';
-                        el.innerHTML = `
-                            <div class="flex-1 min-w-0">
-                                <div class="flex items-center gap-1.5">
-                                    <div class="text-sm font-medium truncate">${escapeHtml(b.title || 'Untitled')}</div>
-                                    ${writtenPill}
-                                </div>
-                                <div class="flex items-center gap-2 mt-0.5">
-                                    ${statusIcon(b.status)}
-                                    <span class="text-[10px] text-gray-500">${formatTimeAgo(b.updated_at)}</span>
-                                    <span class="text-[10px] text-gray-600">${escapeHtml(b.agent || '')}</span>
-                                </div>
-                            </div>
-                            <button class="opacity-0 group-hover:opacity-100 p-1 text-gray-500 hover:text-red-400 transition" title="Delete" data-delete="${b.id}">
-                                <i class="fas fa-trash-alt text-[10px]"></i>
-                            </button>
-                        `;
-                        el.addEventListener("click", (e) => {
-                            if (e.target.closest("[data-delete]")) {
-                                e.stopPropagation();
-                                deleteBook(b.id);
-                                return;
-                            }
-                            loadBook(b.id);
-                        });
-                        historyList.appendChild(el);
-                    });
+                    historyBooks = data.books || [];
+                    renderHistory();
                 } catch(e) {
                     historyList.innerHTML = '<div class="px-3 py-2 text-xs text-red-400">Failed to load history</div>';
                 }
+            }
+
+            function renderHistory() {
+                historyList.innerHTML = "";
+                if (historyBooks.length === 0) {
+                    historyList.innerHTML = '<div class="px-3 py-4 text-xs text-gray-600 italic text-center">No books yet. Upload a .docx to get started.</div>';
+                    return;
+                }
+                const q = historySearchQuery.trim().toLowerCase();
+                const filtered = q
+                    ? historyBooks.filter(b =>
+                          (b.title || '').toLowerCase().includes(q) ||
+                          (b.agent || '').toLowerCase().includes(q))
+                    : historyBooks;
+                if (filtered.length === 0) {
+                    historyList.innerHTML = `<div class="px-3 py-4 text-xs text-gray-600 italic text-center">No books match "${escapeHtml(historySearchQuery)}"</div>`;
+                    return;
+                }
+                filtered.forEach(b => {
+                    const el = document.createElement("div");
+                    const isActive = b.id === activeBookId;
+                    el.className = `group flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${isActive ? 'bg-gray-700 text-white' : 'text-gray-300 hover:bg-gray-800 hover:text-white'}`;
+                    el.dataset.bookId = b.id;
+                    const writtenPill = b.pre_written
+                        ? '<span class="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-green-900/60 text-green-300 border border-green-700 font-semibold" title="Uploaded file already contained full written text">Already Written</span>'
+                        : '';
+                    el.innerHTML = `
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-1.5">
+                                <div class="text-sm font-medium truncate" data-title-display>${escapeHtml(b.title || 'Untitled')}</div>
+                                ${writtenPill}
+                            </div>
+                            <div class="flex items-center gap-2 mt-0.5">
+                                ${statusIcon(b.status)}
+                                <span class="text-[10px] text-gray-500">${formatTimeAgo(b.updated_at)}</span>
+                                <span class="text-[10px] text-gray-600">${escapeHtml(b.agent || '')}</span>
+                            </div>
+                        </div>
+                        <button class="opacity-0 group-hover:opacity-100 p-1 text-gray-500 hover:text-blue-400 transition" title="Rename" data-edit="${b.id}">
+                            <i class="fas fa-pencil-alt text-[10px]"></i>
+                        </button>
+                        <button class="opacity-0 group-hover:opacity-100 p-1 text-gray-500 hover:text-red-400 transition" title="Delete" data-delete="${b.id}">
+                            <i class="fas fa-trash-alt text-[10px]"></i>
+                        </button>
+                    `;
+                    el.addEventListener("click", (e) => {
+                        if (e.target.closest("[data-delete]")) {
+                            e.stopPropagation();
+                            deleteBook(b.id);
+                            return;
+                        }
+                        if (e.target.closest("[data-edit]")) {
+                            e.stopPropagation();
+                            startRenameBook(el, b);
+                            return;
+                        }
+                        loadBook(b.id);
+                    });
+                    historyList.appendChild(el);
+                });
+            }
+
+            function startRenameBook(rowEl, book) {
+                const display = rowEl.querySelector("[data-title-display]");
+                if (!display || display.dataset.editing === "1") return;
+                display.dataset.editing = "1";
+                const currentTitle = book.title || "";
+                const input = document.createElement("input");
+                input.type = "text";
+                input.value = currentTitle;
+                input.maxLength = 200;
+                input.className = "w-full bg-gray-900 border border-blue-500 text-sm text-white rounded px-1.5 py-0.5 focus:outline-none";
+                display.replaceWith(input);
+                input.focus();
+                input.select();
+
+                let finished = false;
+                const commit = async (save) => {
+                    if (finished) return;
+                    finished = true;
+                    const newTitle = input.value.trim();
+                    if (!save || !newTitle || newTitle === currentTitle) {
+                        // Revert by re-rendering (keeps row state consistent)
+                        renderHistory();
+                        return;
+                    }
+                    try {
+                        const res = await fetch(`/api/books/${book.id}`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ title: newTitle }),
+                        });
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                        book.title = newTitle;
+                        const cached = historyBooks.find(b => b.id === book.id);
+                        if (cached) cached.title = newTitle;
+                        if (book.id === activeBookId) {
+                            document.getElementById("current-doc-title").textContent = newTitle;
+                        }
+                    } catch (e) {
+                        addMessage("bot", `<span class="text-red-500">Rename failed: ${escapeHtml(e.message)}</span>`);
+                    } finally {
+                        renderHistory();
+                    }
+                };
+
+                input.addEventListener("keydown", (ev) => {
+                    if (ev.key === "Enter") { ev.preventDefault(); commit(true); }
+                    else if (ev.key === "Escape") { ev.preventDefault(); commit(false); }
+                });
+                input.addEventListener("blur", () => commit(true));
+                input.addEventListener("click", (ev) => ev.stopPropagation());
             }
 
             async function deleteBook(bookId) {
@@ -508,6 +600,32 @@
             }
 
             btnNewBook.addEventListener("click", resetWorkspace);
+
+            // --- History search ---
+            if (historySearch) {
+                historySearch.addEventListener("input", () => {
+                    historySearchQuery = historySearch.value;
+                    historySearchClear.classList.toggle("hidden", !historySearchQuery);
+                    renderHistory();
+                });
+                historySearch.addEventListener("keydown", (e) => {
+                    if (e.key === "Escape" && historySearchQuery) {
+                        historySearch.value = "";
+                        historySearchQuery = "";
+                        historySearchClear.classList.add("hidden");
+                        renderHistory();
+                    }
+                });
+            }
+            if (historySearchClear) {
+                historySearchClear.addEventListener("click", () => {
+                    historySearch.value = "";
+                    historySearchQuery = "";
+                    historySearchClear.classList.add("hidden");
+                    renderHistory();
+                    historySearch.focus();
+                });
+            }
 
             // Load history on startup
             loadHistory();

@@ -65,6 +65,7 @@ class Job:
     logs: list[str] = field(default_factory=list)
     config: dict[str, Any] = field(default_factory=dict)
     pre_written: bool = False
+    custom_title: str = ""
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -116,9 +117,10 @@ def _derive_title(input_path: str) -> str:
 def _sync_job_to_db(job: Job) -> None:
     """Persist current job state to SQLite."""
     with job.lock:
+        title = job.custom_title.strip() or _derive_title(job.input_docx)
         bookdb.save_book(
             book_id=job.id,
-            title=_derive_title(job.input_docx),
+            title=title,
             status=job.status,
             agent=job.config.get('agent', 'main'),
             model=job.config.get('image_model', ''),
@@ -763,6 +765,33 @@ def delete_book(book_id: str) -> Any:
     if bookdb.delete_book(book_id):
         return jsonify({"ok": True})
     abort(404, description="Book not found")
+
+
+@app.patch("/api/books/<book_id>")
+def patch_book(book_id: str) -> Any:
+    """Update editable fields of a book (currently: title)."""
+    payload = request.get_json(silent=True) or {}
+    new_title = (payload.get("title") or "").strip()
+    if not new_title:
+        return jsonify({"error": "title is required"}), 400
+    if len(new_title) > 200:
+        return jsonify({"error": "title too long (max 200 chars)"}), 400
+
+    book = bookdb.get_book(book_id)
+    if book is None:
+        abort(404, description="Book not found")
+
+    bookdb.update_book(book_id, title=new_title)
+
+    # If this job is still in memory, keep the custom title aligned so future
+    # syncs don't clobber it with the filename-derived default.
+    with JOBS_LOCK:
+        job = JOBS.get(book_id)
+    if job is not None:
+        with job.lock:
+            job.custom_title = new_title
+
+    return jsonify({"ok": True, "title": new_title})
 
 
 # ----------------------------
