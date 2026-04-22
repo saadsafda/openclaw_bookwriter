@@ -10,6 +10,7 @@
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 20px; }
+        #sidebar .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #4b5563; }
         .loader {
             border: 3px solid #f3f3f3;
             border-radius: 50%;
@@ -26,95 +27,115 @@
 </head>
 <body class="flex h-full overflow-hidden text-gray-800">
 
-    <!-- Sidebar: Configuration -->
-    <aside class="w-80 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col h-full z-10 transition-all duration-300" id="sidebar">
-        <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+    <!-- Sidebar: History + Configuration -->
+    <aside class="w-80 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col h-full z-10 transition-all duration-300" id="sidebar">
+        <!-- Header -->
+        <div class="p-4 border-b border-gray-800 flex items-center justify-between">
             <div class="flex items-center gap-3">
                 <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold shadow-md">OC</div>
-                <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600">BookWriter</h1>
+                <h1 class="text-lg font-bold text-white">BookWriter</h1>
+            </div>
+            <button id="btn-new-book" class="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition" title="New Book">
+                <i class="fas fa-plus"></i>
+            </button>
+        </div>
+
+        <!-- Book History -->
+        <div class="flex-1 overflow-y-auto custom-scrollbar" id="history-panel">
+            <div class="px-3 py-3">
+                <h2 class="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-2 px-2">Recent Books</h2>
+                <div id="history-list" class="space-y-0.5">
+                    <div class="px-3 py-2 text-xs text-gray-500 italic">Loading history...</div>
+                </div>
             </div>
         </div>
 
-        <div class="p-6 overflow-y-auto custom-scrollbar flex-1">
-            <h2 class="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4"><i class="fas fa-sliders-h mr-2"></i> Configuration</h2>
-            
-            <form id="config-form" class="space-y-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1"><i class="fas fa-robot text-blue-500 mr-1"></i> Writer Agent</label>
-                    <select name="agent" id="openclawAgent" class="w-full bg-gray-50 border border-gray-300 text-gray-900 rounded-lg p-2.5 text-sm">
-                        <option value="{{ defaults.agent }}">Loading agents...</option>
-                    </select>
-                    <p class="text-[11px] text-gray-400 mt-1" id="agentStatusHint">Fetching agents...</p>
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1"><i class="fas fa-brain text-purple-500 mr-1"></i> OpenClaw Model</label>
-                    <select id="openclawModel" class="w-full bg-gray-50 border border-gray-300 text-gray-900 rounded-lg p-2.5 text-sm">
-                        <option value="">Loading models...</option>
-                    </select>
-                    <p class="text-[11px] text-gray-400 mt-1" id="modelStatusHint">Fetching available models...</p>
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Writing Tone</label>
-                    <input type="text" name="tone" value="{{ defaults.tone }}" class="w-full bg-gray-50 border border-gray-300 text-gray-900 rounded-lg p-2.5 text-sm">
-                </div>
-                <div class="grid grid-cols-2 gap-3">
-                    <div>
-                        <label class="block text-xs font-medium text-gray-700 mb-1">Min W/Heading</label>
-                        <input type="number" name="words" value="{{ defaults.words }}" class="w-full bg-gray-50 border border-gray-300 rounded-lg p-2 text-sm">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-gray-700 mb-1">Max W/Heading</label>
-                        <input type="number" name="words_max" value="{{ defaults.words_max }}" class="w-full bg-gray-50 border border-gray-300 rounded-lg p-2 text-sm">
-                    </div>
-                </div>
-
-                <hr class="border-gray-200">
-
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h3 class="text-sm font-medium text-gray-900">Generate Images</h3>
-                        <p class="text-xs text-gray-500">Create illustrations</p>
-                    </div>
-                    <label class="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" name="images" id="images-toggle" class="sr-only peer" {% if defaults.images %}checked{% endif %}>
-                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
-                </div>
-
-                <div id="image-settings" class="space-y-3 pt-2 border-l-2 border-blue-500 pl-3 ml-1 transition-all" style="opacity: {% if defaults.images %}1{% else %}0.5{% endif %}; pointer-events: {% if defaults.images %}auto{% else %}none{% endif %};">
-                    <div>
-                        <label class="block text-xs font-medium text-gray-700 mb-1">Style Variant</label>
-                        <select name="image_prompt_variant" id="imagePromptVariant" class="w-full bg-white border border-gray-300 rounded p-1.5 text-sm">
-                            {% for variant in prompt_variants %}
-                                <option value="{{ variant }}" {% if variant == defaults.image_prompt_variant %}selected{% endif %}>{{ variant }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-gray-700 mb-1">Model</label>
-                        <select name="image_model" id="imageModel" class="w-full bg-white border border-gray-300 rounded p-1.5 text-sm">
-                            <option value="gpt-image-1" {% if defaults.image_model == 'gpt-image-1' %}selected{% endif %}>gpt-image-1</option>
-                            <option value="dall-e-3" {% if defaults.image_model == 'dall-e-3' %}selected{% endif %}>dall-e-3</option>
-                        </select>
-                    </div>
-                    <div class="grid grid-cols-2 gap-2">
+        <!-- Collapsible Config -->
+        <div class="border-t border-gray-800">
+            <button id="config-toggle" class="w-full px-4 py-3 flex items-center justify-between text-sm text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition">
+                <span><i class="fas fa-sliders-h mr-2"></i> Settings</span>
+                <i class="fas fa-chevron-up text-xs transition-transform" id="config-chevron"></i>
+            </button>
+            <div id="config-panel" class="hidden overflow-y-auto custom-scrollbar" style="max-height: 50vh;">
+                <div class="px-4 pb-4 space-y-3">
+                    <form id="config-form" class="space-y-3">
                         <div>
-                            <label class="block text-xs font-medium text-gray-700 mb-1">Size</label>
-                            <input type="text" name="image_size" id="imageSize" value="{{ defaults.image_size }}" class="w-full bg-white border border-gray-300 rounded p-1.5 text-sm">
+                            <label class="block text-xs font-medium text-gray-400 mb-1"><i class="fas fa-robot text-blue-400 mr-1"></i> Writer Agent</label>
+                            <select name="agent" id="openclawAgent" class="w-full bg-gray-800 border border-gray-700 text-gray-200 rounded-lg p-2 text-sm">
+                                <option value="{{ defaults.agent }}">Loading agents...</option>
+                            </select>
+                            <p class="text-[10px] text-gray-600 mt-1" id="agentStatusHint">Fetching agents...</p>
                         </div>
                         <div>
-                            <label class="block text-xs font-medium text-gray-700 mb-1">Quality</label>
-                            <input type="text" name="image_quality" id="imageQuality" value="{{ defaults.image_quality }}" class="w-full bg-white border border-gray-300 rounded p-1.5 text-sm">
+                            <label class="block text-xs font-medium text-gray-400 mb-1"><i class="fas fa-brain text-purple-400 mr-1"></i> OpenClaw Model</label>
+                            <select id="openclawModel" class="w-full bg-gray-800 border border-gray-700 text-gray-200 rounded-lg p-2 text-sm">
+                                <option value="">Loading models...</option>
+                            </select>
+                            <p class="text-[10px] text-gray-600 mt-1" id="modelStatusHint">Fetching models...</p>
                         </div>
-                    </div>
-                </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-400 mb-1">Writing Tone</label>
+                            <input type="text" name="tone" value="{{ defaults.tone }}" class="w-full bg-gray-800 border border-gray-700 text-gray-200 rounded-lg p-2 text-sm">
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-[10px] font-medium text-gray-400 mb-1">Min W/Heading</label>
+                                <input type="number" name="words" value="{{ defaults.words }}" class="w-full bg-gray-800 border border-gray-700 text-gray-200 rounded p-1.5 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-medium text-gray-400 mb-1">Max W/Heading</label>
+                                <input type="number" name="words_max" value="{{ defaults.words_max }}" class="w-full bg-gray-800 border border-gray-700 text-gray-200 rounded p-1.5 text-sm">
+                            </div>
+                        </div>
 
-                <hr class="border-gray-200">
-                <div class="flex items-center">
-                    <input type="checkbox" name="force" id="force" class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" {% if defaults.force %}checked{% endif %}>
-                    <label for="force" class="ml-2 text-sm font-medium text-gray-700">Force Regenerate Everything</label>
+                        <hr class="border-gray-700">
+
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="text-xs font-medium text-gray-300">Generate Images</h3>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" name="images" id="images-toggle" class="sr-only peer" {% if defaults.images %}checked{% endif %}>
+                                <div class="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-600 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                            </label>
+                        </div>
+
+                        <div id="image-settings" class="space-y-2 pt-1 border-l-2 border-blue-500 pl-3 ml-1 transition-all" style="opacity: {% if defaults.images %}1{% else %}0.5{% endif %}; pointer-events: {% if defaults.images %}auto{% else %}none{% endif %};">
+                            <div>
+                                <label class="block text-[10px] font-medium text-gray-400 mb-1">Style Variant</label>
+                                <select name="image_prompt_variant" id="imagePromptVariant" class="w-full bg-gray-800 border border-gray-700 text-gray-200 rounded p-1.5 text-xs">
+                                    {% for variant in prompt_variants %}
+                                        <option value="{{ variant }}" {% if variant == defaults.image_prompt_variant %}selected{% endif %}>{{ variant }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-medium text-gray-400 mb-1">Image Model</label>
+                                <select name="image_model" id="imageModel" class="w-full bg-gray-800 border border-gray-700 text-gray-200 rounded p-1.5 text-xs">
+                                    <option value="gpt-image-1" {% if defaults.image_model == 'gpt-image-1' %}selected{% endif %}>gpt-image-1</option>
+                                    <option value="dall-e-3" {% if defaults.image_model == 'dall-e-3' %}selected{% endif %}>dall-e-3</option>
+                                </select>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label class="block text-[10px] font-medium text-gray-400 mb-1">Size</label>
+                                    <input type="text" name="image_size" id="imageSize" value="{{ defaults.image_size }}" class="w-full bg-gray-800 border border-gray-700 text-gray-200 rounded p-1.5 text-xs">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-medium text-gray-400 mb-1">Quality</label>
+                                    <input type="text" name="image_quality" id="imageQuality" value="{{ defaults.image_quality }}" class="w-full bg-gray-800 border border-gray-700 text-gray-200 rounded p-1.5 text-xs">
+                                </div>
+                            </div>
+                        </div>
+
+                        <hr class="border-gray-700">
+                        <div class="flex items-center">
+                            <input type="checkbox" name="force" id="force" class="w-3.5 h-3.5 text-blue-600 border-gray-600 rounded focus:ring-blue-500 bg-gray-800" {% if defaults.force %}checked{% endif %}>
+                            <label for="force" class="ml-2 text-xs font-medium text-gray-400">Force Regenerate</label>
+                        </div>
+                    </form>
                 </div>
-            </form>
+            </div>
         </div>
     </aside>
 
@@ -132,6 +153,9 @@
             </div>
             
             <div id="downloadLinks" class="hidden flex gap-2">
+                <a id="downloadInput" href="#" class="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition shadow-sm text-sm font-medium" title="Original layout file">
+                    <i class="fas fa-file-word mr-1"></i> Input
+                </a>
                  <a id="downloadFinal" href="#" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow-sm text-sm font-medium">
                     <i class="fas fa-download mr-1"></i> Final File
                 </a>
@@ -140,9 +164,6 @@
                 </a>
                 <a id="downloadPaperback" href="#" class="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition shadow-sm text-sm font-medium">
                     <i class="fas fa-book mr-1"></i> Paperback DOCX
-                </a>
-                <a id="downloadOutput" href="#" class="px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition shadow-sm text-sm font-medium">
-                    Raw Output
                 </a>
             </div>
         </header>
@@ -249,6 +270,7 @@
 
             const chatMessages = document.getElementById("chat-messages");
             const btnGenerate = document.getElementById("btn-generate");
+            const btnNewBook = document.getElementById("btn-new-book");
             const btnGenerateListing = document.getElementById("btn-generate-listing");
             const btnShowReplace = document.getElementById("btn-show-replace");
             const btnSubmitReplace = document.getElementById("btn-submit-replace");
@@ -263,6 +285,225 @@
             const fileUpload = document.getElementById("file-upload");
             
             let currentLogBox = null;
+
+            // --- Config panel toggle ---
+            const configToggle = document.getElementById("config-toggle");
+            const configPanel = document.getElementById("config-panel");
+            const configChevron = document.getElementById("config-chevron");
+            configToggle.addEventListener("click", () => {
+                const open = configPanel.classList.toggle("hidden");
+                configChevron.style.transform = open ? "" : "rotate(180deg)";
+            });
+
+            // --- History sidebar ---
+            const historyList = document.getElementById("history-list");
+            let activeBookId = null;
+
+            function formatTimeAgo(ts) {
+                const diff = (Date.now() / 1000) - ts;
+                if (diff < 60) return "just now";
+                if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+                if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+                if (diff < 604800) return `${Math.floor(diff/86400)}d ago`;
+                return new Date(ts * 1000).toLocaleDateString();
+            }
+
+            function statusIcon(status) {
+                if (status === "success") return '<i class="fas fa-check-circle text-green-400 text-[10px]"></i>';
+                if (status === "error") return '<i class="fas fa-times-circle text-red-400 text-[10px]"></i>';
+                if (status === "running") return '<i class="fas fa-spinner fa-spin text-blue-400 text-[10px]"></i>';
+                return '<i class="fas fa-circle text-gray-600 text-[10px]"></i>';
+            }
+
+            async function loadHistory() {
+                try {
+                    const res = await fetch("/api/books");
+                    const data = await res.json();
+                    const books = data.books || [];
+                    historyList.innerHTML = "";
+                    if (books.length === 0) {
+                        historyList.innerHTML = '<div class="px-3 py-4 text-xs text-gray-600 italic text-center">No books yet. Upload a .docx to get started.</div>';
+                        return;
+                    }
+                    books.forEach(b => {
+                        const el = document.createElement("div");
+                        const isActive = b.id === activeBookId;
+                        el.className = `group flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${isActive ? 'bg-gray-700 text-white' : 'text-gray-300 hover:bg-gray-800 hover:text-white'}`;
+                        el.dataset.bookId = b.id;
+                        const writtenPill = b.pre_written
+                            ? '<span class="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-green-900/60 text-green-300 border border-green-700 font-semibold" title="Uploaded file already contained full written text">Already Written</span>'
+                            : '';
+                        el.innerHTML = `
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-1.5">
+                                    <div class="text-sm font-medium truncate">${escapeHtml(b.title || 'Untitled')}</div>
+                                    ${writtenPill}
+                                </div>
+                                <div class="flex items-center gap-2 mt-0.5">
+                                    ${statusIcon(b.status)}
+                                    <span class="text-[10px] text-gray-500">${formatTimeAgo(b.updated_at)}</span>
+                                    <span class="text-[10px] text-gray-600">${escapeHtml(b.agent || '')}</span>
+                                </div>
+                            </div>
+                            <button class="opacity-0 group-hover:opacity-100 p-1 text-gray-500 hover:text-red-400 transition" title="Delete" data-delete="${b.id}">
+                                <i class="fas fa-trash-alt text-[10px]"></i>
+                            </button>
+                        `;
+                        el.addEventListener("click", (e) => {
+                            if (e.target.closest("[data-delete]")) {
+                                e.stopPropagation();
+                                deleteBook(b.id);
+                                return;
+                            }
+                            loadBook(b.id);
+                        });
+                        historyList.appendChild(el);
+                    });
+                } catch(e) {
+                    historyList.innerHTML = '<div class="px-3 py-2 text-xs text-red-400">Failed to load history</div>';
+                }
+            }
+
+            async function deleteBook(bookId) {
+                if (!confirm("Delete this book from history?")) return;
+                try {
+                    await fetch(`/api/books/${bookId}`, { method: "DELETE" });
+                    if (activeBookId === bookId) {
+                        activeBookId = null;
+                        resetWorkspace();
+                    }
+                    loadHistory();
+                } catch(e) {}
+            }
+
+            async function loadBook(bookId) {
+                try {
+                    const res = await fetch(`/api/books/${bookId}`);
+                    if (!res.ok) throw new Error("Book not found");
+                    const book = await res.json();
+
+                    activeBookId = bookId;
+                    state.jobId = bookId;
+                    state.cursor = 0;
+                    state.knownHeadings = [];
+
+                    // Check if this job is already in memory (currently running)
+                    // If not, we still set state so downloads and actions can use it
+                    document.getElementById("job-id-display").textContent = bookId;
+                    document.getElementById("current-doc-title").textContent = book.title || "Untitled Book";
+
+                    // Clear chat and show book info
+                    chatMessages.innerHTML = "";
+                    const alreadyWritten = !!book.pre_written;
+                    const flagBadge = alreadyWritten
+                        ? `<div class="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-100 text-green-800 border border-green-300 text-xs font-semibold">
+                                <i class="fas fa-check-circle"></i> Already Written
+                           </div>`
+                        : '';
+                    addMessage("bot", `<div>
+                        <h3 class="font-semibold text-gray-800 mb-1"><i class="fas fa-book text-blue-500 mr-1"></i> ${escapeHtml(book.title || 'Untitled')}</h3>
+                        <div class="text-xs text-gray-500 space-y-0.5">
+                            <div>Agent: <span class="font-mono">${escapeHtml(book.agent)}</span></div>
+                            <div>Status: <span class="font-semibold ${book.status === 'success' ? 'text-green-600' : book.status === 'error' ? 'text-red-500' : 'text-blue-500'}">${book.status}</span></div>
+                            <div>Created: ${new Date(book.created_at * 1000).toLocaleString()}</div>
+                        </div>
+                        ${flagBadge}
+                    </div>`);
+                    if (alreadyWritten) {
+                        addMessage("bot", `<div class="flex items-start gap-2 p-3 rounded-lg bg-green-50 border border-green-200">
+                            <i class="fas fa-flag-checkered text-green-600 text-lg mt-0.5"></i>
+                            <div class="text-sm text-green-800">
+                                <div class="font-semibold">This file was already written.</div>
+                                <div class="text-xs text-green-700 mt-0.5">The uploaded .docx contained full prose — the AI did not generate this text. You can still replace images, rewrite paragraphs, or generate a pub listing.</div>
+                            </div>
+                        </div>`);
+                    }
+
+                    if (book.error) {
+                        addMessage("bot", `<span class="text-red-500"><i class="fas fa-exclamation-triangle mr-1"></i> ${escapeHtml(book.error)}</span>`);
+                    }
+
+                    // Replay saved logs
+                    const savedLogs = book.logs || [];
+                    if (savedLogs.length > 0) {
+                        const logBox = addMessage("bot", "", true);
+                        // Remove the spinner since this is historical
+                        const loader = logBox.parentElement.querySelector('.loader');
+                        if (loader) loader.outerHTML = '<i class="fas fa-check-circle text-green-500"></i>';
+                        const frag = document.createDocumentFragment();
+                        savedLogs.forEach(line => {
+                            const div = document.createElement('div');
+                            div.textContent = line;
+                            let styled = div.innerHTML
+                                .replace(/(ERROR|WARNING|FAILED)/gi, '<span class="text-red-400 font-bold">$&</span>')
+                                .replace(/(Done:|Saved:|Image insertion complete)/,  '<span class="text-green-400 font-bold">$&</span>')
+                                .replace(/(\[.*?\])/g, '<span class="text-gray-500">$1</span>');
+                            div.innerHTML = styled;
+                            frag.appendChild(div);
+                        });
+                        logBox.appendChild(frag);
+                    }
+
+                    // Restore headings
+                    syncHeadings(book.headings || []);
+
+                    // Show download links if files exist
+                    const dl = document.getElementById("downloadLinks");
+                    if (book.status === "success" && book.final_docx) {
+                        dl.classList.remove("hidden");
+                        document.getElementById("downloadInput").href = `/api/jobs/${bookId}/download/input`;
+                        document.getElementById("downloadFinal").href = `/api/jobs/${bookId}/download/final`;
+                        document.getElementById("downloadKindle").href = `/api/jobs/${bookId}/download/kindle`;
+                        document.getElementById("downloadPaperback").href = `/api/jobs/${bookId}/download/paperback`;
+                    } else {
+                        dl.classList.add("hidden");
+                    }
+
+                    // Show listing if available
+                    const listing = book.listing || {};
+                    if (listing.title || listing.subtitles) {
+                        showListingResult(listing);
+                    }
+
+                    setStatusBadge(book.status === "success" ? "Completed" : book.status === "error" ? "Failed" : book.status, book.status === "success" ? "success" : book.status);
+
+                    // Re-enable buttons
+                    btnGenerate.disabled = false;
+                    loadHistory(); // refresh active highlight
+                } catch(e) {
+                    addMessage("bot", `<span class="text-red-500">Error loading book: ${escapeHtml(e.message)}</span>`);
+                }
+            }
+
+            function resetWorkspace() {
+                state.jobId = null;
+                state.cursor = 0;
+                state.knownHeadings = [];
+                activeBookId = null;
+                chatMessages.innerHTML = `
+                    <div class="flex items-start gap-4">
+                        <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center flex-shrink-0 shadow-lg">
+                            <i class="fas fa-robot text-white"></i>
+                        </div>
+                        <div class="bg-white border border-gray-100 p-5 rounded-2xl rounded-tl-none shadow-sm max-w-2xl">
+                            <h3 class="font-semibold text-gray-800 mb-2">Welcome to OpenClaw BookWriter! 👋</h3>
+                            <p class="text-gray-600 text-sm">Upload a .docx layout file below or paste a path to begin.</p>
+                        </div>
+                    </div>`;
+                document.getElementById("current-doc-title").textContent = "Select a Layout File";
+                document.getElementById("job-id-display").textContent = "No active job";
+                document.getElementById("downloadLinks").classList.add("hidden");
+                setStatusBadge("Idle", "idle");
+                syncHeadings([]);
+                btnGenerate.disabled = false;
+                layoutPath.value = "";
+                loadHistory();
+            }
+
+            btnNewBook.addEventListener("click", resetWorkspace);
+
+            // Load history on startup
+            loadHistory();
 
             const imgToggle = document.getElementById("images-toggle");
             const imgSettings = document.getElementById("image-settings");
@@ -550,13 +791,14 @@
                                 currentLogBox = null;
                             }
                             btnGenerate.disabled = false;
+                            loadHistory();
                             
                             if (status.status === 'success' && status.final_docx) {
                                 document.getElementById("downloadLinks").classList.remove("hidden");
+                                document.getElementById("downloadInput").href = `/api/jobs/${state.jobId}/download/input`;
                                 document.getElementById("downloadFinal").href = `/api/jobs/${state.jobId}/download/final`;
                                 document.getElementById("downloadKindle").href = `/api/jobs/${state.jobId}/download/kindle`;
                                 document.getElementById("downloadPaperback").href = `/api/jobs/${state.jobId}/download/paperback`;
-                                document.getElementById("downloadOutput").href = `/api/jobs/${state.jobId}/download/output`;
                             }
                         }
 
@@ -628,7 +870,9 @@
                     if (!res.ok) throw new Error(data.error);
                     
                     state.jobId = data.job_id;
+                    activeBookId = data.job_id;
                     document.getElementById("job-id-display").textContent = data.job_id;
+                    loadHistory();
                 } catch(e) {
                     addMessage("bot", `<span class="text-red-500 font-bold">Error:</span> ${escapeHtml(e.message)}`);
                     btnGenerate.disabled = false;

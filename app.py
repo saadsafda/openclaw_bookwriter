@@ -19,6 +19,7 @@ from werkzeug.utils import secure_filename
 import openclaw_image_maker as image_maker
 import openclaw_docx_writer as writer
 import pub_listing_agent
+import db as bookdb
 
 ROOT_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = ROOT_DIR / "web_uploads"
@@ -63,6 +64,7 @@ class Job:
     listing: dict[str, Any] = field(default_factory=dict)
     logs: list[str] = field(default_factory=list)
     config: dict[str, Any] = field(default_factory=dict)
+    pre_written: bool = False
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -71,6 +73,8 @@ class Job:
 app = Flask(__name__)
 JOBS: dict[str, Job] = {}
 JOBS_LOCK = threading.Lock()
+
+bookdb.init_db()
 
 
 def _timestamp() -> str:
@@ -98,6 +102,61 @@ def _set_status(job: Job, status: str, action: str = "", error: str = "") -> Non
         job.current_action = action
         job.error = error
         job.updated_at = time.time()
+
+
+def _derive_title(input_path: str) -> str:
+    """Extract a human-readable title from the input filename."""
+    name = Path(input_path).stem
+    # Strip uuid prefix added by upload (8hex_filename)
+    import re
+    name = re.sub(r'^[0-9a-f]{8}_', '', name)
+    return name.replace('_', ' ').replace('-', ' ').strip() or 'Untitled Book'
+
+
+def _sync_job_to_db(job: Job) -> None:
+    """Persist current job state to SQLite."""
+    with job.lock:
+        bookdb.save_book(
+            book_id=job.id,
+            title=_derive_title(job.input_docx),
+            status=job.status,
+            agent=job.config.get('agent', 'main'),
+            model=job.config.get('image_model', ''),
+            input_docx=job.input_docx,
+            final_docx=job.final_docx,
+            kindle_docx=job.kindle_docx,
+            paperback_docx=job.paperback_docx,
+            headings=list(job.headings),
+            listing=dict(job.listing) if job.listing else {},
+            config=dict(job.config),
+            logs=list(job.logs),
+            error=job.error,
+            pre_written=bool(job.pre_written),
+        )
+
+
+def _detect_pre_written(doc_path: Path, min_body_paragraphs: int = 3) -> bool:
+    """Return True if the uploaded .docx already contains substantial body prose.
+
+    Uses writer.paragraph_looks_like_body to count paragraphs that look like
+    real written prose (not headings, not bare outline topics). If the file
+    has at least `min_body_paragraphs` such paragraphs, it's considered
+    "already written" rather than an outline-only skeleton.
+    """
+    try:
+        doc = Document(str(doc_path))
+    except Exception:
+        return False
+    body_count = 0
+    for p in doc.paragraphs:
+        try:
+            if writer.paragraph_looks_like_body(p):
+                body_count += 1
+                if body_count >= min_body_paragraphs:
+                    return True
+        except Exception:
+            continue
+    return False
 
 
 def _list_image_headings(doc_path: Path) -> list[str]:
@@ -235,9 +294,11 @@ def _run_generation(job_id: str) -> None:
         _append_log(job, f"Kindle output: {kindle_doc}")
         _append_log(job, f"Paperback output: {paperback_doc}")
         _set_status(job, "success", action="", error="")
+        _sync_job_to_db(job)
     except Exception as exc:
         _append_log(job, f"ERROR: {exc}")
         _set_status(job, "error", action="", error=str(exc))
+        _sync_job_to_db(job)
 
 
 def _run_replace_images(job_id: str, headings: list[str], overrides: dict[str, Any]) -> None:
@@ -292,9 +353,11 @@ def _run_replace_images(job_id: str, headings: list[str], overrides: dict[str, A
         _append_log(job, f"Kindle output refreshed: {kindle_doc}")
         _append_log(job, f"Paperback output refreshed: {paperback_doc}")
         _set_status(job, "success", action="", error="")
+        _sync_job_to_db(job)
     except Exception as exc:
         _append_log(job, f"ERROR: {exc}")
         _set_status(job, "error", action="", error=str(exc))
+        _sync_job_to_db(job)
 
 
 def _run_rewrite_paragraphs(job_id: str, headings: list[str], overrides: dict[str, Any]) -> None:
@@ -346,9 +409,11 @@ def _run_rewrite_paragraphs(job_id: str, headings: list[str], overrides: dict[st
         _append_log(job, f"Kindle output refreshed: {kindle_doc}")
         _append_log(job, f"Paperback output refreshed: {paperback_doc}")
         _set_status(job, "success", action="", error="")
+        _sync_job_to_db(job)
     except Exception as exc:
         _append_log(job, f"ERROR: {exc}")
         _set_status(job, "error", action="", error=str(exc))
+        _sync_job_to_db(job)
 
 
 def _bool_from_form(value: str | None) -> bool:
@@ -428,6 +493,8 @@ def create_job() -> Any:
     if cfg["image_prompt_variant"] not in image_maker.PROMPT_VARIANTS:
         return jsonify({"error": "Invalid image prompt variant"}), 400
 
+    pre_written = _detect_pre_written(input_doc)
+
     job = Job(
         id=job_id,
         input_docx=str(input_doc),
@@ -437,11 +504,16 @@ def create_job() -> Any:
         paperback_docx="",
         status="queued",
         config=cfg,
+        pre_written=pre_written,
     )
     _append_log(job, "Job created.")
+    if pre_written:
+        _append_log(job, "Input file detected as already-written (contains full prose).")
 
     with JOBS_LOCK:
         JOBS[job_id] = job
+
+    _sync_job_to_db(job)
 
     t = threading.Thread(target=_run_generation, args=(job_id,), daemon=True)
     t.start()
@@ -466,6 +538,7 @@ def job_status(job_id: str) -> Any:
                 "paperback_docx": job.paperback_docx,
                 "headings": list(job.headings),
                 "listing": dict(job.listing) if job.listing else {},
+                "pre_written": bool(job.pre_written),
                 "created_at": job.created_at,
                 "updated_at": job.updated_at,
             }
@@ -597,9 +670,11 @@ def _run_generate_listing(job_id: str, title_override: str) -> None:
         _append_log(job, f"Paperback categories: {len(result.paperback_categories)}")
         _append_log(job, "Publishing listing generation complete.")
         _set_status(job, "success", action="", error="")
+        _sync_job_to_db(job)
     except Exception as exc:
         _append_log(job, f"ERROR: {exc}")
         _set_status(job, "error", action="", error=str(exc))
+        _sync_job_to_db(job)
 
 
 @app.post("/api/jobs/<job_id>/generate-listing")
@@ -630,21 +705,64 @@ def get_listing(job_id: str) -> Any:
 
 @app.get("/api/jobs/<job_id>/download/<kind>")
 def download_file(job_id: str, kind: str) -> Any:
-    job = _get_job(job_id)
-    with job.lock:
+    # Try in-memory job first; fall back to DB for historical books
+    mapping: dict[str, Path | None] = {}
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+    if job:
+        with job.lock:
+            mapping = {
+                "input": Path(job.input_docx),
+                "output": Path(job.output_docx),
+                "final": Path(job.final_docx),
+                "kindle": Path(job.kindle_docx) if job.kindle_docx else None,
+                "paperback": Path(job.paperback_docx) if job.paperback_docx else None,
+            }
+    else:
+        book = bookdb.get_book(job_id)
+        if book is None:
+            abort(404, description="Job not found")
         mapping = {
-            "input": Path(job.input_docx),
-            "output": Path(job.output_docx),
-            "final": Path(job.final_docx),
-            "kindle": Path(job.kindle_docx) if job.kindle_docx else None,
-            "paperback": Path(job.paperback_docx) if job.paperback_docx else None,
+            "input": Path(book["input_docx"]) if book.get("input_docx") else None,
+            "final": Path(book["final_docx"]) if book.get("final_docx") else None,
+            "kindle": Path(book["kindle_docx"]) if book.get("kindle_docx") else None,
+            "paperback": Path(book["paperback_docx"]) if book.get("paperback_docx") else None,
         }
+
     target = mapping.get(kind)
     if target is None:
         abort(404)
     if not target.exists() or not target.is_file():
         abort(404, description="File does not exist yet")
     return send_file(target, as_attachment=True)
+
+
+# ----------------------------
+# Book history
+# ----------------------------
+
+@app.get("/api/books")
+def list_books() -> Any:
+    """Return recent books for the history sidebar."""
+    limit = _parse_int(request.args.get("limit"), 50)
+    return jsonify({"books": bookdb.list_books(limit=limit)})
+
+
+@app.get("/api/books/<book_id>")
+def get_book(book_id: str) -> Any:
+    """Return full book record for re-loading a past job."""
+    book = bookdb.get_book(book_id)
+    if book is None:
+        abort(404, description="Book not found")
+    return jsonify(book)
+
+
+@app.delete("/api/books/<book_id>")
+def delete_book(book_id: str) -> Any:
+    """Delete a book from history."""
+    if bookdb.delete_book(book_id):
+        return jsonify({"ok": True})
+    abort(404, description="Book not found")
 
 
 # ----------------------------
