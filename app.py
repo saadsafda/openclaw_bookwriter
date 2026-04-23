@@ -82,9 +82,47 @@ def _timestamp() -> str:
     return time.strftime("%H:%M:%S")
 
 
+def _rehydrate_job_from_db(job_id: str) -> Job | None:
+    """Rebuild a Job dataclass from a persisted book record.
+
+    Used when the user interacts with a historical book whose in-memory Job
+    was lost (e.g. server restart, or job created before this session).
+    """
+    book = bookdb.get_book(job_id)
+    if book is None:
+        return None
+    final_docx = book.get("final_docx") or ""
+    output_docx = final_docx or book.get("input_docx") or ""
+    derived_title = _derive_title(book.get("input_docx") or job_id)
+    stored_title = (book.get("title") or "").strip()
+    custom_title = stored_title if stored_title and stored_title != derived_title else ""
+    return Job(
+        id=job_id,
+        input_docx=book.get("input_docx") or "",
+        output_docx=output_docx,
+        final_docx=final_docx,
+        kindle_docx=book.get("kindle_docx") or "",
+        paperback_docx=book.get("paperback_docx") or "",
+        status=book.get("status") or "success",
+        headings=list(book.get("headings") or []),
+        listing=dict(book.get("listing") or {}),
+        logs=list(book.get("logs") or []),
+        config=dict(book.get("config") or {}),
+        pre_written=bool(book.get("pre_written") or 0),
+        custom_title=custom_title,
+        created_at=float(book.get("created_at") or time.time()),
+        updated_at=float(book.get("updated_at") or time.time()),
+    )
+
+
 def _get_job(job_id: str) -> Job:
     with JOBS_LOCK:
         job = JOBS.get(job_id)
+        if job is None:
+            rehydrated = _rehydrate_job_from_db(job_id)
+            if rehydrated is not None:
+                JOBS[job_id] = rehydrated
+                job = rehydrated
     if job is None:
         abort(404, description="Job not found")
     return job
