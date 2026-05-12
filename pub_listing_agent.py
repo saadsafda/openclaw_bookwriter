@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 pub_listing_agent.py
 
@@ -214,12 +213,17 @@ def generate_subtitles(
     intro: str,
     agent_id: str = DEFAULT_AGENT_ID,
     timeout_s: int = DEFAULT_TIMEOUT,
+    extra_context: str = "",
 ) -> tuple[list[str], str]:
     """Generate 5-10 subtitle ideas. Returns (subtitles_list, raw_response)."""
 
+    context_block = ""
+    if extra_context.strip():
+        context_block = f"\n\nIMPORTANT CONTEXT FROM THE AUTHOR (must shape every subtitle):\n{extra_context.strip()}\n"
+
     prompt = f"""You are a KDP book subtitle specialist. Generate 5-10 subtitle ideas for this book.
 
-BOOK TITLE: {title}
+BOOK TITLE: {title}{context_block}
 
 BOOK OUTLINE:
 {outline}
@@ -268,12 +272,17 @@ def generate_description(
     intro: str,
     agent_id: str = DEFAULT_AGENT_ID,
     timeout_s: int = DEFAULT_TIMEOUT,
+    extra_context: str = "",
 ) -> tuple[str, str]:
     """Generate a 170-220 word Amazon book description. Returns (description, raw_response)."""
 
+    context_block = ""
+    if extra_context.strip():
+        context_block = f"\n\nIMPORTANT CONTEXT FROM THE AUTHOR (must shape tone, voice, and audience of the description):\n{extra_context.strip()}\n"
+
     prompt = f"""You are writing an Amazon KDP book description. It MUST be 170-220 words.
 
-BOOK TITLE: {title}
+BOOK TITLE: {title}{context_block}
 
 BOOK OUTLINE:
 {outline}
@@ -316,6 +325,7 @@ def select_categories(
     intro: str,
     agent_id: str = DEFAULT_AGENT_ID,
     timeout_s: int = DEFAULT_TIMEOUT,
+    extra_context: str = "",
 ) -> tuple[list[str], list[str], str]:
     """Select 3 ebook + 3 paperback categories. Returns (ebook_cats, paperback_cats, raw_response)."""
 
@@ -330,9 +340,13 @@ def select_categories(
     ebook_list = "\n".join(ebook_deep)
     paperback_list = "\n".join(paperback_deep)
 
+    context_block = ""
+    if extra_context.strip():
+        context_block = f"\n\nIMPORTANT CONTEXT FROM THE AUTHOR (must shape category choices — audience, genre, age group, etc.):\n{extra_context.strip()}\n"
+
     prompt = f"""You are a KDP category specialist. Select the best categories for this book.
 
-BOOK TITLE: {title}
+BOOK TITLE: {title}{context_block}
 
 BOOK OUTLINE:
 {outline}
@@ -432,6 +446,7 @@ def generate_listing(
     agent_id: str = DEFAULT_AGENT_ID,
     timeout_s: int = DEFAULT_TIMEOUT,
     callback=None,
+    extra_context: str = "",
 ) -> ListingResult:
     """Run all three listing steps and return the combined result.
 
@@ -441,6 +456,8 @@ def generate_listing(
         agent_id: OpenClaw agent id
         timeout_s: Timeout per API call
         callback: Optional callable(step_name, message) for progress updates
+        extra_context: Optional free-form author guidance (audience, tone, etc.)
+            applied to subtitles, description, and category selection.
     """
     if not docx_path.exists():
         raise FileNotFoundError(f"Book not found: {docx_path}")
@@ -459,19 +476,25 @@ def generate_listing(
     _log("extract", f"Title: {book_title}")
     _log("extract", f"Outline: {len(outline.splitlines())} headings found")
     _log("extract", f"Introduction: {len(intro.split())} words")
+    if extra_context.strip():
+        _log("extract", f"Author guidance: {extra_context.strip()[:120]}")
 
     result = ListingResult(title=book_title)
 
     # Step 1: Subtitles
     _log("subtitles", "Generating subtitle ideas...")
-    subtitles, raw_sub = generate_subtitles(book_title, outline, intro, agent_id, timeout_s)
+    subtitles, raw_sub = generate_subtitles(
+        book_title, outline, intro, agent_id, timeout_s, extra_context=extra_context
+    )
     result.subtitles = subtitles
     result.raw_subtitles_response = raw_sub
     _log("subtitles", f"Generated {len(subtitles)} subtitle ideas")
 
     # Step 2: Description
     _log("description", "Writing book description (170-220 words)...")
-    description, raw_desc = generate_description(book_title, outline, intro, agent_id, timeout_s)
+    description, raw_desc = generate_description(
+        book_title, outline, intro, agent_id, timeout_s, extra_context=extra_context
+    )
     result.description = description
     result.raw_description_response = raw_desc
     word_count = len(description.split())
@@ -479,7 +502,9 @@ def generate_listing(
 
     # Step 3: Categories
     _log("categories", "Selecting categories (3 ebook + 3 paperback)...")
-    ebook_cats, pb_cats, raw_cats = select_categories(book_title, outline, intro, agent_id, timeout_s)
+    ebook_cats, pb_cats, raw_cats = select_categories(
+        book_title, outline, intro, agent_id, timeout_s, extra_context=extra_context
+    )
     result.ebook_categories = ebook_cats
     result.paperback_categories = pb_cats
     result.raw_categories_response = raw_cats
@@ -533,6 +558,7 @@ def main() -> int:
     ap.add_argument("--title", default="", help="Override book title")
     ap.add_argument("--agent", default=DEFAULT_AGENT_ID, help=f"OpenClaw agent id (default: {DEFAULT_AGENT_ID})")
     ap.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, help="Timeout per API call in seconds")
+    ap.add_argument("--context", default="", help="Optional author guidance (audience, tone, etc.)")
     ap.add_argument("--json-output", default="", help="Save result as JSON to this path")
     args = ap.parse_args()
 
@@ -546,6 +572,7 @@ def main() -> int:
         title=args.title,
         agent_id=args.agent,
         timeout_s=args.timeout,
+        extra_context=args.context,
     )
 
     print(_format_result(result))

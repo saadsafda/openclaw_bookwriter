@@ -227,6 +227,24 @@
                     </div>
                 </div>
 
+                <div id="listing-menu" class="hidden absolute bottom-full left-0 mb-4 bg-white border border-gray-200 rounded-2xl shadow-xl w-full flex flex-col z-20 overflow-hidden transform origin-bottom transition-all">
+                    <div class="px-5 py-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                        <h4 class="font-semibold text-gray-800 text-sm"><i class="fas fa-list-alt text-amber-500 mr-2"></i> Generate Publishing Listing</h4>
+                        <button id="close-listing" class="text-gray-400 hover:text-gray-700"><i class="fas fa-times"></i></button>
+                    </div>
+                    <div class="px-5 py-4 bg-white">
+                        <p class="text-xs text-gray-500 mb-2">Generates subtitles, description, and KDP categories from the finished book.</p>
+                        <label for="listingContext" class="block text-xs font-semibold text-gray-600 mb-1"><i class="fas fa-pencil-alt text-amber-400 mr-1"></i> Listing Context <span class="font-normal text-gray-400">(optional)</span></label>
+                        <textarea id="listingContext" rows="3" class="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-300 resize-none placeholder-gray-400" placeholder="e.g. &quot;This is a book for kids ages 7-10 — keep the tone playful and child-friendly&quot; or &quot;target audience: new parents&quot;"></textarea>
+                        <p class="text-xs text-gray-400 mt-1">Tip: mention the target audience, age group, tone, or anything that should shape the subtitle &amp; description.</p>
+                    </div>
+                    <div class="p-3 border-t border-gray-100 bg-gray-50 flex justify-end">
+                        <button id="btn-submit-listing" class="px-5 py-2 transition-colors duration-200 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-xl shadow-sm">
+                            <i class="fas fa-list-alt mr-1"></i> Generate Listing
+                        </button>
+                    </div>
+                </div>
+
                 <div id="rewrite-menu" class="hidden absolute bottom-full left-0 mb-4 bg-white border border-gray-200 rounded-2xl shadow-xl w-full max-h-80 flex flex-col z-20 overflow-hidden transform origin-bottom transition-all">
                     <div class="px-5 py-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
                         <h4 class="font-semibold text-gray-800 text-sm"><i class="fas fa-pen-nib text-emerald-500 mr-2"></i> Select Headings to Rewrite</h4>
@@ -249,16 +267,18 @@
                     </div>
                 </div>
 
-                <div class="bg-white border rounded-2xl shadow-sm hover:shadow-md transition p-2 flex flex-col gap-2 border-gray-300">
+                <div class="bg-white border rounded-2xl shadow-sm hover:shadow-md transition p-3 flex flex-col gap-3 border-gray-300">
+                    <!-- Row 1: text input across the top -->
+                    <input type="text" id="layoutPath" class="w-full px-3 py-2 text-sm bg-transparent border-none focus:outline-none focus:ring-0 text-gray-700 placeholder-gray-400" placeholder="Paste local .docx path... or use paperclip to upload">
+                    <input type="file" id="file-upload" name="layout_file" class="hidden" accept=".docx" />
+
+                    <!-- Row 2: paperclip (bottom-left), action chips, Write button (bottom-right) -->
                     <div class="flex items-center gap-2">
-                        <button class="p-3 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition rounded-xl" title="Upload layout .docx file" onclick="document.getElementById('file-upload').click()">
+                        <button class="p-2.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition rounded-xl flex-shrink-0" title="Upload layout .docx file" onclick="document.getElementById('file-upload').click()">
                             <i class="fas fa-paperclip text-lg"></i>
                         </button>
-                        
-                        <input type="text" id="layoutPath" class="flex-1 px-2 py-2 text-sm bg-transparent border-none focus:outline-none focus:ring-0 text-gray-700 placeholder-gray-400" placeholder="Paste local .docx path... or use paperclip to upload">
-                        <input type="file" id="file-upload" name="layout_file" class="hidden" accept=".docx" />
-                        
-                        <div class="flex items-center gap-2 pr-1">
+
+                        <div class="flex items-center gap-2 flex-wrap flex-1">
                             <button id="btn-generate-listing" class="hidden px-4 py-2 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-xl text-sm font-semibold transition" title="Generate subtitles, description & categories">
                                 <i class="fas fa-list-alt mr-1"></i> Pub Listing
                             </button>
@@ -268,11 +288,11 @@
                             <button id="btn-show-replace" class="hidden px-4 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-xl text-sm font-semibold transition" title="Start Image Replacement manually">
                                 <i class="fas fa-magic mr-1"></i> Replace image...
                             </button>
-                            
-                            <button id="btn-generate" class="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold shadow-md transition disabled:bg-gray-300 disabled:cursor-not-allowed">
-                                <i class="fas fa-play"></i> Write
-                            </button>
                         </div>
+
+                        <button id="btn-generate" class="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold shadow-md transition disabled:bg-gray-300 disabled:cursor-not-allowed flex-shrink-0 ml-auto">
+                            <i class="fas fa-play"></i> Write
+                        </button>
                     </div>
                 </div>
             </div>
@@ -300,6 +320,10 @@
             const btnSubmitRewrite = document.getElementById("btn-submit-rewrite");
             const rewriteMenu = document.getElementById("rewrite-menu");
             const rwHeadingsList = document.getElementById("rw-headings-list");
+            const listingMenu = document.getElementById("listing-menu");
+            const btnSubmitListing = document.getElementById("btn-submit-listing");
+            const btnCloseListing = document.getElementById("close-listing");
+            const listingContext = document.getElementById("listingContext");
             const statusBadge = document.getElementById("status-badge");
             const layoutPath = document.getElementById("layoutPath");
             const fileUpload = document.getElementById("file-upload");
@@ -1036,33 +1060,29 @@
                 updateRwSelectedCount();
             });
 
-            btnGenerateListing.addEventListener('click', async () => {
+            // Open/close the listing menu (button shows the form with optional context)
+            btnGenerateListing.addEventListener('click', () => {
                 if(!state.jobId) return;
+                // Close other menus
+                replaceMenu.classList.add('hidden');
+                rewriteMenu.classList.add('hidden');
+                listingMenu.classList.toggle('hidden');
+                if(!listingMenu.classList.contains('hidden')) {
+                    setTimeout(() => listingContext?.focus(), 50);
+                }
+            });
+            btnCloseListing?.addEventListener('click', () => {
+                listingMenu.classList.add('hidden');
+            });
 
-                addMessage('user', '<i class="fas fa-list-alt mr-1"></i> Generate Publishing Listing (subtitles, description, categories)');
-                currentLogBox = null;
-                state.cursor = 0;
-                btnGenerateListing.disabled = true;
-                setStatusBadge("Generating listing...", "running");
-
-                try {
-                    const res = await fetch(`/api/jobs/${state.jobId}/generate-listing`, {
-                        method: "POST",
-                        headers: {"Content-Type": "application/json"},
-                        body: JSON.stringify({})
-                    });
-                    if(!res.ok) {
-                        const data = await res.json();
-                        throw new Error(data.error);
-                    }
-                    // Poll will pick up logs. When done, fetch listing data.
+            async function pollUntilDoneAndRefreshListing() {
+                return new Promise((resolve) => {
                     const waitForListing = setInterval(async () => {
                         const sr = await fetch(`/api/jobs/${state.jobId}/status`);
                         if(!sr.ok) return;
                         const st = await sr.json();
                         if(st.status === 'success' || st.status === 'error') {
                             clearInterval(waitForListing);
-                            btnGenerateListing.disabled = false;
                             if(st.status === 'success') {
                                 const lr = await fetch(`/api/jobs/${state.jobId}/listing`);
                                 if(lr.ok) {
@@ -1070,36 +1090,144 @@
                                     if(listing && listing.title) showListingResult(listing);
                                 }
                             }
+                            resolve(st.status);
                         }
                     }, 2000);
+                });
+            }
+
+            btnSubmitListing.addEventListener('click', async () => {
+                if(!state.jobId) return;
+
+                const ctx = (listingContext?.value || "").trim();
+                listingMenu.classList.add('hidden');
+
+                let userMsg = '<i class="fas fa-list-alt mr-1"></i> Generate Publishing Listing (subtitles, description, categories)';
+                if(ctx) userMsg += `<p class="mt-2 text-xs text-amber-700"><i class="fas fa-pencil-alt mr-1"></i> Context: "${escapeHtml(ctx)}"</p>`;
+                addMessage('user', userMsg);
+                currentLogBox = null;
+                state.cursor = 0;
+                btnGenerateListing.disabled = true;
+                btnSubmitListing.disabled = true;
+                setStatusBadge("Generating listing...", "running");
+
+                try {
+                    const res = await fetch(`/api/jobs/${state.jobId}/generate-listing`, {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({extra_context: ctx})
+                    });
+                    if(!res.ok) {
+                        const data = await res.json();
+                        throw new Error(data.error);
+                    }
+                    await pollUntilDoneAndRefreshListing();
                 } catch(e) {
                     addMessage('bot', `<span class="text-red-500 font-bold">Error:</span> ${escapeHtml(e.message)}`);
                     setStatusBadge("Listing failed", "error");
+                } finally {
                     btnGenerateListing.disabled = false;
+                    btnSubmitListing.disabled = false;
                 }
             });
 
+            // --- Redo modal (replaces window.prompt for nicer UX) ---
+            const redoModal = document.getElementById('redo-modal');
+            const redoModalTitle = document.getElementById('redo-modal-title');
+            const redoModalContext = document.getElementById('redo-modal-context');
+            const redoModalClose = document.getElementById('redo-modal-close');
+            const redoModalCancel = document.getElementById('redo-modal-cancel');
+            const redoModalSubmit = document.getElementById('redo-modal-submit');
+            let redoModalResolver = null;
+
+            function openRedoModal(partLabel) {
+                redoModalTitle.textContent = `Redo ${partLabel}`;
+                redoModalContext.value = '';
+                redoModal.classList.remove('hidden');
+                setTimeout(() => redoModalContext.focus(), 50);
+                return new Promise((resolve) => { redoModalResolver = resolve; });
+            }
+            function closeRedoModal(value) {
+                redoModal.classList.add('hidden');
+                if(redoModalResolver) {
+                    const r = redoModalResolver;
+                    redoModalResolver = null;
+                    r(value);
+                }
+            }
+            redoModalClose.addEventListener('click', () => closeRedoModal(null));
+            redoModalCancel.addEventListener('click', () => closeRedoModal(null));
+            redoModalSubmit.addEventListener('click', () => closeRedoModal(redoModalContext.value || ''));
+            redoModal.addEventListener('click', (e) => { if(e.target === redoModal) closeRedoModal(null); });
+            redoModalContext.addEventListener('keydown', (e) => {
+                if((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                    e.preventDefault();
+                    closeRedoModal(redoModalContext.value || '');
+                } else if(e.key === 'Escape') {
+                    e.preventDefault();
+                    closeRedoModal(null);
+                }
+            });
+
+            async function redoListingPart(part) {
+                if(!state.jobId) return;
+                const partLabel = part === 'description' ? 'description' : part === 'subtitles' ? 'subtitle ideas' : 'categories';
+                const ctx = await openRedoModal(partLabel);
+                // null = user cancelled
+                if(ctx === null) return;
+                const ctxTrim = ctx.trim();
+
+                let userMsg = `<i class="fas fa-redo mr-1"></i> Redo ${partLabel}`;
+                if(ctxTrim) userMsg += `<p class="mt-2 text-xs text-amber-700"><i class="fas fa-pencil-alt mr-1"></i> Context: "${escapeHtml(ctxTrim)}"</p>`;
+                addMessage('user', userMsg);
+                currentLogBox = null;
+                state.cursor = 0;
+                setStatusBadge(`Redoing ${partLabel}...`, "running");
+
+                try {
+                    const res = await fetch(`/api/jobs/${state.jobId}/redo-listing`, {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({part: part, extra_context: ctxTrim})
+                    });
+                    if(!res.ok) {
+                        const data = await res.json();
+                        throw new Error(data.error);
+                    }
+                    await pollUntilDoneAndRefreshListing();
+                } catch(e) {
+                    addMessage('bot', `<span class="text-red-500 font-bold">Error:</span> ${escapeHtml(e.message)}`);
+                    setStatusBadge("Redo failed", "error");
+                }
+            }
+            // Expose for inline onclick handlers in the listing result card
+            window.redoListingPart = redoListingPart;
+
             function showListingResult(listing) {
+                const redoBtnAmber = `<button onclick="window.redoListingPart('subtitles')" class="ml-2 px-2 py-0.5 text-xs bg-white border border-amber-200 text-amber-700 hover:bg-amber-100 rounded-md font-medium transition" title="Regenerate with extra guidance"><i class="fas fa-redo mr-1"></i>Redo with prompt</button>`;
+                const redoBtnBlue = `<button onclick="window.redoListingPart('description')" class="ml-2 px-2 py-0.5 text-xs bg-white border border-blue-200 text-blue-700 hover:bg-blue-100 rounded-md font-medium transition" title="Regenerate with extra guidance"><i class="fas fa-redo mr-1"></i>Redo with prompt</button>`;
+                const redoBtnGreen = `<button onclick="window.redoListingPart('categories')" class="ml-2 px-2 py-0.5 text-xs bg-white border border-green-200 text-green-700 hover:bg-green-100 rounded-md font-medium transition" title="Regenerate with extra guidance"><i class="fas fa-redo mr-1"></i>Redo with prompt</button>`;
+
                 let html = `<div class="space-y-4">`;
                 html += `<h3 class="text-lg font-bold text-gray-900"><i class="fas fa-clipboard-list text-amber-500 mr-2"></i>Publishing Listing — ${escapeHtml(listing.title)}</h3>`;
 
                 // Subtitles
-                html += `<div class="bg-amber-50 rounded-xl p-4"><h4 class="font-semibold text-amber-800 text-sm mb-2"><i class="fas fa-heading mr-1"></i> Subtitle Ideas</h4><ol class="list-decimal ml-5 space-y-1 text-sm text-gray-700">`;
+                html += `<div class="bg-amber-50 rounded-xl p-4"><div class="flex items-center justify-between mb-2"><h4 class="font-semibold text-amber-800 text-sm"><i class="fas fa-heading mr-1"></i> Subtitle Ideas</h4>${redoBtnAmber}</div><ol class="list-decimal ml-5 space-y-1 text-sm text-gray-700">`;
                 (listing.subtitles || []).forEach(s => { html += `<li>${escapeHtml(s)}</li>`; });
                 html += `</ol></div>`;
 
                 // Description
-                html += `<div class="bg-blue-50 rounded-xl p-4"><h4 class="font-semibold text-blue-800 text-sm mb-2"><i class="fas fa-align-left mr-1"></i> Book Description</h4><p class="text-sm text-gray-700 whitespace-pre-wrap">${escapeHtml(listing.description || '')}</p>`;
+                html += `<div class="bg-blue-50 rounded-xl p-4"><div class="flex items-center justify-between mb-2"><h4 class="font-semibold text-blue-800 text-sm"><i class="fas fa-align-left mr-1"></i> Book Description</h4>${redoBtnBlue}</div><p class="text-sm text-gray-700 whitespace-pre-wrap">${escapeHtml(listing.description || '')}</p>`;
                 const wc = (listing.description || '').split(/\s+/).filter(Boolean).length;
                 html += `<p class="text-xs text-gray-400 mt-2">${wc} words</p></div>`;
 
-                // Ebook categories
-                html += `<div class="bg-green-50 rounded-xl p-4"><h4 class="font-semibold text-green-800 text-sm mb-2"><i class="fas fa-tags mr-1"></i> Ebook Categories (Kindle)</h4><ol class="list-decimal ml-5 space-y-1 text-sm text-gray-700">`;
+                // Ebook categories (redo regenerates both ebook + paperback)
+                html += `<div class="bg-green-50 rounded-xl p-4"><div class="flex items-center justify-between mb-2"><h4 class="font-semibold text-green-800 text-sm"><i class="fas fa-tags mr-1"></i> Ebook Categories (Kindle)</h4>${redoBtnGreen}</div><ol class="list-decimal ml-5 space-y-1 text-sm text-gray-700">`;
                 (listing.ebook_categories || []).forEach(c => { html += `<li>${escapeHtml(c)}</li>`; });
                 if(!listing.ebook_categories || listing.ebook_categories.length === 0) html += `<li class="text-gray-400">None selected</li>`;
                 html += `</ol></div>`;
 
-                // Paperback categories
+                // Paperback categories (no separate redo — categories redo handles both)
                 html += `<div class="bg-purple-50 rounded-xl p-4"><h4 class="font-semibold text-purple-800 text-sm mb-2"><i class="fas fa-book mr-1"></i> Paperback Categories</h4><ol class="list-decimal ml-5 space-y-1 text-sm text-gray-700">`;
                 (listing.paperback_categories || []).forEach(c => { html += `<li>${escapeHtml(c)}</li>`; });
                 if(!listing.paperback_categories || listing.paperback_categories.length === 0) html += `<li class="text-gray-400">None selected</li>`;
@@ -1188,5 +1316,45 @@
             });
         });
     </script>
+
+    <!-- Redo listing modal -->
+    <div id="redo-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden transform transition-all">
+            <div class="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-amber-50 to-white flex items-center justify-between">
+                <h3 class="font-semibold text-gray-800 text-base">
+                    <i class="fas fa-redo text-amber-500 mr-2"></i>
+                    <span id="redo-modal-title">Redo</span>
+                </h3>
+                <button id="redo-modal-close" class="text-gray-400 hover:text-gray-700 transition" aria-label="Close">
+                    <i class="fas fa-times text-lg"></i>
+                </button>
+            </div>
+            <div class="px-5 py-4">
+                <label for="redo-modal-context" class="block text-xs font-semibold text-gray-600 mb-1">
+                    <i class="fas fa-pencil-alt text-amber-400 mr-1"></i>
+                    Extra Guidance <span class="font-normal text-gray-400">(optional)</span>
+                </label>
+                <textarea id="redo-modal-context" rows="4"
+                    class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-300 resize-none placeholder-gray-400"
+                    placeholder="e.g. &quot;this is a kids' book for ages 7-10, keep the tone playful&quot;"></textarea>
+                <div class="mt-3 text-xs text-gray-500 space-y-1">
+                    <p class="font-semibold text-gray-600">Examples:</p>
+                    <ul class="list-disc ml-5 space-y-0.5">
+                        <li>"this is a kids' book for ages 7-10, keep the tone playful"</li>
+                        <li>"make it more emotional and inspiring"</li>
+                        <li>"target audience: new parents"</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="px-5 py-3 bg-gray-50 border-t border-gray-100 flex justify-end gap-2">
+                <button id="redo-modal-cancel" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 hover:bg-gray-100 rounded-xl transition">
+                    Cancel
+                </button>
+                <button id="redo-modal-submit" class="px-5 py-2 text-sm font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-sm transition">
+                    <i class="fas fa-redo mr-1"></i> Redo
+                </button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

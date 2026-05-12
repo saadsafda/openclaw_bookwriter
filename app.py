@@ -669,7 +669,7 @@ def rewrite_paragraphs(job_id: str) -> Any:
     return jsonify({"ok": True, "queued": len(normalized)})
 
 
-def _run_generate_listing(job_id: str, title_override: str) -> None:
+def _run_generate_listing(job_id: str, title_override: str, extra_context: str = "") -> None:
     job = _get_job(job_id)
 
     with job.lock:
@@ -678,6 +678,8 @@ def _run_generate_listing(job_id: str, title_override: str) -> None:
 
     _set_status(job, "running", action="generating_listing", error="")
     _append_log(job, "Starting publishing listing generation...")
+    if extra_context.strip():
+        _append_log(job, f"Using author guidance: {extra_context.strip()[:200]}")
 
     try:
         title = title_override or base_cfg.get("title_placeholder", "")
@@ -691,6 +693,7 @@ def _run_generate_listing(job_id: str, title_override: str) -> None:
             agent_id="pub-listing-agent-1",
             timeout_s=base_cfg.get("timeout", 180),
             callback=_progress,
+            extra_context=extra_context,
         )
 
         listing_data = {
@@ -722,6 +725,7 @@ def generate_listing(job_id: str) -> Any:
     job = _get_job(job_id)
     payload = request.get_json(silent=True) or {}
     title_override = str(payload.get("title", "")).strip()
+    extra_context = str(payload.get("extra_context", "")).strip()
 
     with job.lock:
         if job.status == "running":
@@ -731,7 +735,96 @@ def generate_listing(job_id: str) -> Any:
     if not final_doc.exists():
         return jsonify({"error": "Final document not found. Generate the book first."}), 400
 
-    t = threading.Thread(target=_run_generate_listing, args=(job_id, title_override), daemon=True)
+    t = threading.Thread(
+        target=_run_generate_listing,
+        args=(job_id, title_override, extra_context),
+        daemon=True,
+    )
+    t.start()
+    return jsonify({"ok": True})
+
+
+def _run_redo_listing_part(job_id: str, part: str, extra_context: str) -> None:
+    """Regenerate just one part of the listing (description, subtitles, or categories)."""
+    job = _get_job(job_id)
+
+    with job.lock:
+        final_doc = Path(job.final_docx or job.output_docx)
+        base_cfg = dict(job.config)
+        existing = dict(job.listing or {})
+
+    _set_status(job, "running", action=f"redo_listing_{part}", error="")
+    _append_log(job, f"Redoing {part} with new guidance...")
+    if extra_context.strip():
+        _append_log(job, f"Author guidance: {extra_context.strip()[:200]}")
+
+    try:
+        # Pull fresh outline/intro from the finished doc
+        doc_title, outline, intro = pub_listing_agent._extract_outline_and_intro(final_doc)
+        title = existing.get("title") or doc_title or base_cfg.get("title_placeholder", "") or "Untitled Book"
+        timeout_s = base_cfg.get("timeout", 180)
+        agent_id = "pub-listing-agent-1"
+
+        updated = dict(existing)
+        updated["title"] = title
+
+        if part == "description":
+            description, _raw = pub_listing_agent.generate_description(
+                title, outline, intro, agent_id, timeout_s, extra_context=extra_context
+            )
+            updated["description"] = description
+            _append_log(job, f"New description: {len(description.split())} words")
+        elif part == "subtitles":
+            subtitles, _raw = pub_listing_agent.generate_subtitles(
+                title, outline, intro, agent_id, timeout_s, extra_context=extra_context
+            )
+            updated["subtitles"] = subtitles
+            _append_log(job, f"New subtitles: {len(subtitles)} ideas")
+        elif part == "categories":
+            ebook_cats, pb_cats, _raw = pub_listing_agent.select_categories(
+                title, outline, intro, agent_id, timeout_s, extra_context=extra_context
+            )
+            updated["ebook_categories"] = ebook_cats
+            updated["paperback_categories"] = pb_cats
+            _append_log(job, f"New categories: {len(ebook_cats)} ebook, {len(pb_cats)} paperback")
+        else:
+            raise ValueError(f"Unknown listing part: {part}")
+
+        with job.lock:
+            job.listing = updated
+
+        _append_log(job, f"Redo of {part} complete.")
+        _set_status(job, "success", action="", error="")
+        _sync_job_to_db(job)
+    except Exception as exc:
+        _append_log(job, f"ERROR: {exc}")
+        _set_status(job, "error", action="", error=str(exc))
+        _sync_job_to_db(job)
+
+
+@app.post("/api/jobs/<job_id>/redo-listing")
+def redo_listing(job_id: str) -> Any:
+    job = _get_job(job_id)
+    payload = request.get_json(silent=True) or {}
+    part = str(payload.get("part", "")).strip().lower()
+    extra_context = str(payload.get("extra_context", "")).strip()
+
+    if part not in {"description", "subtitles", "categories"}:
+        return jsonify({"error": "part must be one of: description, subtitles, categories"}), 400
+
+    with job.lock:
+        if job.status == "running":
+            return jsonify({"error": "Job is busy. Wait for current task to finish."}), 409
+        final_doc = Path(job.final_docx)
+
+    if not final_doc.exists():
+        return jsonify({"error": "Final document not found. Generate the book first."}), 400
+
+    t = threading.Thread(
+        target=_run_redo_listing_part,
+        args=(job_id, part, extra_context),
+        daemon=True,
+    )
     t.start()
     return jsonify({"ok": True})
 
