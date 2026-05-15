@@ -35,14 +35,19 @@
                 <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold shadow-md">OC</div>
                 <h1 class="text-lg font-bold text-white">BookWriter</h1>
             </div>
-            <div class="relative group">
-                <button id="btn-new-book" class="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition" aria-label="Start a new book">
-                    <i class="fas fa-plus"></i>
-                </button>
-                <div role="tooltip" class="pointer-events-none absolute left-1/2 -translate-x-1/2 top-full mt-2 z-50 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150 whitespace-nowrap bg-gray-900 text-white text-xs font-medium px-2.5 py-1.5 rounded-md shadow-lg border border-gray-700">
-                    Start a new book
-                    <div class="text-[10px] text-gray-400 font-normal mt-0.5">Clear the workspace and upload a new .docx</div>
-                    <div class="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 border-l border-t border-gray-700 rotate-45"></div>
+            <div class="flex items-center gap-1">
+                <a href="/qr-code" class="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition" title="QR Code Generator" aria-label="QR Code Generator">
+                    <i class="fas fa-qrcode"></i>
+                </a>
+                <div class="relative group">
+                    <button id="btn-new-book" class="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition" aria-label="Start a new book">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                    <div role="tooltip" class="pointer-events-none absolute left-1/2 -translate-x-1/2 top-full mt-2 z-50 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150 whitespace-nowrap bg-gray-900 text-white text-xs font-medium px-2.5 py-1.5 rounded-md shadow-lg border border-gray-700">
+                        Start a new book
+                        <div class="text-[10px] text-gray-400 font-normal mt-0.5">Clear the workspace and upload a new .docx</div>
+                        <div class="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 border-l border-t border-gray-700 rotate-45"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -172,10 +177,13 @@
                 </div>
             </div>
             
-            <div id="downloadLinks" class="hidden flex gap-2">
+            <div id="downloadLinks" class="hidden flex gap-2 items-center">
                 <a id="downloadInput" href="#" class="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition shadow-sm text-sm font-medium" title="Original layout file">
                     <i class="fas fa-file-word mr-1"></i> Input
                 </a>
+                <button id="btnAttachQr" type="button" class="px-3 py-2 bg-gradient-to-r from-indigo-500 to-pink-500 text-white rounded-lg hover:opacity-90 transition shadow-sm text-sm font-medium" title="Attach a saved QR code to the last page">
+                    <i class="fas fa-qrcode mr-1"></i> Attach QR
+                </button>
                  <a id="downloadFinal" href="#" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow-sm text-sm font-medium">
                     <i class="fas fa-download mr-1"></i> Final File
                 </a>
@@ -187,6 +195,48 @@
                 </a>
             </div>
         </header>
+
+        <!-- QR attach modal -->
+        <div id="qrModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden">
+                <div class="flex items-start justify-between p-5 border-b border-gray-100">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                            <i class="fas fa-qrcode text-indigo-500"></i> Attach QR code to last page
+                        </h3>
+                        <p class="text-xs text-gray-500 mt-1">Pick a saved QR code. It will be appended to the final document under a “Scan this QR code” heading.</p>
+                    </div>
+                    <button id="qrModalClose" class="text-gray-400 hover:text-gray-700 p-1" aria-label="Close">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="px-5 pt-4">
+                    <label class="block text-xs font-medium text-gray-500 mb-1">Heading text</label>
+                    <input id="qrHeadingInput" type="text" value="Scan this QR code"
+                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div class="flex-1 overflow-y-auto p-5 custom-scrollbar">
+                    <div id="qrPickerGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                        <div id="qrPickerEmpty" class="col-span-full text-center py-12 text-sm text-gray-500">
+                            <i class="fas fa-folder-open text-3xl text-gray-300 block mb-2"></i>
+                            Loading saved QR codes…
+                        </div>
+                    </div>
+                </div>
+                <div class="border-t border-gray-100 px-5 py-3 flex items-center justify-between bg-gray-50">
+                    <a href="/qr-code" target="_blank" class="text-xs text-indigo-600 hover:underline">
+                        <i class="fas fa-plus mr-1"></i> Create new QR code
+                    </a>
+                    <div class="flex gap-2">
+                        <button id="qrModalCancel" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
+                        <button id="qrModalAttach" disabled
+                            class="px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-indigo-500 to-pink-500 rounded-lg hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2">
+                            <span id="qrAttachLabel"><i class="fas fa-check mr-1"></i> Attach selected</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <div id="chat-container" class="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar scroll-smooth relative">
             <div class="max-w-4xl mx-auto space-y-6 pb-32" id="chat-messages">
@@ -1314,6 +1364,121 @@
                     setStatusBadge("Rewrite failed", "error");
                 }
             });
+
+            // ----- Attach QR code modal -----
+            const qrModal = document.getElementById("qrModal");
+            const qrPickerGrid = document.getElementById("qrPickerGrid");
+            const qrPickerEmpty = document.getElementById("qrPickerEmpty");
+            const qrHeadingInput = document.getElementById("qrHeadingInput");
+            const btnAttachQr = document.getElementById("btnAttachQr");
+            const qrModalClose = document.getElementById("qrModalClose");
+            const qrModalCancel = document.getElementById("qrModalCancel");
+            const qrModalAttach = document.getElementById("qrModalAttach");
+            const qrAttachLabel = document.getElementById("qrAttachLabel");
+            let qrSelectedId = null;
+
+            function openQrModal() {
+                if (!state.jobId) {
+                    addMessage("bot", `<span class="text-red-500">No active book to attach a QR to.</span>`);
+                    return;
+                }
+                qrSelectedId = null;
+                qrModalAttach.disabled = true;
+                qrAttachLabel.innerHTML = '<i class="fas fa-check mr-1"></i> Attach selected';
+                qrModal.classList.remove("hidden");
+                loadQrLibrary();
+            }
+            function closeQrModal() { qrModal.classList.add("hidden"); }
+
+            async function loadQrLibrary() {
+                qrPickerEmpty.innerHTML = '<i class="fas fa-circle-notch fa-spin text-2xl text-gray-300 block mb-2"></i> Loading saved QR codes…';
+                qrPickerEmpty.classList.remove("hidden");
+                qrPickerGrid.querySelectorAll('[data-qr-id]').forEach(n => n.remove());
+                try {
+                    const r = await fetch("/api/qr-codes");
+                    if (!r.ok) throw new Error("Failed to load");
+                    const data = await r.json();
+                    const items = data.items || [];
+                    if (!items.length) {
+                        qrPickerEmpty.innerHTML = `
+                            <i class="fas fa-folder-open text-3xl text-gray-300 block mb-2"></i>
+                            <p>No saved QR codes yet.</p>
+                            <a href="/qr-code" target="_blank" class="inline-block mt-2 text-indigo-600 hover:underline">
+                                <i class="fas fa-plus mr-1"></i> Create one
+                            </a>`;
+                        return;
+                    }
+                    qrPickerEmpty.classList.add("hidden");
+                    const frag = document.createDocumentFragment();
+                    for (const it of items) {
+                        const tile = document.createElement("button");
+                        tile.type = "button";
+                        tile.dataset.qrId = it.id;
+                        tile.className = "group relative text-left rounded-xl border-2 border-gray-200 hover:border-indigo-400 bg-white p-2 transition focus:outline-none focus:ring-2 focus:ring-indigo-400";
+                        tile.innerHTML = `
+                            <div class="aspect-square rounded-lg bg-white p-1 mb-1.5 flex items-center justify-center overflow-hidden">
+                                <img src="${it.data_url}" alt="" class="max-w-full max-h-full">
+                            </div>
+                            <div class="text-xs font-semibold text-gray-800 truncate" title="${escapeHtml(it.label)}">${escapeHtml(it.label)}</div>
+                            <div class="text-[10px] text-gray-500 truncate" title="${escapeHtml(it.content)}">${escapeHtml(it.content)}</div>
+                            <div class="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-indigo-500 text-white text-[10px] flex items-center justify-center opacity-0 transition" data-check>
+                                <i class="fas fa-check"></i>
+                            </div>`;
+                        tile.addEventListener("click", () => {
+                            qrSelectedId = it.id;
+                            qrPickerGrid.querySelectorAll('[data-qr-id]').forEach(n => {
+                                n.classList.remove("border-indigo-500", "ring-2", "ring-indigo-300");
+                                n.classList.add("border-gray-200");
+                                const chk = n.querySelector('[data-check]');
+                                if (chk) chk.classList.add("opacity-0");
+                            });
+                            tile.classList.remove("border-gray-200");
+                            tile.classList.add("border-indigo-500", "ring-2", "ring-indigo-300");
+                            tile.querySelector('[data-check]').classList.remove("opacity-0");
+                            qrModalAttach.disabled = false;
+                        });
+                        frag.appendChild(tile);
+                    }
+                    qrPickerGrid.appendChild(frag);
+                } catch (e) {
+                    qrPickerEmpty.innerHTML = `<span class="text-red-500">${escapeHtml(e.message)}</span>`;
+                }
+            }
+
+            qrModalAttach.addEventListener("click", async () => {
+                if (!qrSelectedId || !state.jobId) return;
+                qrModalAttach.disabled = true;
+                qrAttachLabel.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Attaching…';
+                try {
+                    const heading = qrHeadingInput.value.trim() || "Scan this QR code";
+                    const res = await fetch(`/api/jobs/${state.jobId}/attach-qr`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ qr_id: qrSelectedId, heading }),
+                    });
+                    if (!res.ok) {
+                        const err = await res.json().catch(() => ({}));
+                        throw new Error(err.error || "Attach failed");
+                    }
+                    closeQrModal();
+                    addMessage("bot", `<span class="text-emerald-600 font-semibold"><i class="fas fa-check-circle mr-1"></i> QR code attached to last page.</span><br><span class="text-xs text-gray-500">Final, Kindle and Paperback files have been refreshed — download again to get the updated copies.</span>`);
+                    // Cache-bust the download links by appending a timestamp
+                    const ts = Date.now();
+                    document.getElementById("downloadFinal").href = `/api/jobs/${state.jobId}/download/final?t=${ts}`;
+                    document.getElementById("downloadKindle").href = `/api/jobs/${state.jobId}/download/kindle?t=${ts}`;
+                    document.getElementById("downloadPaperback").href = `/api/jobs/${state.jobId}/download/paperback?t=${ts}`;
+                } catch (e) {
+                    addMessage("bot", `<span class="text-red-500 font-bold">Error:</span> ${escapeHtml(e.message)}`);
+                } finally {
+                    qrModalAttach.disabled = false;
+                    qrAttachLabel.innerHTML = '<i class="fas fa-check mr-1"></i> Attach selected';
+                }
+            });
+
+            btnAttachQr.addEventListener("click", openQrModal);
+            qrModalClose.addEventListener("click", closeQrModal);
+            qrModalCancel.addEventListener("click", closeQrModal);
+            qrModal.addEventListener("click", (e) => { if (e.target === qrModal) closeQrModal(); });
         });
     </script>
 

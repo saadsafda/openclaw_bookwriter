@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full antialiased">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Code Generator · OpenClaw</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', system-ui, sans-serif; }
+        .bg-mesh {
+            background-color: #05060a;
+            background-image:
+                radial-gradient(at 18% 12%, rgba(99, 102, 241, 0.28) 0px, transparent 50%),
+                radial-gradient(at 82% 18%, rgba(236, 72, 153, 0.22) 0px, transparent 50%),
+                radial-gradient(at 50% 90%, rgba(14, 165, 233, 0.22) 0px, transparent 55%);
+        }
+        .glass {
+            background: rgba(15, 17, 26, 0.65);
+            backdrop-filter: blur(18px) saturate(160%);
+            -webkit-backdrop-filter: blur(18px) saturate(160%);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .glass-light {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .field {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: #e5e7eb;
+            transition: all 0.15s ease;
+        }
+        .field:focus {
+            outline: none;
+            border-color: rgba(99, 102, 241, 0.6);
+            background: rgba(99, 102, 241, 0.06);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+        }
+        .chip {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            transition: all 0.15s ease;
+        }
+        .chip:hover { background: rgba(255, 255, 255, 0.08); }
+        .chip.active {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(236, 72, 153, 0.18));
+            border-color: rgba(129, 140, 248, 0.6);
+            color: #fff;
+            box-shadow: 0 0 0 1px rgba(129, 140, 248, 0.3), 0 8px 24px -8px rgba(99, 102, 241, 0.5);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+            background-size: 200% 200%;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 30px -10px rgba(139, 92, 246, 0.6);
+        }
+        .btn-primary:hover {
+            background-position: 100% 0;
+            transform: translateY(-1px);
+            box-shadow: 0 14px 36px -10px rgba(139, 92, 246, 0.75);
+        }
+        .btn-primary:active { transform: translateY(0); }
+        .btn-ghost {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.15s ease;
+        }
+        .btn-ghost:hover { background: rgba(255, 255, 255, 0.1); }
+        .qr-preview-wrap {
+            background:
+                linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(236, 72, 153, 0.1)),
+                repeating-conic-gradient(rgba(255,255,255,0.03) 0 25%, transparent 0 50%) 50% / 24px 24px;
+        }
+        .swatch {
+            width: 28px; height: 28px; border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.15);
+            cursor: pointer; transition: transform .15s ease;
+        }
+        .swatch:hover { transform: scale(1.08); }
+        .swatch.active { box-shadow: 0 0 0 2px #fff, 0 0 0 4px rgba(99,102,241,0.6); }
+        input[type="color"] {
+            -webkit-appearance: none;
+            appearance: none;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+        }
+        input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+        input[type="color"]::-webkit-color-swatch { border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; }
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: rgba(255,255,255,0.08);
+            height: 4px;
+            border-radius: 999px;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px; height: 16px;
+            background: linear-gradient(135deg, #6366f1, #ec4899);
+            border-radius: 999px;
+            cursor: pointer;
+            box-shadow: 0 0 0 4px rgba(99,102,241,0.15);
+        }
+        .scroll-thin::-webkit-scrollbar { width: 6px; }
+        .scroll-thin::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 999px; }
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .fade-up { animation: fadeUp .35s ease both; }
+        .pulse-dot {
+            width: 8px; height: 8px; border-radius: 999px; background: #34d399;
+            box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.6);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.5); }
+            70% { box-shadow: 0 0 0 10px rgba(52, 211, 153, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+        }
+    </style>
+</head>
+<body class="bg-mesh min-h-full text-gray-200">
+
+    <!-- Top nav -->
+    <header class="sticky top-0 z-30 glass border-b border-white/5">
+        <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center font-extrabold text-white shadow-lg">OC</div>
+                <div>
+                    <div class="text-sm font-semibold text-white leading-tight">OpenClaw</div>
+                    <div class="text-[11px] text-gray-400 leading-tight">QR Code Studio</div>
+                </div>
+            </div>
+            <nav class="flex items-center gap-1 text-sm">
+                <a href="/" class="px-3 py-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition">
+                    <i class="fas fa-book-open mr-1.5 text-xs"></i> BookWriter
+                </a>
+                <a href="/qr-code" class="px-3 py-1.5 rounded-lg bg-white/5 text-white border border-white/10">
+                    <i class="fas fa-qrcode mr-1.5 text-xs"></i> QR Code
+                </a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-6 py-10">
+
+        <!-- Hero -->
+        <section class="text-center mb-10 fade-up">
+            <h1 class="text-4xl md:text-5xl font-extrabold text-white tracking-tight">
+                Create
+                <span class="bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">QR codes</span>
+            </h1>
+            <p class="mt-3 text-gray-400 max-w-xl mx-auto">
+                Customize colors, shapes, and error-correction. Download high-resolution PNGs ready for print or screen.
+            </p>
+        </section>
+
+        <!-- App grid -->
+        <section class="grid grid-cols-1 lg:grid-cols-5 gap-6 fade-up">
+
+            <!-- Left: Form -->
+            <div class="lg:col-span-3 glass rounded-3xl p-6 md:p-8 shadow-2xl">
+
+                <!-- Type chips -->
+                <div class="mb-5">
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="text-xs font-semibold uppercase tracking-wider text-gray-400">Content type</label>
+                        <span id="type-hint" class="text-[11px] text-gray-500">Paste a URL to begin</span>
+                    </div>
+                    <div id="type-chips" class="flex flex-wrap gap-2">
+                        <button type="button" data-type="url" class="chip active px-3 py-1.5 rounded-xl text-sm flex items-center gap-1.5">
+                            <i class="fas fa-link text-xs"></i> URL
+                        </button>
+                        <button type="button" data-type="text" class="chip px-3 py-1.5 rounded-xl text-sm flex items-center gap-1.5">
+                            <i class="fas fa-align-left text-xs"></i> Text
+                        </button>
+                        <button type="button" data-type="email" class="chip px-3 py-1.5 rounded-xl text-sm flex items-center gap-1.5">
+                            <i class="fas fa-envelope text-xs"></i> Email
+                        </button>
+                        <button type="button" data-type="phone" class="chip px-3 py-1.5 rounded-xl text-sm flex items-center gap-1.5">
+                            <i class="fas fa-phone text-xs"></i> Phone
+                        </button>
+                        <button type="button" data-type="sms" class="chip px-3 py-1.5 rounded-xl text-sm flex items-center gap-1.5">
+                            <i class="fas fa-comment-sms text-xs"></i> SMS
+                        </button>
+                        <button type="button" data-type="wifi" class="chip px-3 py-1.5 rounded-xl text-sm flex items-center gap-1.5">
+                            <i class="fas fa-wifi text-xs"></i> Wi-Fi
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Generic content -->
+                <div id="panel-generic" class="space-y-2 mb-6">
+                    <label id="generic-label" class="text-xs font-semibold uppercase tracking-wider text-gray-400">URL</label>
+                    <input id="generic-input" type="text" placeholder="https://example.com"
+                        class="field w-full rounded-xl px-4 py-3 text-sm" />
+                </div>
+
+                <!-- Wi-Fi panel -->
+                <div id="panel-wifi" class="hidden space-y-3 mb-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div class="space-y-1">
+                            <label class="text-xs font-semibold uppercase tracking-wider text-gray-400">Network name (SSID)</label>
+                            <input id="wifi-ssid" class="field w-full rounded-xl px-4 py-3 text-sm" placeholder="MyWifi" />
+                        </div>
+                        <div class="space-y-1">
+                            <label class="text-xs font-semibold uppercase tracking-wider text-gray-400">Password</label>
+                            <input id="wifi-password" type="text" class="field w-full rounded-xl px-4 py-3 text-sm" placeholder="••••••••" />
+                        </div>
+                        <div class="space-y-1">
+                            <label class="text-xs font-semibold uppercase tracking-wider text-gray-400">Encryption</label>
+                            <select id="wifi-encryption" class="field w-full rounded-xl px-4 py-3 text-sm">
+                                <option value="WPA">WPA / WPA2</option>
+                                <option value="WEP">WEP</option>
+                                <option value="nopass">No password</option>
+                            </select>
+                        </div>
+                        <div class="space-y-1 flex items-end">
+                            <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                                <input id="wifi-hidden" type="checkbox" class="rounded">
+                                Hidden network
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Style section -->
+                <div class="border-t border-white/5 pt-6">
+                    <h3 class="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                        <i class="fas fa-palette text-indigo-400"></i> Style
+                    </h3>
+
+                    <!-- Module style -->
+                    <div class="mb-5">
+                        <label class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2 block">Pattern</label>
+                        <div id="style-chips" class="grid grid-cols-3 md:grid-cols-6 gap-2">
+                            <button type="button" data-style="square" class="chip active rounded-xl p-3 text-xs flex flex-col items-center gap-1">
+                                <i class="fas fa-th text-base"></i> Square
+                            </button>
+                            <button type="button" data-style="rounded" class="chip rounded-xl p-3 text-xs flex flex-col items-center gap-1">
+                                <i class="fas fa-square text-base"></i> Rounded
+                            </button>
+                            <button type="button" data-style="circle" class="chip rounded-xl p-3 text-xs flex flex-col items-center gap-1">
+                                <i class="fas fa-circle text-base"></i> Dots
+                            </button>
+                            <button type="button" data-style="gapped" class="chip rounded-xl p-3 text-xs flex flex-col items-center gap-1">
+                                <i class="fas fa-border-all text-base"></i> Gapped
+                            </button>
+                            <button type="button" data-style="vertical" class="chip rounded-xl p-3 text-xs flex flex-col items-center gap-1">
+                                <i class="fas fa-grip-lines-vertical text-base"></i> Bars V
+                            </button>
+                            <button type="button" data-style="horizontal" class="chip rounded-xl p-3 text-xs flex flex-col items-center gap-1">
+                                <i class="fas fa-grip-lines text-base"></i> Bars H
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Colors -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+                        <div>
+                            <label class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2 block">Foreground</label>
+                            <div class="flex items-center gap-3">
+                                <input id="fg-color" type="color" value="#111827" class="w-12 h-10 rounded-xl">
+                                <input id="fg-hex" type="text" value="#111827" maxlength="7"
+                                    class="field flex-1 rounded-xl px-3 py-2 text-sm font-mono uppercase">
+                            </div>
+                            <div class="mt-2 flex gap-1.5" data-target="fg">
+                                <button type="button" class="swatch" style="background:#111827" data-color="#111827"></button>
+                                <button type="button" class="swatch" style="background:#6366f1" data-color="#6366f1"></button>
+                                <button type="button" class="swatch" style="background:#ec4899" data-color="#ec4899"></button>
+                                <button type="button" class="swatch" style="background:#0ea5e9" data-color="#0ea5e9"></button>
+                                <button type="button" class="swatch" style="background:#10b981" data-color="#10b981"></button>
+                                <button type="button" class="swatch" style="background:#f59e0b" data-color="#f59e0b"></button>
+                                <button type="button" class="swatch" style="background:#ef4444" data-color="#ef4444"></button>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2 block">Background</label>
+                            <div class="flex items-center gap-3">
+                                <input id="bg-color" type="color" value="#ffffff" class="w-12 h-10 rounded-xl">
+                                <input id="bg-hex" type="text" value="#ffffff" maxlength="7"
+                                    class="field flex-1 rounded-xl px-3 py-2 text-sm font-mono uppercase">
+                            </div>
+                            <div class="mt-2 flex gap-1.5" data-target="bg">
+                                <button type="button" class="swatch" style="background:#ffffff" data-color="#ffffff"></button>
+                                <button type="button" class="swatch" style="background:#f3f4f6" data-color="#f3f4f6"></button>
+                                <button type="button" class="swatch" style="background:#fef3c7" data-color="#fef3c7"></button>
+                                <button type="button" class="swatch" style="background:#dbeafe" data-color="#dbeafe"></button>
+                                <button type="button" class="swatch" style="background:#fce7f3" data-color="#fce7f3"></button>
+                                <button type="button" class="swatch" style="background:#dcfce7" data-color="#dcfce7"></button>
+                                <button type="button" class="swatch" style="background:#000000" data-color="#000000"></button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sliders -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+                        <div>
+                            <div class="flex items-center justify-between mb-2">
+                                <label class="text-xs font-semibold uppercase tracking-wider text-gray-400">Resolution</label>
+                                <span id="box-size-val" class="text-xs text-gray-400 font-mono">12 px/module</span>
+                            </div>
+                            <input id="box-size" type="range" min="4" max="40" step="1" value="12" class="w-full">
+                        </div>
+                        <div>
+                            <div class="flex items-center justify-between mb-2">
+                                <label class="text-xs font-semibold uppercase tracking-wider text-gray-400">Margin</label>
+                                <span id="border-val" class="text-xs text-gray-400 font-mono">4 modules</span>
+                            </div>
+                            <input id="border" type="range" min="0" max="16" step="1" value="4" class="w-full">
+                        </div>
+                    </div>
+
+                    <!-- Error correction -->
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <label class="text-xs font-semibold uppercase tracking-wider text-gray-400">Error correction</label>
+                            <span class="text-[11px] text-gray-500">Higher = more durable, denser code</span>
+                        </div>
+                        <div id="ec-chips" class="grid grid-cols-4 gap-2">
+                            <button type="button" data-ec="L" class="chip rounded-xl py-2 text-sm">
+                                <div class="font-semibold">L</div>
+                                <div class="text-[10px] text-gray-500">~7%</div>
+                            </button>
+                            <button type="button" data-ec="M" class="chip active rounded-xl py-2 text-sm">
+                                <div class="font-semibold">M</div>
+                                <div class="text-[10px] text-gray-500">~15%</div>
+                            </button>
+                            <button type="button" data-ec="Q" class="chip rounded-xl py-2 text-sm">
+                                <div class="font-semibold">Q</div>
+                                <div class="text-[10px] text-gray-500">~25%</div>
+                            </button>
+                            <button type="button" data-ec="H" class="chip rounded-xl py-2 text-sm">
+                                <div class="font-semibold">H</div>
+                                <div class="text-[10px] text-gray-500">~30%</div>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Preview -->
+            <div class="lg:col-span-2">
+                <div class="glass rounded-3xl p-6 md:p-8 shadow-2xl sticky top-24">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-sm font-semibold text-white flex items-center gap-2">
+                            <i class="fas fa-eye text-indigo-400"></i> Live preview
+                        </h3>
+                        <span id="preview-status" class="text-[11px] text-gray-500">Ready</span>
+                    </div>
+
+                    <div class="qr-preview-wrap rounded-2xl p-4 flex items-center justify-center aspect-square mb-4 relative overflow-hidden">
+                        <div id="qr-empty" class="text-center px-6">
+                            <div class="w-16 h-16 mx-auto mb-3 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
+                                <i class="fas fa-qrcode text-3xl text-gray-500"></i>
+                            </div>
+                            <p class="text-sm text-gray-400">Your QR code will appear here</p>
+                            <p class="text-xs text-gray-600 mt-1">Add content to begin</p>
+                        </div>
+                        <img id="qr-image" alt="QR Code preview"
+                            class="hidden max-w-full max-h-full rounded-xl shadow-2xl ring-1 ring-white/10" />
+                        <div id="qr-spinner" class="hidden absolute inset-0 flex items-center justify-center bg-black/30 backdrop-blur-sm rounded-2xl">
+                            <div class="w-10 h-10 rounded-full border-2 border-white/20 border-t-indigo-400 animate-spin"></div>
+                        </div>
+                    </div>
+
+                    <div id="qr-meta" class="hidden glass-light rounded-xl px-3 py-2 mb-4 text-xs text-gray-400 grid grid-cols-2 gap-x-3 gap-y-1">
+                        <div class="flex justify-between"><span>Modules</span><span id="meta-modules" class="font-mono text-gray-200">—</span></div>
+                        <div class="flex justify-between"><span>File size</span><span id="meta-size" class="font-mono text-gray-200">—</span></div>
+                    </div>
+
+                    <div class="space-y-2">
+                        <button id="btn-save" disabled
+                            class="btn-primary w-full py-3 rounded-xl font-semibold text-white text-sm flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none">
+                            <i class="fas fa-bookmark"></i> Save to library
+                        </button>
+                        <button id="btn-download" disabled
+                            class="btn-ghost w-full py-2.5 rounded-xl font-medium text-gray-200 text-sm flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed">
+                            <i class="fas fa-download"></i> Download PNG
+                        </button>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button id="btn-copy" disabled
+                                class="btn-ghost py-2.5 rounded-xl text-sm font-medium text-gray-200 flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed">
+                                <i class="fas fa-copy text-xs"></i> Copy image
+                            </button>
+                            <button id="btn-reset"
+                                class="btn-ghost py-2.5 rounded-xl text-sm font-medium text-gray-200 flex items-center justify-center gap-2">
+                                <i class="fas fa-rotate-left text-xs"></i> Reset
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="toast" class="hidden mt-3 text-center text-xs px-3 py-2 rounded-lg"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Saved library -->
+        <section class="mt-10 fade-up">
+            <div class="flex items-end justify-between mb-4">
+                <div>
+                    <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                        <i class="fas fa-bookmark text-indigo-400 text-base"></i> Saved library
+                    </h2>
+                    <p class="text-xs text-gray-500 mt-0.5">QR codes saved here can be attached to any finished book.</p>
+                </div>
+                <span id="library-count" class="text-xs text-gray-500"></span>
+            </div>
+            <div id="library-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                <div id="library-empty" class="col-span-full glass rounded-2xl p-10 text-center text-sm text-gray-400">
+                    <i class="fas fa-folder-open text-2xl text-gray-600 mb-2 block"></i>
+                    Nothing saved yet. Create a QR code above and tap <span class="text-gray-200 font-medium">Save to library</span>.
+                </div>
+            </div>
+        </section>
+
+        <!-- Save modal -->
+        <div id="save-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div class="glass rounded-2xl w-full max-w-md p-6 shadow-2xl fade-up">
+                <h3 class="text-lg font-semibold text-white mb-1">Save QR code</h3>
+                <p class="text-xs text-gray-400 mb-4">Give it a name so you can find it later when attaching to a book.</p>
+                <div class="flex items-center gap-4 mb-4">
+                    <img id="save-preview" class="w-20 h-20 rounded-lg ring-1 ring-white/10 bg-white" alt="">
+                    <div class="text-xs text-gray-400 flex-1 break-all"><span class="block text-gray-500 mb-1">Encodes</span><span id="save-content"></span></div>
+                </div>
+                <label class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1 block">Label</label>
+                <input id="save-label" maxlength="80" class="field w-full rounded-xl px-4 py-3 text-sm" placeholder="e.g. Author website">
+                <div class="flex justify-end gap-2 mt-5">
+                    <button id="save-cancel" class="btn-ghost px-4 py-2 rounded-xl text-sm">Cancel</button>
+                    <button id="save-confirm" class="btn-primary px-4 py-2 rounded-xl text-sm font-semibold text-white">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- <footer class="mt-12 text-center text-xs text-gray-500">
+            Generated with <span class="text-gray-300">OpenClaw</span> · Free, private, and fast.
+        </footer> -->
+    </main>
+
+    <script>
+    (function () {
+        const $ = (id) => document.getElementById(id);
+        const state = {
+            type: "url",
+            style: "square",
+            ec: "M",
+            fg: "#111827",
+            bg: "#ffffff",
+            box: 12,
+            border: 4,
+            lastDataUrl: "",
+            debounceTimer: null,
+            inflight: null,
+        };
+
+        const typeChips = $("type-chips");
+        const styleChips = $("style-chips");
+        const ecChips = $("ec-chips");
+        const panelGeneric = $("panel-generic");
+        const panelWifi = $("panel-wifi");
+        const genericLabel = $("generic-label");
+        const genericInput = $("generic-input");
+        const typeHint = $("type-hint");
+        const fgColor = $("fg-color"), fgHex = $("fg-hex");
+        const bgColor = $("bg-color"), bgHex = $("bg-hex");
+        const boxSize = $("box-size"), boxSizeVal = $("box-size-val");
+        const borderEl = $("border"), borderVal = $("border-val");
+        const qrEmpty = $("qr-empty"), qrImage = $("qr-image"), qrSpinner = $("qr-spinner");
+        const qrMeta = $("qr-meta"), metaModules = $("meta-modules"), metaSize = $("meta-size");
+        const btnDownload = $("btn-download"), btnCopy = $("btn-copy"), btnReset = $("btn-reset");
+        const btnSave = $("btn-save");
+        const previewStatus = $("preview-status");
+        const toast = $("toast");
+        const libraryGrid = $("library-grid"), libraryEmpty = $("library-empty"), libraryCount = $("library-count");
+        const saveModal = $("save-modal"), savePreview = $("save-preview"), saveContent = $("save-content"),
+              saveLabel = $("save-label"), saveCancel = $("save-cancel"), saveConfirm = $("save-confirm");
+
+        const placeholders = {
+            url: { label: "URL", placeholder: "https://example.com", hint: "Paste a URL to begin" },
+            text: { label: "Text", placeholder: "Anything you'd like to encode…", hint: "Plain text, up to 2000 chars" },
+            email: { label: "Email address", placeholder: "you@example.com", hint: "Opens the user's mail app" },
+            phone: { label: "Phone number", placeholder: "+1 555 123 4567", hint: "Tap-to-call number" },
+            sms: { label: "Phone number", placeholder: "+1 555 123 4567", hint: "Opens the user's SMS app" },
+        };
+
+        function showToast(msg, kind) {
+            toast.textContent = msg;
+            toast.className = "mt-3 text-center text-xs px-3 py-2 rounded-lg";
+            if (kind === "error") toast.classList.add("bg-red-500/10", "text-red-300", "border", "border-red-500/30");
+            else toast.classList.add("bg-emerald-500/10", "text-emerald-300", "border", "border-emerald-500/30");
+            toast.classList.remove("hidden");
+            clearTimeout(showToast._t);
+            showToast._t = setTimeout(() => toast.classList.add("hidden"), 2200);
+        }
+
+        function setActive(container, attr, value) {
+            container.querySelectorAll("button").forEach(b => {
+                b.classList.toggle("active", b.dataset[attr] === value);
+            });
+        }
+
+        function switchType(type) {
+            state.type = type;
+            setActive(typeChips, "type", type);
+            if (type === "wifi") {
+                panelGeneric.classList.add("hidden");
+                panelWifi.classList.remove("hidden");
+                typeHint.textContent = "Encodes Wi-Fi credentials for one-tap join";
+            } else {
+                panelGeneric.classList.remove("hidden");
+                panelWifi.classList.add("hidden");
+                const p = placeholders[type] || placeholders.text;
+                genericLabel.textContent = p.label;
+                genericInput.placeholder = p.placeholder;
+                typeHint.textContent = p.hint;
+            }
+            scheduleGenerate();
+        }
+
+        function buildContent() {
+            const t = state.type;
+            if (t === "wifi") {
+                const ssid = $("wifi-ssid").value.trim();
+                const pwd = $("wifi-password").value;
+                const enc = $("wifi-encryption").value;
+                const hidden = $("wifi-hidden").checked;
+                if (!ssid) return "";
+                const escape = (s) => String(s).replace(/([\\;,":])/g, "\\$1");
+                const encField = enc === "nopass" ? "nopass" : enc;
+                const pwdField = enc === "nopass" ? "" : escape(pwd);
+                return `WIFI:T:${encField};S:${escape(ssid)};P:${pwdField};${hidden ? "H:true;" : ""};`;
+            }
+            const raw = genericInput.value.trim();
+            if (!raw) return "";
+            if (t === "email") return raw.startsWith("mailto:") ? raw : `mailto:${raw}`;
+            if (t === "phone") return raw.startsWith("tel:") ? raw : `tel:${raw.replace(/\s+/g, "")}`;
+            if (t === "sms") return raw.startsWith("sms:") ? raw : `sms:${raw.replace(/\s+/g, "")}`;
+            if (t === "url") {
+                if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) || raw.startsWith("mailto:")) return raw;
+                return `https://${raw}`;
+            }
+            return raw;
+        }
+
+        function setBusy(busy) {
+            qrSpinner.classList.toggle("hidden", !busy);
+            previewStatus.textContent = busy ? "Generating…" : (state.lastDataUrl ? "Ready" : "Empty");
+        }
+
+        function scheduleGenerate() {
+            clearTimeout(state.debounceTimer);
+            state.debounceTimer = setTimeout(generate, 250);
+        }
+
+        async function generate() {
+            const content = buildContent();
+            if (!content) {
+                state.lastDataUrl = "";
+                qrImage.classList.add("hidden");
+                qrEmpty.classList.remove("hidden");
+                qrMeta.classList.add("hidden");
+                btnDownload.disabled = true;
+                btnCopy.disabled = true;
+                btnSave.disabled = true;
+                previewStatus.textContent = "Empty";
+                return;
+            }
+            if (state.inflight) state.inflight.abort();
+            const controller = new AbortController();
+            state.inflight = controller;
+            setBusy(true);
+            try {
+                const res = await fetch("/api/qr-code", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        content,
+                        style: state.style,
+                        error_correction: state.ec,
+                        fg_color: state.fg,
+                        bg_color: state.bg,
+                        box_size: state.box,
+                        border: state.border,
+                    }),
+                    signal: controller.signal,
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({ error: "Generation failed" }));
+                    throw new Error(err.error || "Generation failed");
+                }
+                const data = await res.json();
+                state.lastDataUrl = data.data_url;
+                qrImage.src = data.data_url;
+                qrImage.classList.remove("hidden");
+                qrEmpty.classList.add("hidden");
+                qrMeta.classList.remove("hidden");
+                metaModules.textContent = `${data.modules} × ${data.modules}`;
+                metaSize.textContent = formatBytes(data.size);
+                btnDownload.disabled = false;
+                btnCopy.disabled = false;
+                btnSave.disabled = false;
+            } catch (e) {
+                if (e.name === "AbortError") return;
+                showToast(e.message || "Could not generate QR", "error");
+            } finally {
+                if (state.inflight === controller) state.inflight = null;
+                setBusy(false);
+            }
+        }
+
+        function formatBytes(n) {
+            if (n < 1024) return `${n} B`;
+            if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+            return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+        }
+
+        function syncColor(picker, hex, key) {
+            const update = (val) => {
+                if (!/^#[0-9a-fA-F]{6}$/.test(val)) return;
+                state[key] = val;
+                picker.value = val;
+                hex.value = val.toUpperCase();
+                // refresh swatch highlight
+                document.querySelectorAll(`[data-target="${key}"] .swatch`).forEach(s => {
+                    s.classList.toggle("active", s.dataset.color.toLowerCase() === val.toLowerCase());
+                });
+                scheduleGenerate();
+            };
+            picker.addEventListener("input", () => update(picker.value));
+            hex.addEventListener("input", () => {
+                let v = hex.value.trim();
+                if (!v.startsWith("#")) v = "#" + v;
+                if (/^#[0-9a-fA-F]{6}$/.test(v)) update(v);
+            });
+            document.querySelectorAll(`[data-target="${key}"] .swatch`).forEach(sw => {
+                sw.addEventListener("click", () => update(sw.dataset.color));
+            });
+        }
+
+        // ----- Event wiring -----
+        typeChips.querySelectorAll("button").forEach(b => {
+            b.addEventListener("click", () => switchType(b.dataset.type));
+        });
+        styleChips.querySelectorAll("button").forEach(b => {
+            b.addEventListener("click", () => {
+                state.style = b.dataset.style;
+                setActive(styleChips, "style", state.style);
+                scheduleGenerate();
+            });
+        });
+        ecChips.querySelectorAll("button").forEach(b => {
+            b.addEventListener("click", () => {
+                state.ec = b.dataset.ec;
+                setActive(ecChips, "ec", state.ec);
+                scheduleGenerate();
+            });
+        });
+        genericInput.addEventListener("input", scheduleGenerate);
+        ["wifi-ssid", "wifi-password", "wifi-encryption", "wifi-hidden"].forEach(id => {
+            $(id).addEventListener("input", scheduleGenerate);
+            $(id).addEventListener("change", scheduleGenerate);
+        });
+        boxSize.addEventListener("input", () => {
+            state.box = parseInt(boxSize.value, 10);
+            boxSizeVal.textContent = `${state.box} px/module`;
+            scheduleGenerate();
+        });
+        borderEl.addEventListener("input", () => {
+            state.border = parseInt(borderEl.value, 10);
+            borderVal.textContent = `${state.border} modules`;
+            scheduleGenerate();
+        });
+
+        syncColor(fgColor, fgHex, "fg");
+        syncColor(bgColor, bgHex, "bg");
+
+        btnDownload.addEventListener("click", () => {
+            if (!state.lastDataUrl) return;
+            const a = document.createElement("a");
+            a.href = state.lastDataUrl;
+            a.download = `qrcode-${Date.now()}.png`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            showToast("Downloaded ✓");
+        });
+
+        btnCopy.addEventListener("click", async () => {
+            if (!state.lastDataUrl) return;
+            try {
+                const blob = await (await fetch(state.lastDataUrl)).blob();
+                if (navigator.clipboard && window.ClipboardItem) {
+                    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+                    showToast("Copied to clipboard ✓");
+                } else {
+                    throw new Error("Clipboard not supported");
+                }
+            } catch (e) {
+                showToast(e.message || "Copy failed", "error");
+            }
+        });
+
+        btnReset.addEventListener("click", () => {
+            genericInput.value = "";
+            ["wifi-ssid", "wifi-password"].forEach(id => { $(id).value = ""; });
+            $("wifi-encryption").value = "WPA";
+            $("wifi-hidden").checked = false;
+            state.style = "square"; setActive(styleChips, "style", "square");
+            state.ec = "M"; setActive(ecChips, "ec", "M");
+            state.box = 12; boxSize.value = 12; boxSizeVal.textContent = "12 px/module";
+            state.border = 4; borderEl.value = 4; borderVal.textContent = "4 modules";
+            fgColor.value = "#111827"; fgHex.value = "#111827"; state.fg = "#111827";
+            bgColor.value = "#ffffff"; bgHex.value = "#ffffff"; state.bg = "#ffffff";
+            switchType("url");
+        });
+
+        // ----- Library / Save -----
+        function openSaveModal() {
+            if (!state.lastDataUrl) return;
+            savePreview.src = state.lastDataUrl;
+            saveContent.textContent = buildContent();
+            saveLabel.value = "";
+            saveModal.classList.remove("hidden");
+            setTimeout(() => saveLabel.focus(), 30);
+        }
+        function closeSaveModal() { saveModal.classList.add("hidden"); }
+
+        btnSave.addEventListener("click", openSaveModal);
+        saveCancel.addEventListener("click", closeSaveModal);
+        saveModal.addEventListener("click", (e) => { if (e.target === saveModal) closeSaveModal(); });
+        saveLabel.addEventListener("keydown", (e) => { if (e.key === "Enter") saveConfirm.click(); });
+
+        saveConfirm.addEventListener("click", async () => {
+            if (!state.lastDataUrl) return;
+            saveConfirm.disabled = true;
+            try {
+                const body = {
+                    label: saveLabel.value.trim(),
+                    content: buildContent(),
+                    style: state.style,
+                    fg_color: state.fg,
+                    bg_color: state.bg,
+                    error_correction: state.ec,
+                    box_size: state.box,
+                    border: state.border,
+                    data_url: state.lastDataUrl,
+                };
+                const res = await fetch("/api/qr-codes", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body),
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.error || "Save failed");
+                }
+                closeSaveModal();
+                showToast("Saved to library ✓");
+                loadLibrary();
+            } catch (e) {
+                showToast(e.message || "Save failed", "error");
+            } finally {
+                saveConfirm.disabled = false;
+            }
+        });
+
+        function escHtml(s) {
+            return String(s).replace(/[&<>"']/g, (c) => ({
+                "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+            }[c]));
+        }
+
+        function renderLibrary(items) {
+            if (!items.length) {
+                libraryEmpty.classList.remove("hidden");
+                libraryCount.textContent = "";
+                // remove any existing tiles
+                libraryGrid.querySelectorAll("[data-qr-id]").forEach(n => n.remove());
+                return;
+            }
+            libraryEmpty.classList.add("hidden");
+            libraryCount.textContent = `${items.length} saved`;
+            libraryGrid.querySelectorAll("[data-qr-id]").forEach(n => n.remove());
+            const frag = document.createDocumentFragment();
+            for (const it of items) {
+                const card = document.createElement("div");
+                card.dataset.qrId = it.id;
+                card.className = "glass rounded-2xl p-3 group relative flex flex-col";
+                card.innerHTML = `
+                    <div class="aspect-square rounded-xl bg-white p-2 mb-2 flex items-center justify-center overflow-hidden ring-1 ring-white/10">
+                        <img src="${it.data_url}" alt="${escHtml(it.label)}" class="max-w-full max-h-full">
+                    </div>
+                    <div class="text-xs font-semibold text-white truncate" title="${escHtml(it.label)}">${escHtml(it.label)}</div>
+                    <div class="text-[10px] text-gray-500 truncate" title="${escHtml(it.content)}">${escHtml(it.content)}</div>
+                    <button class="absolute top-2 right-2 w-7 h-7 rounded-lg bg-black/40 hover:bg-red-500/80 text-gray-300 hover:text-white text-xs opacity-0 group-hover:opacity-100 transition flex items-center justify-center" data-action="delete" title="Delete">
+                        <i class="fas fa-trash"></i>
+                    </button>`;
+                card.querySelector('[data-action="delete"]').addEventListener("click", async (ev) => {
+                    ev.stopPropagation();
+                    if (!confirm("Delete this saved QR code?")) return;
+                    try {
+                        const r = await fetch(`/api/qr-codes/${it.id}`, { method: "DELETE" });
+                        if (!r.ok) throw new Error("Delete failed");
+                        loadLibrary();
+                    } catch (e) { showToast(e.message, "error"); }
+                });
+                frag.appendChild(card);
+            }
+            libraryGrid.appendChild(frag);
+        }
+
+        async function loadLibrary() {
+            try {
+                const r = await fetch("/api/qr-codes");
+                if (!r.ok) throw new Error("Failed to load library");
+                const data = await r.json();
+                renderLibrary(data.items || []);
+            } catch (e) {
+                console.warn(e);
+            }
+        }
+
+        // Initial state
+        switchType("url");
+        loadLibrary();
+    })();
+    </script>
+</body>
+</html>

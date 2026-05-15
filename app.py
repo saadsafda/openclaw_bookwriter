@@ -16,6 +16,21 @@ from docx import Document
 from flask import Flask, abort, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
 
+import io
+import base64
+import qrcode
+from qrcode.constants import ERROR_CORRECT_L, ERROR_CORRECT_M, ERROR_CORRECT_Q, ERROR_CORRECT_H
+from qrcode.image.styledpil import StyledPilImage
+from qrcode.image.styles.moduledrawers.pil import (
+    SquareModuleDrawer,
+    RoundedModuleDrawer,
+    CircleModuleDrawer,
+    GappedSquareModuleDrawer,
+    VerticalBarsDrawer,
+    HorizontalBarsDrawer,
+)
+from qrcode.image.styles.colormasks import SolidFillColorMask
+
 import openclaw_image_maker as image_maker
 import openclaw_docx_writer as writer
 import pub_listing_agent
@@ -493,6 +508,276 @@ def index() -> str:
         defaults=DEFAULTS,
         prompt_variants=prompt_variants,
     )
+
+
+@app.get("/qr-code")
+def qr_code_page() -> str:
+    return render_template("qr_code.html")
+
+
+_QR_EC_LEVELS = {
+    "L": ERROR_CORRECT_L,
+    "M": ERROR_CORRECT_M,
+    "Q": ERROR_CORRECT_Q,
+    "H": ERROR_CORRECT_H,
+}
+
+_QR_DRAWERS = {
+    "square": SquareModuleDrawer,
+    "rounded": RoundedModuleDrawer,
+    "circle": CircleModuleDrawer,
+    "gapped": GappedSquareModuleDrawer,
+    "vertical": VerticalBarsDrawer,
+    "horizontal": HorizontalBarsDrawer,
+}
+
+
+def _hex_to_rgb(value: str, fallback: tuple[int, int, int]) -> tuple[int, int, int]:
+    if not value:
+        return fallback
+    v = value.strip().lstrip("#")
+    if len(v) == 3:
+        v = "".join(c * 2 for c in v)
+    if len(v) != 6:
+        return fallback
+    try:
+        return (int(v[0:2], 16), int(v[2:4], 16), int(v[4:6], 16))
+    except ValueError:
+        return fallback
+
+
+@app.post("/api/qr-code")
+def generate_qr_code() -> Any:
+    data = request.get_json(silent=True) or {}
+    content = (data.get("content") or "").strip()
+    if not content:
+        return jsonify({"error": "content is required"}), 400
+    if len(content) > 2000:
+        return jsonify({"error": "content too long (max 2000 chars)"}), 400
+
+    ec_key = (data.get("error_correction") or "M").upper()
+    ec_level = _QR_EC_LEVELS.get(ec_key, ERROR_CORRECT_M)
+
+    try:
+        box_size = max(4, min(40, int(data.get("box_size") or 12)))
+    except (TypeError, ValueError):
+        box_size = 12
+    try:
+        border = max(0, min(16, int(data.get("border") or 4)))
+    except (TypeError, ValueError):
+        border = 4
+
+    fg = _hex_to_rgb(data.get("fg_color") or "#111827", (17, 24, 39))
+    bg = _hex_to_rgb(data.get("bg_color") or "#ffffff", (255, 255, 255))
+
+    style_key = (data.get("style") or "square").lower()
+    drawer_cls = _QR_DRAWERS.get(style_key, SquareModuleDrawer)
+
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=ec_level,
+        box_size=box_size,
+        border=border,
+    )
+    qr.add_data(content)
+    qr.make(fit=True)
+
+    img = qr.make_image(
+        image_factory=StyledPilImage,
+        module_drawer=drawer_cls(),
+        color_mask=SolidFillColorMask(back_color=bg, front_color=fg),
+    )
+
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+    png_bytes = buffer.getvalue()
+    encoded = base64.b64encode(png_bytes).decode("ascii")
+    return jsonify({
+        "data_url": f"data:image/png;base64,{encoded}",
+        "size": len(png_bytes),
+        "modules": qr.modules_count,
+    })
+
+
+def _qr_record_to_data_url(rec: dict[str, Any]) -> str:
+    png_blob = rec.get("png_blob") or b""
+    return f"data:image/png;base64,{base64.b64encode(png_blob).decode('ascii')}"
+
+
+def _qr_record_public(rec: dict[str, Any], include_image: bool = True) -> dict[str, Any]:
+    out = {
+        "id": rec["id"],
+        "label": rec.get("label") or "",
+        "content": rec.get("content") or "",
+        "style": rec.get("style") or "square",
+        "fg_color": rec.get("fg_color") or "#111827",
+        "bg_color": rec.get("bg_color") or "#ffffff",
+        "error_correction": rec.get("error_correction") or "M",
+        "box_size": rec.get("box_size") or 12,
+        "border": rec.get("border") or 4,
+        "created_at": rec.get("created_at") or 0,
+    }
+    if include_image and rec.get("png_blob") is not None:
+        out["data_url"] = _qr_record_to_data_url(rec)
+    return out
+
+
+@app.post("/api/qr-codes")
+def save_qr_endpoint() -> Any:
+    data = request.get_json(silent=True) or {}
+    data_url = (data.get("data_url") or "").strip()
+    if not data_url.startswith("data:image/png;base64,"):
+        return jsonify({"error": "Missing or invalid data_url"}), 400
+    try:
+        png_bytes = base64.b64decode(data_url.split(",", 1)[1])
+    except Exception:
+        return jsonify({"error": "Invalid base64 image"}), 400
+    if not png_bytes:
+        return jsonify({"error": "Empty image"}), 400
+
+    label = (data.get("label") or "").strip()[:80]
+    content = (data.get("content") or "").strip()
+    if not content:
+        return jsonify({"error": "content is required"}), 400
+    if len(content) > 2000:
+        return jsonify({"error": "content too long"}), 400
+    if not label:
+        label = content[:40] + ("…" if len(content) > 40 else "")
+
+    qr_id = uuid.uuid4().hex
+    bookdb.save_qr_code(
+        qr_id,
+        label=label,
+        content=content,
+        style=(data.get("style") or "square")[:32],
+        fg_color=(data.get("fg_color") or "#111827")[:9],
+        bg_color=(data.get("bg_color") or "#ffffff")[:9],
+        error_correction=(data.get("error_correction") or "M")[:2],
+        box_size=int(data.get("box_size") or 12),
+        border=int(data.get("border") or 4),
+        png_blob=png_bytes,
+    )
+    rec = bookdb.get_qr_code(qr_id)
+    return jsonify(_qr_record_public(rec))
+
+
+@app.get("/api/qr-codes")
+def list_qr_endpoint() -> Any:
+    include_image = request.args.get("include_image", "1") != "0"
+    items: list[dict[str, Any]] = []
+    for meta in bookdb.list_qr_codes():
+        if include_image:
+            rec = bookdb.get_qr_code(meta["id"])
+            if rec is None:
+                continue
+            items.append(_qr_record_public(rec, include_image=True))
+        else:
+            items.append(_qr_record_public(meta, include_image=False))
+    return jsonify({"items": items})
+
+
+@app.delete("/api/qr-codes/<qr_id>")
+def delete_qr_endpoint(qr_id: str) -> Any:
+    deleted = bookdb.delete_qr_code(qr_id)
+    if not deleted:
+        return jsonify({"error": "not found"}), 404
+    return jsonify({"ok": True})
+
+
+@app.post("/api/jobs/<job_id>/attach-qr")
+def attach_qr_to_book(job_id: str) -> Any:
+    job = _get_job(job_id)
+    data = request.get_json(silent=True) or {}
+    qr_id = (data.get("qr_id") or "").strip()
+    heading = (data.get("heading") or "Scan this QR code").strip() or "Scan this QR code"
+    caption = (data.get("caption") or "").strip()
+
+    if not qr_id:
+        return jsonify({"error": "qr_id is required"}), 400
+
+    rec = bookdb.get_qr_code(qr_id)
+    if rec is None:
+        return jsonify({"error": "QR code not found"}), 404
+
+    with job.lock:
+        final_path = Path(job.final_docx or job.output_docx)
+        status = job.status
+
+    if status != "success":
+        return jsonify({"error": "Book is not ready yet"}), 400
+    if not final_path.exists():
+        return jsonify({"error": "Final docx not found"}), 404
+
+    # Write QR PNG to disk next to the document so it can be re-opened later.
+    qr_assets_dir = OUTPUT_DIR / "qr_assets"
+    qr_assets_dir.mkdir(parents=True, exist_ok=True)
+    qr_png_path = qr_assets_dir / f"qr_{job_id}_{qr_id}.png"
+    qr_png_path.write_bytes(rec["png_blob"])
+
+    try:
+        _append_qr_page(final_path, qr_png_path, heading=heading, caption=caption or rec.get("content", ""))
+    except Exception as exc:
+        return jsonify({"error": f"Failed to attach QR: {exc}"}), 500
+
+    _append_log(job, f"Attached QR code to last page (label={rec.get('label')!r}).")
+
+    # Regenerate Kindle / Paperback variants so the QR page is also in them.
+    try:
+        kindle_doc, paperback_doc = _run_kdp_formatting(job, final_path)
+        with job.lock:
+            job.kindle_docx = str(kindle_doc)
+            job.paperback_docx = str(paperback_doc)
+        _append_log(job, "Re-formatted Kindle + Paperback with QR page.")
+    except Exception as exc:
+        _append_log(job, f"WARNING: QR added to final doc but KDP re-format failed: {exc}")
+
+    _sync_job_to_db(job)
+
+    with job.lock:
+        return jsonify({
+            "ok": True,
+            "final_docx": job.final_docx,
+            "kindle_docx": job.kindle_docx,
+            "paperback_docx": job.paperback_docx,
+        })
+
+
+def _append_qr_page(doc_path: Path, qr_png: Path, *, heading: str, caption: str) -> None:
+    """Append a centred 'Scan this QR code' page to the given .docx in-place."""
+    from docx.shared import Inches, Pt
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.enum.text import WD_BREAK
+
+    doc = Document(str(doc_path))
+
+    # Page break so the QR section starts on its own page.
+    page_break_para = doc.add_paragraph()
+    page_break_para.add_run().add_break(WD_BREAK.PAGE)
+
+    # Heading: "Scan this QR code"
+    h_para = doc.add_paragraph()
+    h_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    h_run = h_para.add_run(heading)
+    h_run.bold = True
+    h_run.font.size = Pt(22)
+
+    # Spacer
+    doc.add_paragraph()
+
+    # QR image, centred
+    img_para = doc.add_paragraph()
+    img_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    img_para.add_run().add_picture(str(qr_png), width=Inches(3.0))
+
+    # Caption (URL / content) — small and muted
+    if caption:
+        c_para = doc.add_paragraph()
+        c_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        c_run = c_para.add_run(caption)
+        c_run.font.size = Pt(10)
+
+    doc.save(str(doc_path))
 
 
 @app.post("/api/jobs")

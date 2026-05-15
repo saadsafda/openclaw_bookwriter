@@ -58,6 +58,24 @@ def init_db() -> None:
         if "pre_written" not in cols:
             conn.execute("ALTER TABLE books ADD COLUMN pre_written INTEGER NOT NULL DEFAULT 0")
             conn.commit()
+
+        # QR code library — saved QR codes that can be attached to any book.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS qr_codes (
+                id TEXT PRIMARY KEY,
+                label TEXT NOT NULL DEFAULT '',
+                content TEXT NOT NULL DEFAULT '',
+                style TEXT NOT NULL DEFAULT 'square',
+                fg_color TEXT NOT NULL DEFAULT '#111827',
+                bg_color TEXT NOT NULL DEFAULT '#ffffff',
+                error_correction TEXT NOT NULL DEFAULT 'M',
+                box_size INTEGER NOT NULL DEFAULT 12,
+                border INTEGER NOT NULL DEFAULT 4,
+                png_blob BLOB NOT NULL,
+                created_at REAL NOT NULL
+            )
+        """)
+        conn.commit()
         conn.close()
 
 
@@ -186,6 +204,72 @@ def delete_book(book_id: str) -> bool:
     with _lock:
         conn = _connect()
         cur = conn.execute("DELETE FROM books WHERE id=?", (book_id,))
+        conn.commit()
+        conn.close()
+        return cur.rowcount > 0
+
+
+# ----- QR codes -----
+
+def save_qr_code(
+    qr_id: str,
+    *,
+    label: str,
+    content: str,
+    style: str,
+    fg_color: str,
+    bg_color: str,
+    error_correction: str,
+    box_size: int,
+    border: int,
+    png_blob: bytes,
+) -> None:
+    """Insert a saved QR code into the library."""
+    with _lock:
+        conn = _connect()
+        conn.execute(
+            """
+            INSERT INTO qr_codes
+                (id, label, content, style, fg_color, bg_color, error_correction,
+                 box_size, border, png_blob, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                qr_id, label, content, style, fg_color, bg_color, error_correction,
+                int(box_size), int(border), png_blob, time.time(),
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+
+def list_qr_codes(limit: int = 200) -> list[dict[str, Any]]:
+    """Return saved QR codes, newest first. Excludes the BLOB."""
+    conn = _connect()
+    rows = conn.execute(
+        "SELECT id, label, content, style, fg_color, bg_color, error_correction, "
+        "box_size, border, created_at FROM qr_codes ORDER BY created_at DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_qr_code(qr_id: str) -> Optional[dict[str, Any]]:
+    """Return full QR record (including png_blob) or None."""
+    conn = _connect()
+    row = conn.execute("SELECT * FROM qr_codes WHERE id=?", (qr_id,)).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def delete_qr_code(qr_id: str) -> bool:
+    """Delete a QR code. Returns True if removed."""
+    with _lock:
+        conn = _connect()
+        cur = conn.execute("DELETE FROM qr_codes WHERE id=?", (qr_id,))
         conn.commit()
         conn.close()
         return cur.rowcount > 0
