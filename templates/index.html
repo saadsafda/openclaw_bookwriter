@@ -521,56 +521,66 @@
                 });
             }
 
+            // --- Rename modal ---
+            const renameModal = document.getElementById("rename-modal");
+            const renameInput = document.getElementById("rename-modal-input");
+            const renameSubmit = document.getElementById("rename-modal-submit");
+            const renameCancel = document.getElementById("rename-modal-cancel");
+            const renameClose = document.getElementById("rename-modal-close");
+            let renameBookRef = null;
+
+            function openRenameModal(book) {
+                renameBookRef = book;
+                renameInput.value = book.title || "";
+                renameModal.classList.remove("hidden");
+                setTimeout(() => { renameInput.focus(); renameInput.select(); }, 50);
+            }
+            function closeRenameModal() {
+                renameModal.classList.add("hidden");
+                renameBookRef = null;
+            }
+            async function commitRename() {
+                if (!renameBookRef) return;
+                const newTitle = renameInput.value.trim();
+                if (!newTitle || newTitle === (renameBookRef.title || "")) {
+                    closeRenameModal();
+                    return;
+                }
+                renameSubmit.disabled = true;
+                renameSubmit.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Updating…';
+                try {
+                    const res = await fetch(`/api/books/${renameBookRef.id}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ title: newTitle }),
+                    });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    renameBookRef.title = newTitle;
+                    const cached = historyBooks.find(b => b.id === renameBookRef.id);
+                    if (cached) cached.title = newTitle;
+                    if (renameBookRef.id === activeBookId) {
+                        document.getElementById("current-doc-title").textContent = newTitle;
+                    }
+                    renderHistory();
+                } catch (e) {
+                    addMessage("bot", `<span class="text-red-500">Rename failed: ${escapeHtml(e.message)}</span>`);
+                } finally {
+                    renameSubmit.disabled = false;
+                    renameSubmit.innerHTML = '<i class="fas fa-check mr-1"></i> Update';
+                    closeRenameModal();
+                }
+            }
+            renameSubmit.addEventListener("click", commitRename);
+            renameCancel.addEventListener("click", closeRenameModal);
+            renameClose.addEventListener("click", closeRenameModal);
+            renameModal.addEventListener("click", (e) => { if (e.target === renameModal) closeRenameModal(); });
+            renameInput.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") { e.preventDefault(); commitRename(); }
+                else if (e.key === "Escape") { e.preventDefault(); closeRenameModal(); }
+            });
+
             function startRenameBook(rowEl, book) {
-                const display = rowEl.querySelector("[data-title-display]");
-                if (!display || display.dataset.editing === "1") return;
-                display.dataset.editing = "1";
-                const currentTitle = book.title || "";
-                const input = document.createElement("input");
-                input.type = "text";
-                input.value = currentTitle;
-                input.maxLength = 200;
-                input.className = "w-full bg-gray-900 border border-blue-500 text-sm text-white rounded px-1.5 py-0.5 focus:outline-none";
-                display.replaceWith(input);
-                input.focus();
-                input.select();
-
-                let finished = false;
-                const commit = async (save) => {
-                    if (finished) return;
-                    finished = true;
-                    const newTitle = input.value.trim();
-                    if (!save || !newTitle || newTitle === currentTitle) {
-                        // Revert by re-rendering (keeps row state consistent)
-                        renderHistory();
-                        return;
-                    }
-                    try {
-                        const res = await fetch(`/api/books/${book.id}`, {
-                            method: "PATCH",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ title: newTitle }),
-                        });
-                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                        book.title = newTitle;
-                        const cached = historyBooks.find(b => b.id === book.id);
-                        if (cached) cached.title = newTitle;
-                        if (book.id === activeBookId) {
-                            document.getElementById("current-doc-title").textContent = newTitle;
-                        }
-                    } catch (e) {
-                        addMessage("bot", `<span class="text-red-500">Rename failed: ${escapeHtml(e.message)}</span>`);
-                    } finally {
-                        renderHistory();
-                    }
-                };
-
-                input.addEventListener("keydown", (ev) => {
-                    if (ev.key === "Enter") { ev.preventDefault(); commit(true); }
-                    else if (ev.key === "Escape") { ev.preventDefault(); commit(false); }
-                });
-                input.addEventListener("blur", () => commit(true));
-                input.addEventListener("click", (ev) => ev.stopPropagation());
+                openRenameModal(book);
             }
 
             async function deleteBook(bookId) {
@@ -1604,6 +1614,32 @@
             });
         });
     </script>
+
+    <!-- Rename book modal -->
+    <div id="rename-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all">
+            <div class="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-white flex items-center justify-between">
+                <h3 class="font-semibold text-gray-800 text-base">
+                    <i class="fas fa-pencil-alt text-blue-500 mr-2"></i> Edit Title
+                </h3>
+                <button id="rename-modal-close" class="text-gray-400 hover:text-gray-700 transition" aria-label="Close">
+                    <i class="fas fa-times text-lg"></i>
+                </button>
+            </div>
+            <div class="px-5 py-4">
+                <label for="rename-modal-input" class="block text-xs font-semibold text-gray-600 mb-1">Book Title</label>
+                <input id="rename-modal-input" type="text" maxlength="200"
+                    class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+                    placeholder="Enter new title">
+            </div>
+            <div class="px-5 py-3 bg-gray-50 border-t border-gray-100 flex justify-end gap-2">
+                <button id="rename-modal-cancel" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 hover:bg-gray-100 rounded-xl transition">Cancel</button>
+                <button id="rename-modal-submit" class="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-sm transition">
+                    <i class="fas fa-check mr-1"></i> Update
+                </button>
+            </div>
+        </div>
+    </div>
 
     <!-- Redo listing modal -->
     <div id="redo-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
