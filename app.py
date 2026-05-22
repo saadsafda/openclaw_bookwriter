@@ -798,9 +798,10 @@ def _insert_paperback_bonus_page(doc_path: Path, qr_png: Path) -> None:
     Layout:
       - Page break
       - "FREE BONUS" centred, 48 pt, bold
-      - "GET OUR NEXT BOOK FOR FREE" centred, 24 pt
       - Spacer
       - QR image centred
+      - Spacer
+      - "GET OUR NEXT BOOK FOR FREE" centred, 24 pt
     """
     from docx.shared import Inches, Pt
     from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
@@ -821,20 +822,20 @@ def _insert_paperback_bonus_page(doc_path: Path, qr_png: Path) -> None:
     # Spacer
     doc.add_paragraph()
 
-    # "GET OUR NEXT BOOK FOR FREE" – 24pt
+    # QR image centred
+    img_para = doc.add_paragraph()
+    img_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    img_para.add_run().add_picture(str(qr_png), width=Inches(3.0))
+
+    # Spacer
+    doc.add_paragraph()
+
+    # "GET OUR NEXT BOOK FOR FREE" – 24pt (below QR code)
     h2 = doc.add_paragraph()
     h2.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run2 = h2.add_run("GET OUR NEXT BOOK FOR FREE")
     run2.bold = True
     run2.font.size = Pt(24)
-
-    # Spacer
-    doc.add_paragraph()
-
-    # QR image centred
-    img_para = doc.add_paragraph()
-    img_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    img_para.add_run().add_picture(str(qr_png), width=Inches(3.0))
 
     doc.save(str(doc_path))
 
@@ -917,7 +918,7 @@ def _insert_kindle_bonus_page(doc_path: Path, landing_url: str) -> None:
 
     new_run.append(rPr)
     text_el = OxmlElement("w:t")
-    text_el.text = landing_url
+    text_el.text = "Just Click Here!"
     new_run.append(text_el)
     hyperlink.append(new_run)
 
