@@ -34,6 +34,7 @@ from qrcode.image.styles.colormasks import SolidFillColorMask
 import openclaw_image_maker as image_maker
 import openclaw_docx_writer as writer
 import pub_listing_agent
+import wp_landing_page
 import db as bookdb
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -348,6 +349,17 @@ def _run_generation(job_id: str) -> None:
         _append_log(job, f"Ready. Final document: {final_doc}")
         _append_log(job, f"Kindle output: {kindle_doc}")
         _append_log(job, f"Paperback output: {paperback_doc}")
+
+        # --- Auto-create landing page + QR code ---
+        with job.lock:
+            page_title = job.custom_title.strip() or _derive_title(job.input_docx)
+        try:
+            _set_status(job, "running", action="creating_landing_page", error="")
+            _do_landing_page_qr(job, page_title)
+        except Exception as qr_exc:
+            # Landing page failure is non-fatal — book is still usable.
+            _append_log(job, f"WARNING: Landing page + QR failed (book is still ready): {qr_exc}")
+
         _set_status(job, "success", action="", error="")
         _sync_job_to_db(job)
     except Exception as exc:
@@ -778,6 +790,257 @@ def _append_qr_page(doc_path: Path, qr_png: Path, *, heading: str, caption: str)
         c_run.font.size = Pt(10)
 
     doc.save(str(doc_path))
+
+
+def _insert_paperback_bonus_page(doc_path: Path, qr_png: Path) -> None:
+    """Insert a FREE BONUS page with QR code into the paperback .docx.
+
+    Layout:
+      - Page break
+      - "FREE BONUS" centred, 48 pt, bold
+      - "GET OUR NEXT BOOK FOR FREE" centred, 24 pt
+      - Spacer
+      - QR image centred
+    """
+    from docx.shared import Inches, Pt
+    from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
+
+    doc = Document(str(doc_path))
+
+    # Page break
+    pb = doc.add_paragraph()
+    pb.add_run().add_break(WD_BREAK.PAGE)
+
+    # "FREE BONUS" – 48pt
+    h1 = doc.add_paragraph()
+    h1.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run1 = h1.add_run("FREE BONUS")
+    run1.bold = True
+    run1.font.size = Pt(48)
+
+    # Spacer
+    doc.add_paragraph()
+
+    # "GET OUR NEXT BOOK FOR FREE" – 24pt
+    h2 = doc.add_paragraph()
+    h2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run2 = h2.add_run("GET OUR NEXT BOOK FOR FREE")
+    run2.bold = True
+    run2.font.size = Pt(24)
+
+    # Spacer
+    doc.add_paragraph()
+
+    # QR image centred
+    img_para = doc.add_paragraph()
+    img_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    img_para.add_run().add_picture(str(qr_png), width=Inches(3.0))
+
+    doc.save(str(doc_path))
+
+
+def _insert_kindle_bonus_page(doc_path: Path, landing_url: str) -> None:
+    """Insert a FREE BONUS page with a clickable link into the Kindle .docx.
+
+    Layout:
+      - Page break
+      - "FREE BONUS" centred, 48 pt, bold
+      - "GET OUR NEXT BOOK FOR FREE" centred, 24 pt
+      - Spacer
+      - Clickable hyperlink to landing page, 24 pt, centred
+    """
+    from docx.shared import Pt
+    from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    doc = Document(str(doc_path))
+
+    # Page break
+    pb = doc.add_paragraph()
+    pb.add_run().add_break(WD_BREAK.PAGE)
+
+    # "FREE BONUS" – 48pt
+    h1 = doc.add_paragraph()
+    h1.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run1 = h1.add_run("FREE BONUS")
+    run1.bold = True
+    run1.font.size = Pt(48)
+
+    # Spacer
+    doc.add_paragraph()
+
+    # "GET OUR NEXT BOOK FOR FREE" – 24pt
+    h2 = doc.add_paragraph()
+    h2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run2 = h2.add_run("GET OUR NEXT BOOK FOR FREE")
+    run2.bold = True
+    run2.font.size = Pt(24)
+
+    # Spacer
+    doc.add_paragraph()
+
+    # Clickable hyperlink – 24pt, centred
+    link_para = doc.add_paragraph()
+    link_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    # Build a w:hyperlink element with the URL as an external relationship.
+    part = doc.part
+    r_id = part.relate_to(
+        landing_url,
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
+        is_external=True,
+    )
+
+    hyperlink = OxmlElement("w:hyperlink")
+    hyperlink.set(qn("r:id"), r_id)
+
+    new_run = OxmlElement("w:r")
+    rPr = OxmlElement("w:rPr")
+
+    # Blue underlined style for hyperlink
+    color = OxmlElement("w:color")
+    color.set(qn("w:val"), "0563C1")
+    rPr.append(color)
+
+    underline = OxmlElement("w:u")
+    underline.set(qn("w:val"), "single")
+    rPr.append(underline)
+
+    sz = OxmlElement("w:sz")
+    sz.set(qn("w:val"), "48")  # half-points: 24pt = 48
+    rPr.append(sz)
+
+    szCs = OxmlElement("w:szCs")
+    szCs.set(qn("w:val"), "48")
+    rPr.append(szCs)
+
+    new_run.append(rPr)
+    text_el = OxmlElement("w:t")
+    text_el.text = landing_url
+    new_run.append(text_el)
+    hyperlink.append(new_run)
+
+    link_para._p.append(hyperlink)
+
+    doc.save(str(doc_path))
+
+
+def _generate_qr_png(content: str, output_path: Path) -> None:
+    """Generate a simple black-on-white QR code PNG at ``output_path``."""
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=ERROR_CORRECT_H,
+        box_size=12,
+        border=4,
+    )
+    qr.add_data(content)
+    qr.make(fit=True)
+
+    img = qr.make_image(
+        image_factory=StyledPilImage,
+        module_drawer=SquareModuleDrawer(),
+        color_mask=SolidFillColorMask(
+            back_color=(255, 255, 255),
+            front_color=(17, 24, 39),
+        ),
+    )
+    img.save(str(output_path), format="PNG")
+
+
+def _do_landing_page_qr(job: Job, page_title: str) -> None:
+    """Core logic: create WP landing page, QR code, update both docx files.
+
+    This is designed to be called inline (e.g. at the end of _run_generation)
+    or from a standalone background task.  It logs progress but does NOT set
+    job status or sync to DB — callers handle that.
+    """
+    _append_log(job, f"Starting landing page + QR workflow for '{page_title}'...")
+
+    # 1. Create the WordPress landing page
+    _append_log(job, "Creating WordPress landing page...")
+    page_info = wp_landing_page.create_landing_page(
+        title=page_title,
+        callback=lambda step, msg: _append_log(job, msg),
+    )
+    landing_url = page_info["url"]
+    _append_log(job, f"Landing page published: {landing_url}")
+
+    # 2. Generate QR code for the landing page URL
+    _append_log(job, "Generating QR code for landing page URL...")
+    qr_assets_dir = OUTPUT_DIR / "qr_assets"
+    qr_assets_dir.mkdir(parents=True, exist_ok=True)
+    qr_png_path = qr_assets_dir / f"qr_landing_{job.id}.png"
+    _generate_qr_png(landing_url, qr_png_path)
+    _append_log(job, f"QR code saved: {qr_png_path.name}")
+
+    # 3. Insert FREE BONUS page into paperback docx
+    with job.lock:
+        paperback_path = Path(job.paperback_docx) if job.paperback_docx else None
+
+    if paperback_path and paperback_path.exists():
+        _append_log(job, "Inserting QR bonus page into paperback docx...")
+        _insert_paperback_bonus_page(paperback_path, qr_png_path)
+        _append_log(job, "Paperback FREE BONUS page added with QR code.")
+    else:
+        _append_log(job, "WARNING: No paperback docx found — skipping QR insertion.")
+
+    # 4. Insert link bonus page into kindle docx
+    with job.lock:
+        kindle_path = Path(job.kindle_docx) if job.kindle_docx else None
+
+    if kindle_path and kindle_path.exists():
+        _append_log(job, "Inserting link bonus page into Kindle docx...")
+        _insert_kindle_bonus_page(kindle_path, landing_url)
+        _append_log(job, "Kindle FREE BONUS page added with landing page link.")
+    else:
+        _append_log(job, "WARNING: No Kindle docx found — skipping link insertion.")
+
+    _append_log(job, "Landing page + QR workflow complete!")
+    _append_log(job, f"Landing page URL: {landing_url}")
+
+
+def _run_landing_page_qr(job_id: str, page_title: str) -> None:
+    """Background task wrapper for _do_landing_page_qr (manual QR button)."""
+    job = _get_job(job_id)
+
+    _set_status(job, "running", action="creating_landing_page", error="")
+
+    try:
+        _do_landing_page_qr(job, page_title)
+        _set_status(job, "success", action="", error="")
+        _sync_job_to_db(job)
+
+    except Exception as exc:
+        _append_log(job, f"ERROR: {exc}")
+        _set_status(job, "error", action="", error=str(exc))
+        _sync_job_to_db(job)
+
+
+@app.post("/api/jobs/<job_id>/create-landing-qr")
+def create_landing_qr(job_id: str) -> Any:
+    """Create a WordPress landing page, generate a QR code for it, and insert
+    the QR code into the paperback docx and a link into the Kindle docx."""
+    job = _get_job(job_id)
+    payload = request.get_json(silent=True) or {}
+    page_title = (payload.get("page_title") or "").strip()
+
+    if not page_title:
+        return jsonify({"error": "page_title is required"}), 400
+    if len(page_title) > 200:
+        return jsonify({"error": "page_title too long (max 200 chars)"}), 400
+
+    with job.lock:
+        if job.status == "running":
+            return jsonify({"error": "Job is busy. Wait for current task to finish."}), 409
+
+    t = threading.Thread(
+        target=_run_landing_page_qr,
+        args=(job_id, page_title),
+        daemon=True,
+    )
+    t.start()
+    return jsonify({"ok": True, "page_title": page_title})
 
 
 @app.post("/api/jobs")

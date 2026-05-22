@@ -238,6 +238,38 @@
             </div>
         </div>
 
+        <!-- Landing Page QR modal -->
+        <div id="landingQrModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+                <div class="flex items-start justify-between p-5 border-b border-gray-100">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                            <i class="fas fa-qrcode text-pink-500"></i> Create Landing Page + QR
+                        </h3>
+                        <p class="text-xs text-gray-500 mt-1">Creates a WordPress landing page, generates a QR code for the paperback, and adds a link for the Kindle ebook.</p>
+                    </div>
+                    <button id="landingQrClose" class="text-gray-400 hover:text-gray-700 p-1" aria-label="Close">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="px-5 py-4">
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">
+                        <i class="fas fa-heading text-pink-400 mr-1"></i> Book Name (Page Title)
+                    </label>
+                    <input id="landingQrTitle" type="text" placeholder='e.g. "lab stories kids"'
+                        class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-pink-400">
+                    <p class="text-xs text-gray-400 mt-1.5">This will be the title of the landing page on oakharborpress.com</p>
+                </div>
+                <div class="border-t border-gray-100 px-5 py-3 flex items-center justify-end gap-2 bg-gray-50">
+                    <button id="landingQrCancel" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
+                    <button id="landingQrSubmit"
+                        class="px-5 py-2 text-sm font-semibold text-white bg-gradient-to-r from-pink-500 to-purple-500 rounded-lg hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2">
+                        <i class="fas fa-rocket mr-1"></i> Create & Insert
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <div id="chat-container" class="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar scroll-smooth relative">
             <div class="max-w-4xl mx-auto space-y-6 pb-32" id="chat-messages">
                 <div class="flex items-start gap-4">
@@ -338,6 +370,9 @@
                             <button id="btn-show-replace" class="hidden px-4 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-xl text-sm font-semibold transition" title="Start Image Replacement manually">
                                 <i class="fas fa-magic mr-1"></i> Replace image...
                             </button>
+                            <button id="btn-landing-qr" class="hidden px-4 py-2 bg-pink-50 text-pink-600 hover:bg-pink-100 rounded-xl text-sm font-semibold transition" title="Create WordPress landing page, QR code for paperback, and link for Kindle">
+                                <i class="fas fa-qrcode mr-1"></i> QR
+                            </button>
                         </div>
 
                         <button id="btn-generate" class="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold shadow-md transition disabled:bg-gray-300 disabled:cursor-not-allowed flex-shrink-0 ml-auto">
@@ -379,6 +414,7 @@
             const fileUpload = document.getElementById("file-upload");
             const historySearch = document.getElementById("history-search");
             const historySearchClear = document.getElementById("history-search-clear");
+            const btnLandingQr = document.getElementById("btn-landing-qr");
             
             let currentLogBox = null;
 
@@ -907,11 +943,13 @@
                     btnShowReplace.classList.add('hidden');
                     btnShowRewrite.classList.add('hidden');
                     btnGenerateListing.classList.add('hidden');
+                    btnLandingQr.classList.add('hidden');
                     return;
                 }
                 btnShowReplace.classList.remove('hidden');
                 btnShowRewrite.classList.remove('hidden');
                 btnGenerateListing.classList.remove('hidden');
+                btnLandingQr.classList.remove('hidden');
                 
                 const currentStr = JSON.stringify(headings);
                 if(currentStr === JSON.stringify(state.knownHeadings)) return;
@@ -1479,6 +1517,91 @@
             qrModalClose.addEventListener("click", closeQrModal);
             qrModalCancel.addEventListener("click", closeQrModal);
             qrModal.addEventListener("click", (e) => { if (e.target === qrModal) closeQrModal(); });
+
+            // ----- Landing Page QR modal -----
+            const landingQrModal = document.getElementById("landingQrModal");
+            const landingQrTitle = document.getElementById("landingQrTitle");
+            const landingQrSubmit = document.getElementById("landingQrSubmit");
+            const landingQrCancel = document.getElementById("landingQrCancel");
+            const landingQrClose = document.getElementById("landingQrClose");
+
+            function openLandingQrModal() {
+                if (!state.jobId) {
+                    addMessage("bot", `<span class="text-red-500">No active book. Generate a book first.</span>`);
+                    return;
+                }
+                landingQrTitle.value = "";
+                landingQrModal.classList.remove("hidden");
+                setTimeout(() => landingQrTitle.focus(), 50);
+            }
+            function closeLandingQrModal() {
+                landingQrModal.classList.add("hidden");
+            }
+
+            btnLandingQr.addEventListener("click", () => {
+                // Close other menus
+                replaceMenu.classList.add("hidden");
+                rewriteMenu.classList.add("hidden");
+                listingMenu.classList.add("hidden");
+                openLandingQrModal();
+            });
+            landingQrClose.addEventListener("click", closeLandingQrModal);
+            landingQrCancel.addEventListener("click", closeLandingQrModal);
+            landingQrModal.addEventListener("click", (e) => { if (e.target === landingQrModal) closeLandingQrModal(); });
+
+            landingQrTitle.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") { e.preventDefault(); landingQrSubmit.click(); }
+                else if (e.key === "Escape") { e.preventDefault(); closeLandingQrModal(); }
+            });
+
+            landingQrSubmit.addEventListener("click", async () => {
+                const title = landingQrTitle.value.trim();
+                if (!title) {
+                    landingQrTitle.focus();
+                    return;
+                }
+                if (!state.jobId) return;
+
+                closeLandingQrModal();
+                addMessage("user", `<i class="fas fa-qrcode mr-1"></i> Create landing page + QR: <strong>${escapeHtml(title)}</strong>`);
+
+                currentLogBox = null;
+                state.cursor = 0;
+                btnLandingQr.disabled = true;
+                setStatusBadge("Creating landing page...", "running");
+
+                try {
+                    const res = await fetch(`/api/jobs/${state.jobId}/create-landing-qr`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ page_title: title }),
+                    });
+                    if (!res.ok) {
+                        const data = await res.json().catch(() => ({}));
+                        throw new Error(data.error || "Request failed");
+                    }
+                    // Polling will pick up status and logs automatically.
+                    // When done, refresh download links.
+                    const waitForDone = setInterval(async () => {
+                        const sr = await fetch(`/api/jobs/${state.jobId}/status`);
+                        if (!sr.ok) return;
+                        const st = await sr.json();
+                        if (st.status === "success" || st.status === "error") {
+                            clearInterval(waitForDone);
+                            btnLandingQr.disabled = false;
+                            if (st.status === "success") {
+                                const ts = Date.now();
+                                document.getElementById("downloadKindle").href = `/api/jobs/${state.jobId}/download/kindle?t=${ts}`;
+                                document.getElementById("downloadPaperback").href = `/api/jobs/${state.jobId}/download/paperback?t=${ts}`;
+                            }
+                        }
+                    }, 2000);
+                } catch (e) {
+                    addMessage("bot", `<span class="text-red-500 font-bold">Error:</span> ${escapeHtml(e.message)}`);
+                    setStatusBadge("Landing page failed", "error");
+                    btnLandingQr.disabled = false;
+                }
+            });
         });
     </script>
 

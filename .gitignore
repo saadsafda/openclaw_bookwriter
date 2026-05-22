@@ -28,3 +28,4 @@ env/
 # Build/output directories
 web_outputs/
 web_uploads/
+amazon_ads/
