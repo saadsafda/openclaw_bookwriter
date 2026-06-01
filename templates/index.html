@@ -304,14 +304,24 @@
     <main class="flex-1 flex flex-col h-full relative overflow-hidden">
 
         <header class="h-16 bg-white/70 backdrop-blur-xl border-b border-gray-200/70 flex items-center justify-between px-6 z-10 sticky top-0">
-            <div class="min-w-0">
-                <h2 class="font-semibold text-gray-900 tracking-tight truncate" id="current-doc-title">Select a Layout File</h2>
-                <div class="flex items-center gap-2 mt-0.5">
-                    <span id="status-badge" class="inline-flex items-center gap-1.5 text-[11px] font-medium text-gray-600 px-2 py-0.5 rounded-full bg-gray-100 border border-gray-200/70">
-                        <span class="status-dot idle"></span> Idle
-                    </span>
-                    <span class="text-[11px] text-gray-400">·</span>
-                    <p class="text-[11px] text-gray-500 font-mono truncate" id="job-id-display">No active job</p>
+            <div class="min-w-0 flex items-center gap-4">
+                <nav class="flex items-center gap-1 mr-2">
+                    <a href="/" class="px-3 py-1.5 text-sm font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-lg flex items-center gap-1.5">
+                        <i class="fas fa-pen-nib text-xs"></i> Write
+                    </a>
+                    <a href="/launch" class="px-3 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-1.5 transition">
+                        <i class="fas fa-rocket text-xs"></i> Launch
+                    </a>
+                </nav>
+                <div class="min-w-0">
+                    <h2 class="font-semibold text-gray-900 tracking-tight truncate" id="current-doc-title">Select a Layout File</h2>
+                    <div class="flex items-center gap-2 mt-0.5">
+                        <span id="status-badge" class="inline-flex items-center gap-1.5 text-[11px] font-medium text-gray-600 px-2 py-0.5 rounded-full bg-gray-100 border border-gray-200/70">
+                            <span class="status-dot idle"></span> Idle
+                        </span>
+                        <span class="text-[11px] text-gray-400">·</span>
+                        <p class="text-[11px] text-gray-500 font-mono truncate" id="job-id-display">No active job</p>
+                    </div>
                 </div>
             </div>
 
@@ -536,6 +546,9 @@
                             <button id="btn-landing-qr" class="hidden btn-lift px-3.5 py-1.5 bg-pink-50 text-pink-700 hover:bg-pink-100 border border-pink-100 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="Create WordPress landing page, QR code for paperback, and link for Kindle">
                                 <i class="fas fa-qrcode"></i> QR
                             </button>
+                            <button id="btn-amazon-ads" class="hidden btn-lift px-3.5 py-1.5 bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-100 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="Launch an Amazon Sponsored Products ad campaign for this book">
+                                <i class="fab fa-amazon"></i> Amazon Ads
+                            </button>
                         </div>
 
                         <button id="btn-generate" class="btn-lift flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-indigo-600 via-indigo-600 to-purple-600 hover:shadow-lg hover:shadow-indigo-500/30 text-white rounded-xl text-sm font-semibold shadow-md transition disabled:from-gray-300 disabled:to-gray-300 disabled:shadow-none disabled:cursor-not-allowed flex-shrink-0 ml-auto">
@@ -582,7 +595,8 @@
             const historySearch = document.getElementById("history-search");
             const historySearchClear = document.getElementById("history-search-clear");
             const btnLandingQr = document.getElementById("btn-landing-qr");
-            
+            const btnAmazonAds = document.getElementById("btn-amazon-ads");
+
             let currentLogBox = null;
 
             // --- Config panel toggle ---
@@ -1133,12 +1147,14 @@
                     btnShowRewrite.classList.add('hidden');
                     btnGenerateListing.classList.add('hidden');
                     btnLandingQr.classList.add('hidden');
+                    if (btnAmazonAds) btnAmazonAds.classList.add('hidden');
                     return;
                 }
                 btnShowReplace.classList.remove('hidden');
                 btnShowRewrite.classList.remove('hidden');
                 btnGenerateListing.classList.remove('hidden');
                 btnLandingQr.classList.remove('hidden');
+                if (btnAmazonAds) btnAmazonAds.classList.remove('hidden');
                 
                 const currentStr = JSON.stringify(headings);
                 if(currentStr === JSON.stringify(state.knownHeadings)) return;
@@ -1791,8 +1807,264 @@
                     btnLandingQr.disabled = false;
                 }
             });
+
+            // ----------------------------------------------------------------
+            // Amazon Ads
+            // ----------------------------------------------------------------
+            const adsModal = document.getElementById("amazon-ads-modal");
+            const adsClose = document.getElementById("amazon-ads-close");
+            const adsCancel = document.getElementById("amazon-ads-cancel");
+            const adsSubmit = document.getElementById("amazon-ads-submit");
+            const adsType = document.getElementById("amazon-ads-type");
+            const adsMarketplace = document.getElementById("amazon-ads-marketplace");
+            const adsProfile = document.getElementById("amazon-ads-profile");
+            const adsAsin = document.getElementById("amazon-ads-asin");
+            const adsBudget = document.getElementById("amazon-ads-budget");
+            const adsBid = document.getElementById("amazon-ads-bid");
+            const adsState = document.getElementById("amazon-ads-state");
+            const adsKeywords = document.getElementById("amazon-ads-keywords");
+            const adsCategories = document.getElementById("amazon-ads-categories");
+            const adsTargetAsins = document.getElementById("amazon-ads-target-asins");
+            const adsKwRow = document.getElementById("amazon-ads-kw-row");
+            const adsCatRow = document.getElementById("amazon-ads-cat-row");
+            const adsAsinRow = document.getElementById("amazon-ads-asin-row");
+            const adsStatus = document.getElementById("amazon-ads-status");
+
+            function setAdsTypeUI() {
+                const t = adsType.value;
+                adsKwRow.classList.toggle("hidden", t !== "keyword");
+                adsCatRow.classList.toggle("hidden", t !== "category");
+                adsAsinRow.classList.toggle("hidden", t !== "asin");
+            }
+            if (adsType) adsType.addEventListener("change", setAdsTypeUI);
+
+            async function loadAdsProfiles() {
+                adsProfile.innerHTML = '<option value="">Loading...</option>';
+                try {
+                    const r = await fetch("/api/amazon-ads/status");
+                    const data = await r.json();
+                    adsStatus.textContent = data.configured
+                        ? `Connected (${data.env})`
+                        : "Not configured - set LWA creds in .env";
+                    adsStatus.className = data.configured
+                        ? "text-xs text-green-600"
+                        : "text-xs text-red-600";
+                    adsProfile.innerHTML = "";
+                    const opts = [];
+                    Object.entries(data.profiles || {}).forEach(([mp, profs]) => {
+                        if (Array.isArray(profs)) {
+                            profs.forEach((p) => {
+                                const subType = (p.accountInfo && p.accountInfo.subType) || (p.accountInfo && p.accountInfo.type) || "";
+                                opts.push({
+                                    value: p.profileId,
+                                    marketplace: mp,
+                                    label: `${mp} • ${p.profileId} • ${subType}`,
+                                });
+                            });
+                        }
+                    });
+                    if (opts.length === 0) {
+                        adsProfile.innerHTML = '<option value="">No profiles found</option>';
+                        return;
+                    }
+                    opts.forEach((o) => {
+                        const opt = document.createElement("option");
+                        opt.value = o.value;
+                        opt.dataset.marketplace = o.marketplace;
+                        opt.textContent = o.label;
+                        adsProfile.appendChild(opt);
+                    });
+                    // Sync marketplace dropdown with selected profile
+                    adsProfile.addEventListener("change", () => {
+                        const sel = adsProfile.selectedOptions[0];
+                        if (sel && sel.dataset.marketplace) adsMarketplace.value = sel.dataset.marketplace;
+                    });
+                    if (adsProfile.options.length) {
+                        adsMarketplace.value = adsProfile.options[0].dataset.marketplace;
+                    }
+                } catch (e) {
+                    adsStatus.textContent = "Failed to load: " + e.message;
+                    adsStatus.className = "text-xs text-red-600";
+                }
+            }
+
+            function openAdsModal() {
+                if (!state.jobId) {
+                    addMessage("bot", `<span class="text-red-500">No active book. Generate or open one first.</span>`);
+                    return;
+                }
+                adsModal.classList.remove("hidden");
+                setAdsTypeUI();
+                loadAdsProfiles();
+                // Try to prefill ASIN from listing if available
+                fetch(`/api/jobs/${state.jobId}/listing`).then(r => r.ok && r.json()).then((d) => {
+                    if (d && d.listing && d.listing.asin) adsAsin.value = d.listing.asin;
+                }).catch(() => {});
+            }
+            function closeAdsModal() { adsModal.classList.add("hidden"); }
+
+            if (btnAmazonAds) {
+                btnAmazonAds.addEventListener("click", () => {
+                    replaceMenu.classList.add("hidden");
+                    rewriteMenu.classList.add("hidden");
+                    listingMenu.classList.add("hidden");
+                    openAdsModal();
+                });
+            }
+            if (adsClose) adsClose.addEventListener("click", closeAdsModal);
+            if (adsCancel) adsCancel.addEventListener("click", closeAdsModal);
+            if (adsModal) adsModal.addEventListener("click", (e) => { if (e.target === adsModal) closeAdsModal(); });
+
+            if (adsSubmit) adsSubmit.addEventListener("click", async () => {
+                const asin = (adsAsin.value || "").trim();
+                if (!asin) { adsAsin.focus(); return; }
+                const profile = (adsProfile.value || "").trim();
+                if (!profile) return;
+                const t = adsType.value;
+                const body = {
+                    marketplace: adsMarketplace.value || "US",
+                    profile_id: profile,
+                    type: t,
+                    asin,
+                    daily_budget: parseFloat(adsBudget.value || "5"),
+                    default_bid: parseFloat(adsBid.value || "0.5"),
+                    state: adsState.value || "PAUSED",
+                };
+                if (t === "keyword") {
+                    body.keywords = (adsKeywords.value || "").split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+                } else if (t === "category") {
+                    body.category_ids = (adsCategories.value || "").split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+                } else if (t === "asin") {
+                    body.target_asins = (adsTargetAsins.value || "").split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+                }
+
+                adsSubmit.disabled = true;
+                adsStatus.textContent = "Launching campaign...";
+                adsStatus.className = "text-xs text-gray-600";
+                try {
+                    const r = await fetch(`/api/jobs/${state.jobId}/amazon-ads/launch`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(body),
+                    });
+                    const data = await r.json();
+                    if (!r.ok) throw new Error(data.error || "Launch failed");
+                    closeAdsModal();
+                    addMessage("bot",
+                        `<i class="fab fa-amazon mr-1 text-orange-500"></i> Amazon Ads campaign created (${body.state}): ` +
+                        `<code class="text-xs">${escapeHtml(String(data.campaign.campaignId))}</code> ` +
+                        `&middot; ${escapeHtml(t)} &middot; ${escapeHtml(body.marketplace)}`);
+                } catch (e) {
+                    adsStatus.textContent = "Error: " + e.message;
+                    adsStatus.className = "text-xs text-red-600";
+                } finally {
+                    adsSubmit.disabled = false;
+                }
+            });
         });
     </script>
+
+    <!-- Amazon Ads modal -->
+    <div id="amazon-ads-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden transform transition-all">
+            <div class="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-orange-50 to-white flex items-center justify-between">
+                <h3 class="font-semibold text-gray-800 text-base">
+                    <i class="fab fa-amazon text-orange-500 mr-2"></i> Launch Amazon Ads Campaign
+                </h3>
+                <button id="amazon-ads-close" class="text-gray-400 hover:text-gray-700 transition" aria-label="Close">
+                    <i class="fas fa-times text-lg"></i>
+                </button>
+            </div>
+            <div class="px-5 py-4 space-y-3 max-h-[70vh] overflow-y-auto">
+                <p id="amazon-ads-status" class="text-xs text-gray-500">Loading profiles…</p>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-700 mb-1">Campaign type</label>
+                        <select id="amazon-ads-type" class="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-300">
+                            <option value="auto">Auto targeting</option>
+                            <option value="keyword">Keyword targeting</option>
+                            <option value="category">Category targeting</option>
+                            <option value="asin">ASIN / product targeting</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-700 mb-1">Marketplace</label>
+                        <select id="amazon-ads-marketplace" class="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-300">
+                            <option value="US">US (.com)</option>
+                            <option value="UK">UK (.co.uk)</option>
+                            <option value="CA">CA (.ca)</option>
+                            <option value="AU">AU (.com.au)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">Profile</label>
+                    <select id="amazon-ads-profile" class="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-300">
+                        <option value="">Loading...</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">ASIN to advertise</label>
+                    <input id="amazon-ads-asin" type="text" placeholder="B0XXXXXXXX"
+                        class="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                    <p class="text-[10px] text-gray-400 mt-1">Must be a live, ad-eligible ASIN owned by the selected profile.</p>
+                </div>
+
+                <div id="amazon-ads-kw-row" class="hidden">
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">Keywords <span class="font-normal text-gray-400">(one per line or comma-separated)</span></label>
+                    <textarea id="amazon-ads-keywords" rows="3" placeholder="self help&#10;mindfulness&#10;productivity"
+                        class="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-300 resize-none"></textarea>
+                </div>
+
+                <div id="amazon-ads-cat-row" class="hidden">
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">Category IDs <span class="font-normal text-gray-400">(space or comma separated)</span></label>
+                    <input id="amazon-ads-categories" type="text" placeholder="156563011"
+                        class="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                    <p class="text-[10px] text-gray-400 mt-1">Find ids via <code class="text-[10px]">/api/amazon-ads/categories/search?q=…&amp;profile_id=…</code></p>
+                </div>
+
+                <div id="amazon-ads-asin-row" class="hidden">
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">Target competitor ASINs <span class="font-normal text-gray-400">(space or comma separated)</span></label>
+                    <input id="amazon-ads-target-asins" type="text" placeholder="B0AAAAAAAA B0BBBBBBBB"
+                        class="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                </div>
+
+                <div class="grid grid-cols-3 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-700 mb-1">Daily budget</label>
+                        <input id="amazon-ads-budget" type="number" step="0.5" min="1" value="5"
+                            class="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-700 mb-1">Default bid</label>
+                        <input id="amazon-ads-bid" type="number" step="0.05" min="0.02" value="0.5"
+                            class="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-700 mb-1">State</label>
+                        <select id="amazon-ads-state" class="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-300">
+                            <option value="PAUSED">PAUSED (safe)</option>
+                            <option value="ENABLED">ENABLED (live)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <p class="text-[11px] text-gray-500 bg-orange-50 border border-orange-100 rounded-lg px-3 py-2">
+                    <i class="fas fa-shield-halved text-orange-400 mr-1"></i>
+                    Campaigns default to PAUSED so nothing spends until you review and enable them in the Amazon Ads console.
+                </p>
+            </div>
+            <div class="px-5 py-3 border-t border-gray-100 bg-gray-50 flex items-center justify-end gap-2">
+                <button id="amazon-ads-cancel" class="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+                <button id="amazon-ads-submit" class="px-5 py-2 text-sm font-semibold text-white bg-orange-600 hover:bg-orange-700 rounded-lg shadow-sm transition disabled:bg-orange-300">
+                    <i class="fas fa-rocket mr-1"></i> Launch
+                </button>
+            </div>
+        </div>
+    </div>
 
     <!-- Rename book modal -->
     <div id="rename-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">

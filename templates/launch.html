@@ -1,0 +1,1149 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full antialiased">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Launch — OpenClaw Book Writer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <style>
+        html, body {
+            font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            background: #f7f8fb;
+            color: #1f2937;
+        }
+        .font-mono, code, pre { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
+        .card { background: #fff; border: 1px solid rgba(15,23,42,0.07); border-radius: 14px; box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 8px 24px rgba(15,23,42,.04); }
+        .chip { display: inline-flex; align-items: center; gap: .4rem; font-size: 11px; font-weight: 600; padding: .15rem .55rem; border-radius: 999px; }
+        .chip-draft { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+        .chip-live  { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+        .chip-retired { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+        .mp-cell { border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px 12px; background: #fafafa; }
+        .mp-cell.live { background: #ecfdf5; border-color: #a7f3d0; }
+        .btn-primary { background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%); color: #fff; font-weight: 600; padding: 8px 16px; border-radius: 10px; }
+        .btn-primary:hover { filter: brightness(1.05); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-orange { background: #ea580c; color: #fff; font-weight: 600; padding: 8px 16px; border-radius: 10px; }
+        .btn-orange:hover { background: #c2410c; }
+        .btn-ghost { background: #fff; border: 1px solid #e5e7eb; color: #374151; font-weight: 500; padding: 6px 12px; border-radius: 8px; }
+        .btn-ghost:hover { background: #f9fafb; }
+        .input { width: 100%; border: 1px solid #e5e7eb; border-radius: 8px; padding: 6px 10px; font-size: 14px; }
+        .input:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.15); }
+        textarea.input { resize: vertical; min-height: 70px; }
+        .label { font-size: 11px; font-weight: 600; color: #374151; margin-bottom: 4px; display: block; }
+        details > summary { list-style: none; cursor: pointer; }
+        details > summary::-webkit-details-marker { display: none; }
+        .scrollx::-webkit-scrollbar { width: 6px; height: 6px; }
+        .scrollx::-webkit-scrollbar-thumb { background: rgba(15,23,42,.14); border-radius: 999px; }
+    </style>
+</head>
+<body class="min-h-screen">
+    <!-- Header -->
+    <header class="bg-white/80 backdrop-blur border-b border-gray-200 sticky top-0 z-30">
+        <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <h1 class="font-bold text-gray-900 tracking-tight text-lg flex items-center gap-2">
+                    <i class="fas fa-rocket text-pink-500"></i> OpenClaw &middot; Launch
+                </h1>
+                <nav class="flex items-center gap-1 ml-4">
+                    <a href="/" class="px-3 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-1.5 transition">
+                        <i class="fas fa-pen-nib text-xs"></i> Write
+                    </a>
+                    <a href="/launch" class="px-3 py-1.5 text-sm font-semibold bg-pink-50 text-pink-700 border border-pink-100 rounded-lg flex items-center gap-1.5">
+                        <i class="fas fa-rocket text-xs"></i> Launch
+                    </a>
+                </nav>
+            </div>
+            <div class="flex items-center gap-2">
+                <span id="ads-conn" class="text-xs text-gray-500"><i class="fas fa-circle-notch fa-spin"></i> Checking Amazon connection…</span>
+                <button id="btn-accounts" class="btn-ghost text-sm">
+                    <i class="fas fa-building mr-1 text-indigo-500"></i> Accounts
+                </button>
+                <button id="btn-new-pub" class="btn-primary text-sm">
+                    <i class="fas fa-plus mr-1"></i> New publication
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-6 py-8">
+        <div id="pub-list" class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
+            <div id="pub-empty" class="hidden col-span-full text-center py-20 text-gray-400">
+                <i class="fas fa-rocket text-5xl text-gray-200 block mb-3"></i>
+                <p class="text-lg font-semibold text-gray-500">No publications yet</p>
+                <p class="text-sm">Click <strong>New publication</strong> to import a finished book or upload a zip.</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- New Publication Modal -->
+    <div id="new-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div class="card w-full max-w-xl overflow-hidden">
+            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <h3 class="font-semibold text-gray-800"><i class="fas fa-plus text-indigo-500 mr-2"></i> New publication</h3>
+                <button class="text-gray-400 hover:text-gray-700" data-close="new-modal"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="px-5 py-4 space-y-4">
+                <div class="flex border-b border-gray-100">
+                    <button data-tab="from-book" class="new-tab-btn px-4 py-2 text-sm font-semibold border-b-2 border-indigo-500 text-indigo-600">From a finished book</button>
+                    <button data-tab="from-zip"  class="new-tab-btn px-4 py-2 text-sm font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700">Upload a .zip</button>
+                </div>
+
+                <div id="tab-from-book" class="space-y-2">
+                    <label class="label">Pick a book from your Write tab</label>
+                    <select id="book-picker" class="input"><option>Loading...</option></select>
+                    <p class="text-[11px] text-gray-500">The publication will inherit the book's title, listing, and Kindle/Paperback documents.</p>
+                </div>
+
+                <div id="tab-from-zip" class="space-y-2 hidden">
+                    <label class="label">Zip file</label>
+                    <input type="file" id="zip-input" accept=".zip" class="input" />
+                    <p class="text-[11px] text-gray-500">
+                        Expected contents (filenames are auto-detected):
+                        <code>*_kindle.docx</code>, <code>*_paperback.docx</code>, a cover image (<code>.jpg</code>/<code>.png</code>),
+                        and optional <code>metadata.json</code> with <code>title</code>, <code>subtitle</code>, <code>description</code>, <code>categories</code>.
+                    </p>
+                </div>
+            </div>
+            <div class="px-5 py-3 bg-gray-50 border-t border-gray-100 flex justify-end gap-2">
+                <button class="btn-ghost text-sm" data-close="new-modal">Cancel</button>
+                <button id="new-submit" class="btn-primary text-sm">
+                    <i class="fas fa-check mr-1"></i> Create
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Amazon Ads Accounts Modal -->
+    <div id="accounts-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div class="card w-full max-w-2xl overflow-hidden">
+            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <h3 class="font-semibold text-gray-800"><i class="fas fa-building text-indigo-500 mr-2"></i> Amazon Ads accounts</h3>
+                <button class="text-gray-400 hover:text-gray-700" data-close="accounts-modal"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="px-5 py-4 space-y-4">
+                <div id="accounts-list" class="space-y-2">
+                    <div class="text-xs text-gray-500"><i class="fas fa-circle-notch fa-spin"></i> Loading accounts…</div>
+                </div>
+
+                <div class="pt-3 border-t border-gray-100">
+                    <h4 class="font-semibold text-sm text-gray-800 mb-2"><i class="fas fa-plus text-indigo-500 mr-1"></i> Add a company</h4>
+                    <p class="text-[11px] text-gray-500 mb-3">
+                        Paste a long-lived LWA refresh token for the company's Amazon Ads account.
+                        The OAuth-driven flow is coming next; for now, generate one with
+                        <code>python -m amazon_ads.get_refresh_token</code> (or copy from an existing setup).
+                    </p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                            <label class="label">Company label</label>
+                            <input id="acct-label" class="input" placeholder="Company One" />
+                        </div>
+                        <div>
+                            <label class="label">Environment</label>
+                            <select id="acct-env" class="input">
+                                <option value="production">production</option>
+                                <option value="sandbox">sandbox</option>
+                            </select>
+                        </div>
+                        <div class="md:col-span-2">
+                            <label class="label">LWA refresh token</label>
+                            <textarea id="acct-token" class="input" rows="2" placeholder="Atzr|IwEBI…"></textarea>
+                        </div>
+                        <div class="md:col-span-2">
+                            <label class="label">Notes (optional)</label>
+                            <input id="acct-notes" class="input" placeholder="e.g. KDP US/UK/CA/AU royalties go to Stripe acct_123" />
+                        </div>
+                    </div>
+                    <div id="acct-error" class="hidden mt-2 text-xs text-red-600"></div>
+                </div>
+            </div>
+            <div class="px-5 py-3 bg-gray-50 border-t border-gray-100 flex justify-end gap-2">
+                <button class="btn-ghost text-sm" data-close="accounts-modal">Close</button>
+                <button id="acct-add" class="btn-primary text-sm">
+                    <i class="fas fa-plus mr-1"></i> Add company
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Publication Detail Modal -->
+    <div id="detail-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div class="card w-full max-w-4xl max-h-[92vh] overflow-hidden flex flex-col">
+            <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-indigo-50 to-white">
+                <div class="min-w-0">
+                    <h3 id="dm-title" class="font-bold text-lg text-gray-900 truncate">Publication</h3>
+                    <p id="dm-sub" class="text-xs text-gray-500 mt-0.5"></p>
+                </div>
+                <button class="text-gray-400 hover:text-gray-700 text-xl" data-close="detail-modal"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="flex-1 overflow-y-auto scrollx px-6 py-5 space-y-6">
+                <!-- Metadata -->
+                <section>
+                    <h4 class="text-xs uppercase tracking-wider font-bold text-gray-500 mb-2"><i class="fas fa-info-circle mr-1"></i> Metadata</h4>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div><label class="label">Title</label>      <input id="dm-input-title"    class="input" /></div>
+                        <div><label class="label">Subtitle</label>   <input id="dm-input-subtitle" class="input" /></div>
+                        <div class="col-span-2"><label class="label">Description</label><textarea id="dm-input-description" rows="3" class="input"></textarea></div>
+                    </div>
+                </section>
+
+                <!-- Files -->
+                <section>
+                    <h4 class="text-xs uppercase tracking-wider font-bold text-gray-500 mb-2"><i class="fas fa-folder-open mr-1"></i> Files</h4>
+                    <div id="dm-files" class="grid grid-cols-2 gap-3 text-sm"></div>
+                </section>
+
+                <!-- Marketplaces -->
+                <section>
+                    <h4 class="text-xs uppercase tracking-wider font-bold text-gray-500 mb-2 flex items-center gap-2">
+                        <i class="fas fa-globe-americas"></i> Marketplaces (per-marketplace ASIN)
+                    </h4>
+                    <div id="dm-marketplaces" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
+                    <p class="text-[11px] text-gray-500 mt-2">
+                        Fill in the ASIN for each marketplace where your book is Live. URL is auto-derived.
+                    </p>
+                </section>
+
+                <!-- Action: Launch ads -->
+                <section>
+                    <h4 class="text-xs uppercase tracking-wider font-bold text-gray-500 mb-2 flex items-center gap-2">
+                        <i class="fab fa-amazon text-orange-500"></i> Launch Amazon Ads (multi-marketplace)
+                    </h4>
+                    <div class="space-y-3">
+                        <div id="dm-mp-checklist" class="space-y-2"></div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="label">Campaign type</label>
+                                <select id="dm-ads-type" class="input">
+                                    <option value="auto">Auto targeting</option>
+                                    <option value="keyword">Keyword targeting</option>
+                                    <option value="category">Category targeting</option>
+                                    <option value="asin">ASIN / product targeting</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="label">Initial state</label>
+                                <select id="dm-ads-state" class="input">
+                                    <option value="PAUSED">PAUSED (safe)</option>
+                                    <option value="ENABLED">ENABLED (live)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="dm-kw-row" class="hidden">
+                            <label class="label">Keywords (one per line or comma-separated)</label>
+                            <textarea id="dm-keywords" rows="3" class="input" placeholder="self help&#10;productivity"></textarea>
+                        </div>
+                        <div id="dm-cat-row" class="hidden">
+                            <label class="label">Category IDs (space or comma-separated)</label>
+                            <input id="dm-cats" class="input" placeholder="156563011" />
+                        </div>
+                        <div id="dm-asin-row" class="hidden">
+                            <label class="label">Target competitor ASINs</label>
+                            <input id="dm-target-asins" class="input" placeholder="B0AAAAAAAA B0BBBBBBBB" />
+                        </div>
+                        <button id="dm-launch-ads" class="btn-orange text-sm">
+                            <i class="fas fa-rocket mr-1"></i> Launch on selected marketplaces
+                        </button>
+                        <div id="dm-ads-result" class="text-xs"></div>
+                    </div>
+                </section>
+
+                <!-- Campaign history -->
+                <section>
+                    <h4 class="text-xs uppercase tracking-wider font-bold text-gray-500 mb-2"><i class="fas fa-history mr-1"></i> Campaign history</h4>
+                    <div id="dm-history" class="text-sm text-gray-600"></div>
+                </section>
+
+                <!-- Review request automation -->
+                <section>
+                    <h4 class="text-xs uppercase tracking-wider font-bold text-gray-500 mb-2 flex items-center gap-2">
+                        <i class="fas fa-star text-amber-500"></i> Review request automation
+                        <span id="dm-rv-summary" class="text-[10px] font-normal text-gray-400 ml-auto"></span>
+                    </h4>
+
+                    <!-- Settings panel -->
+                    <details class="bg-gray-50 rounded-lg border border-gray-200 p-3 mb-3">
+                        <summary class="text-xs font-semibold text-gray-700 flex items-center justify-between">
+                            <span><i class="fas fa-cog mr-1 text-gray-400"></i> Settings &amp; templates</span>
+                            <span id="dm-rv-smtp" class="text-[10px] font-normal"></span>
+                        </summary>
+                        <div class="mt-3 grid grid-cols-2 gap-3">
+                            <div><label class="label">From name</label><input id="dm-rv-from-name" class="input" placeholder="Jane Smith" /></div>
+                            <div><label class="label">From email</label><input id="dm-rv-from-email" class="input" type="email" placeholder="jane@example.com" /></div>
+                            <div><label class="label">Launch date (trigger default)</label><input id="dm-rv-launch" class="input" type="date" /></div>
+                            <div><label class="label">Schedule (days after trigger)</label><input id="dm-rv-schedule" class="input" placeholder="7, 14, 30" /></div>
+                        </div>
+                        <div id="dm-rv-templates" class="mt-3 space-y-3"></div>
+                        <div class="mt-3 text-right">
+                            <button id="dm-rv-save-settings" class="btn-ghost text-xs"><i class="fas fa-save mr-1"></i> Save settings</button>
+                        </div>
+                    </details>
+
+                    <!-- Recipients panel -->
+                    <div class="bg-white border border-gray-200 rounded-lg p-3 mb-3">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-xs font-semibold text-gray-700">Recipients (<span id="dm-rv-rcount">0</span>)</span>
+                            <div class="flex items-center gap-2">
+                                <label class="btn-ghost text-xs cursor-pointer">
+                                    <i class="fas fa-file-csv mr-1"></i> Upload CSV
+                                    <input id="dm-rv-csv" type="file" accept=".csv" class="hidden" />
+                                </label>
+                                <button id="dm-rv-add-open" class="btn-ghost text-xs"><i class="fas fa-plus mr-1"></i> Add one</button>
+                            </div>
+                        </div>
+                        <div id="dm-rv-add-row" class="hidden grid grid-cols-4 gap-2 mb-3 p-2 bg-amber-50 border border-amber-200 rounded-lg">
+                            <input id="dm-rv-new-name"   class="input text-xs" placeholder="Name" />
+                            <input id="dm-rv-new-email"  class="input text-xs" placeholder="email@…" type="email" />
+                            <select id="dm-rv-new-mp"    class="input text-xs">
+                                <option value="US">US</option><option value="UK">UK</option>
+                                <option value="CA">CA</option><option value="AU">AU</option>
+                            </select>
+                            <button id="dm-rv-add-submit" class="btn-orange text-xs">Add</button>
+                        </div>
+                        <div id="dm-rv-recipients" class="text-sm text-gray-600 max-h-48 overflow-y-auto scrollx"></div>
+                        <p class="text-[10px] text-gray-400 mt-2">CSV columns: <code>email</code> (required), <code>name</code>, <code>marketplace</code>, <code>trigger_date</code> (YYYY-MM-DD, optional), <code>notes</code>.</p>
+                    </div>
+
+                    <!-- Sends queue -->
+                    <div class="bg-white border border-gray-200 rounded-lg p-3">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-xs font-semibold text-gray-700">Scheduled emails</span>
+                            <div class="flex items-center gap-2">
+                                <label class="text-[11px] text-gray-500 inline-flex items-center gap-1">
+                                    <input id="dm-rv-due-only" type="checkbox" checked /> Due only
+                                </label>
+                                <button id="dm-rv-process-smtp" class="hidden btn-ghost text-xs"><i class="fas fa-paper-plane mr-1"></i> Send all due (SMTP)</button>
+                            </div>
+                        </div>
+                        <div id="dm-rv-sends" class="text-sm text-gray-600 max-h-72 overflow-y-auto scrollx"></div>
+                    </div>
+                </section>
+            </div>
+            <div class="px-6 py-3 border-t border-gray-100 bg-gray-50 flex justify-between items-center">
+                <button id="dm-delete" class="text-xs text-red-600 hover:underline"><i class="fas fa-trash mr-1"></i> Delete publication</button>
+                <div class="flex gap-2">
+                    <button class="btn-ghost text-sm" data-close="detail-modal">Close</button>
+                    <button id="dm-save" class="btn-primary text-sm"><i class="fas fa-save mr-1"></i> Save changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Manual send dialog -->
+    <div id="send-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div class="card w-full max-w-2xl overflow-hidden flex flex-col max-h-[92vh]">
+            <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between bg-amber-50">
+                <h3 class="font-semibold text-gray-800"><i class="fas fa-paper-plane text-amber-500 mr-2"></i> Send email manually</h3>
+                <button class="text-gray-400 hover:text-gray-700" data-close="send-modal"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="px-5 py-4 space-y-2 overflow-y-auto scrollx">
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                    <div><span class="font-semibold text-gray-500">To:</span> <span id="sm-to"></span></div>
+                    <div><span class="font-semibold text-gray-500">From:</span> <span id="sm-from"></span></div>
+                </div>
+                <div>
+                    <label class="label">Subject</label>
+                    <div class="flex gap-2">
+                        <input id="sm-subject" class="input" />
+                        <button id="sm-copy-subject" class="btn-ghost text-xs" title="Copy subject"><i class="fas fa-copy"></i></button>
+                    </div>
+                </div>
+                <div>
+                    <label class="label">Body</label>
+                    <textarea id="sm-body" rows="14" class="input font-mono text-xs"></textarea>
+                </div>
+                <p class="text-[11px] text-gray-500">
+                    Paste this into your email tool (Gmail, your email client, an autoresponder, etc.), send, then click <strong>Mark as sent</strong>. Or download a <code>.eml</code> file for clients that import them.
+                </p>
+            </div>
+            <div class="px-5 py-3 border-t border-gray-100 bg-gray-50 flex items-center justify-end gap-2">
+                <button id="sm-cancel-send" class="text-xs text-red-600 hover:underline mr-auto"><i class="fas fa-ban mr-1"></i> Cancel this send</button>
+                <button id="sm-eml" class="btn-ghost text-xs"><i class="fas fa-download mr-1"></i> Download .eml</button>
+                <button id="sm-copy-body" class="btn-ghost text-xs"><i class="fas fa-copy mr-1"></i> Copy body</button>
+                <button id="sm-send-now" class="hidden btn-orange text-xs"><i class="fas fa-paper-plane mr-1"></i> Send via SMTP</button>
+                <button id="sm-mark-sent" class="btn-primary text-xs"><i class="fas fa-check mr-1"></i> Mark as sent</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+const MARKETPLACES = [
+    { code: 'US', name: 'United States', domain: 'amazon.com',    currency: 'USD' },
+    { code: 'UK', name: 'United Kingdom', domain: 'amazon.co.uk',  currency: 'GBP' },
+    { code: 'CA', name: 'Canada',         domain: 'amazon.ca',     currency: 'CAD' },
+    { code: 'AU', name: 'Australia',      domain: 'amazon.com.au', currency: 'AUD' },
+];
+
+const $ = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
+const esc = s => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+let publications = [];
+let currentPub = null;        // detail-modal target
+let adsStatus = null;         // { configured, env, profiles }
+
+// -------------------- Modal helpers --------------------
+function openModal(id) { $('#' + id).classList.remove('hidden'); }
+function closeModal(id) { $('#' + id).classList.add('hidden'); }
+$$('[data-close]').forEach(b => b.addEventListener('click', () => closeModal(b.dataset.close)));
+['new-modal', 'detail-modal', 'accounts-modal'].forEach(id => {
+    const el = $('#' + id);
+    if (!el) return;
+    el.addEventListener('click', (e) => { if (e.target === el) closeModal(id); });
+});
+
+// -------------------- Accounts modal --------------------
+async function loadAccountsList() {
+    const list = $('#accounts-list');
+    list.innerHTML = '<div class="text-xs text-gray-500"><i class="fas fa-circle-notch fa-spin"></i> Loading accounts…</div>';
+    let accounts = [];
+    let perAccountProfiles = {};
+    try {
+        const [a, s] = await Promise.all([
+            fetch('/api/amazon-ads/accounts').then(r => r.json()),
+            fetch('/api/amazon-ads/status').then(r => r.json()),
+        ]);
+        accounts = a.accounts || [];
+        for (const acct of (s.accounts || [])) {
+            perAccountProfiles[acct.id] = acct.profiles || {};
+        }
+    } catch (e) {
+        list.innerHTML = `<div class="text-xs text-red-600">Failed to load: ${esc(e.message || e)}</div>`;
+        return;
+    }
+    if (!accounts.length) {
+        list.innerHTML = '<div class="text-xs text-gray-500">No companies yet. Add one below.</div>';
+        return;
+    }
+    list.innerHTML = accounts.map(acct => {
+        const profs = perAccountProfiles[acct.id] || {};
+        const counts = ['US','UK','CA','AU'].map(mp => {
+            const arr = profs[mp];
+            const n = Array.isArray(arr) ? arr.length : null;
+            const color = (n === null) ? 'text-red-500'
+                        : (n === 0) ? 'text-gray-400'
+                        : 'text-green-600';
+            return `<span class="${color}">${mp}:${n === null ? '!' : n}</span>`;
+        }).join(' &middot; ');
+        const envClass = acct.env === 'sandbox' ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700';
+        const notes = acct.notes ? `<div class="text-[11px] text-gray-500 mt-0.5">${esc(acct.notes)}</div>` : '';
+        return `
+        <div class="flex items-start justify-between gap-3 border border-gray-100 rounded-lg px-3 py-2 bg-white">
+            <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                    <div class="font-semibold text-sm text-gray-800 truncate">${esc(acct.label)}</div>
+                    <span class="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${envClass}">${esc(acct.env || '')}</span>
+                </div>
+                <div class="text-[11px] text-gray-500 mt-0.5 font-mono">id: ${esc(acct.id)}</div>
+                <div class="text-[11px] mt-1">${counts}</div>
+                ${notes}
+            </div>
+            <button data-acct-delete="${esc(acct.id)}" class="btn-ghost text-xs text-red-600 hover:bg-red-50" title="Remove this company"><i class="fas fa-trash"></i></button>
+        </div>`;
+    }).join('');
+    $$('[data-acct-delete]').forEach(b => b.addEventListener('click', () => deleteAccount(b.dataset.acctDelete)));
+}
+
+async function deleteAccount(accountId) {
+    if (!confirm(`Remove the "${accountId}" company? Publications linked to it will lose the link but won't be deleted.`)) return;
+    const r = await fetch('/api/amazon-ads/accounts/' + encodeURIComponent(accountId), { method: 'DELETE' });
+    if (!r.ok) {
+        alert(`Delete failed (${r.status})`);
+        return;
+    }
+    await Promise.all([loadAccountsList(), loadAdsStatus()]);
+}
+
+async function submitAddAccount() {
+    const label = $('#acct-label').value.trim();
+    const token = $('#acct-token').value.trim();
+    const env = $('#acct-env').value;
+    const notes = $('#acct-notes').value.trim();
+    const err = $('#acct-error');
+    err.classList.add('hidden');
+    if (!label || !token) {
+        err.textContent = 'Label and refresh token are both required.';
+        err.classList.remove('hidden');
+        return;
+    }
+    const btn = $('#acct-add');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-1"></i> Adding…';
+    try {
+        const r = await fetch('/api/amazon-ads/accounts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ label, lwa_refresh_token: token, env, notes }),
+        });
+        const data = await r.json();
+        if (!r.ok && r.status !== 201) {
+            err.textContent = data.error || `Failed (${r.status})`;
+            err.classList.remove('hidden');
+            return;
+        }
+        if (data.warning) {
+            // Saved but validation failed — show warning, keep modal open so user can edit
+            err.textContent = data.warning;
+            err.classList.remove('hidden');
+            err.classList.remove('text-red-600');
+            err.classList.add('text-amber-600');
+        } else {
+            $('#acct-label').value = '';
+            $('#acct-token').value = '';
+            $('#acct-notes').value = '';
+        }
+        await Promise.all([loadAccountsList(), loadAdsStatus()]);
+    } catch (e) {
+        err.textContent = e.message || String(e);
+        err.classList.remove('hidden');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-plus mr-1"></i> Add company';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('btn-accounts');
+    if (btn) btn.addEventListener('click', () => { loadAccountsList(); openModal('accounts-modal'); });
+    const addBtn = document.getElementById('acct-add');
+    if (addBtn) addBtn.addEventListener('click', submitAddAccount);
+});
+
+// -------------------- Status / connection --------------------
+async function loadAdsStatus() {
+    try {
+        const r = await fetch('/api/amazon-ads/status');
+        adsStatus = await r.json();
+        const el = $('#ads-conn');
+        if (adsStatus.configured) {
+            const count = Object.values(adsStatus.profiles || {}).reduce((n, v) => n + (Array.isArray(v) ? v.length : 0), 0);
+            el.innerHTML = `<i class="fas fa-check-circle text-green-500"></i> Amazon connected (${adsStatus.env}, ${count} profile${count !== 1 ? 's' : ''})`;
+            el.className = 'text-xs text-green-700';
+        } else {
+            el.innerHTML = `<i class="fas fa-exclamation-triangle text-amber-500"></i> Amazon not configured`;
+            el.className = 'text-xs text-amber-700';
+        }
+    } catch (e) {
+        $('#ads-conn').textContent = 'Status check failed';
+    }
+}
+
+function profileForMarketplace(mp) {
+    if (!adsStatus || !adsStatus.profiles) return null;
+    const arr = adsStatus.profiles[mp];
+    if (!Array.isArray(arr) || arr.length === 0) return null;
+    // Pick the profile whose countryCode matches the marketplace
+    const want = mp === 'UK' ? 'GB' : mp;
+    return arr.find(p => (p.countryCode || '').toUpperCase() === want) || arr[0];
+}
+
+// -------------------- List view --------------------
+async function loadPublications() {
+    const r = await fetch('/api/publications');
+    const data = await r.json();
+    publications = data.publications || [];
+    renderList();
+}
+
+function renderList() {
+    const wrap = $('#pub-list');
+    wrap.innerHTML = '';
+    if (publications.length === 0) {
+        wrap.innerHTML = `
+            <div class="hidden col-span-full"></div>
+            <div class="col-span-full text-center py-20 text-gray-400">
+                <i class="fas fa-rocket text-5xl text-gray-200 block mb-3"></i>
+                <p class="text-lg font-semibold text-gray-500">No publications yet</p>
+                <p class="text-sm">Click <strong>New publication</strong> to import a finished book or upload a zip.</p>
+            </div>`;
+        return;
+    }
+    publications.forEach(p => wrap.appendChild(renderCard(p)));
+}
+
+function renderCard(p) {
+    const div = document.createElement('div');
+    div.className = 'card p-5 hover:shadow-lg transition cursor-pointer';
+    const mpRows = MARKETPLACES.map(mp => {
+        const info = (p.marketplaces || {})[mp.code];
+        const has = info && info.asin;
+        return `
+            <div class="mp-cell ${has ? 'live' : ''} flex items-center justify-between">
+                <span class="text-xs font-semibold ${has ? 'text-emerald-700' : 'text-gray-500'}">
+                    ${has ? '<i class="fas fa-check-circle mr-1"></i>' : '<i class="far fa-circle mr-1"></i>'} ${mp.code}
+                </span>
+                <span class="text-[11px] font-mono ${has ? 'text-emerald-700' : 'text-gray-400'}">
+                    ${has ? esc(info.asin) : '—'}
+                </span>
+            </div>`;
+    }).join('');
+    const statusClass = p.status === 'live' ? 'chip-live' : (p.status === 'retired' ? 'chip-retired' : 'chip-draft');
+    div.innerHTML = `
+        <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+                <h3 class="font-bold text-gray-900 truncate">${esc(p.title || 'Untitled')}</h3>
+                <p class="text-xs text-gray-500 truncate mt-0.5">${esc(p.subtitle || '')}</p>
+            </div>
+            <span class="chip ${statusClass}">${esc(p.status)}</span>
+        </div>
+        <div class="grid grid-cols-2 gap-2 mt-4">${mpRows}</div>
+        <div class="mt-4 flex items-center justify-between text-xs text-gray-500">
+            <span>${p.primary_asin ? 'Primary: ' + esc(p.primary_marketplace) + ' · ' + esc(p.primary_asin) : 'No ASIN yet'}</span>
+            <span class="text-indigo-600 font-semibold">Open <i class="fas fa-arrow-right text-[10px]"></i></span>
+        </div>
+    `;
+    div.addEventListener('click', () => openDetail(p.id));
+    return div;
+}
+
+// -------------------- New publication --------------------
+$$('.new-tab-btn').forEach(b => b.addEventListener('click', () => {
+    $$('.new-tab-btn').forEach(x => {
+        x.classList.remove('border-indigo-500', 'text-indigo-600');
+        x.classList.add('border-transparent', 'text-gray-500');
+    });
+    b.classList.add('border-indigo-500', 'text-indigo-600');
+    b.classList.remove('border-transparent', 'text-gray-500');
+    $('#tab-from-book').classList.toggle('hidden', b.dataset.tab !== 'from-book');
+    $('#tab-from-zip').classList.toggle('hidden', b.dataset.tab !== 'from-zip');
+}));
+
+$('#btn-new-pub').addEventListener('click', async () => {
+    openModal('new-modal');
+    // Load books
+    const sel = $('#book-picker');
+    sel.innerHTML = '<option>Loading...</option>';
+    try {
+        const r = await fetch('/api/books');
+        const data = await r.json();
+        const books = (data.books || data || []).filter(b => b.status === 'success');
+        if (books.length === 0) {
+            sel.innerHTML = '<option value="">No finished books found</option>';
+        } else {
+            sel.innerHTML = books.map(b => `<option value="${esc(b.id)}">${esc(b.title || b.id)}</option>`).join('');
+        }
+    } catch (e) {
+        sel.innerHTML = '<option value="">Failed to load books</option>';
+    }
+});
+
+$('#new-submit').addEventListener('click', async () => {
+    const fromBook = !$('#tab-from-book').classList.contains('hidden');
+    try {
+        let result;
+        if (fromBook) {
+            const bookId = $('#book-picker').value;
+            if (!bookId) { alert('Pick a book first.'); return; }
+            const r = await fetch('/api/publications', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ book_id: bookId }),
+            });
+            result = await r.json();
+            if (!r.ok) throw new Error(result.error || 'Failed');
+        } else {
+            const file = $('#zip-input').files[0];
+            if (!file) { alert('Pick a .zip first.'); return; }
+            const fd = new FormData();
+            fd.append('zip', file);
+            const r = await fetch('/api/publications/upload-zip', { method: 'POST', body: fd });
+            result = await r.json();
+            if (!r.ok) throw new Error(result.error || 'Upload failed');
+        }
+        closeModal('new-modal');
+        await loadPublications();
+        if (result.id) openDetail(result.id);
+    } catch (e) {
+        alert('Error: ' + e.message);
+    }
+});
+
+// -------------------- Detail view --------------------
+async function openDetail(pubId) {
+    const r = await fetch('/api/publications/' + pubId);
+    if (!r.ok) { alert('Failed to load publication'); return; }
+    const data = await r.json();
+    currentPub = data.publication;
+    renderDetail();
+    openModal('detail-modal');
+}
+
+function renderDetail() {
+    const p = currentPub;
+    $('#dm-title').textContent = p.title || 'Untitled publication';
+    $('#dm-sub').textContent = p.subtitle || '';
+    $('#dm-input-title').value = p.title || '';
+    $('#dm-input-subtitle').value = p.subtitle || '';
+    $('#dm-input-description').value = p.description || '';
+
+    // Files
+    const files = $('#dm-files');
+    const filesData = [
+        { key: 'kindle',    label: 'Kindle .docx',    path: p.kindle_docx_path },
+        { key: 'paperback', label: 'Paperback .docx', path: p.paperback_docx_path },
+        { key: 'cover',     label: 'Front cover',     path: p.front_cover_path },
+        { key: 'zip',       label: 'Source zip',      path: p.source_zip_path },
+    ];
+    files.innerHTML = filesData.map(f => f.path
+        ? `<a href="/api/publications/${p.id}/file/${f.key}" class="block px-3 py-2 bg-white border border-gray-200 rounded-lg hover:bg-indigo-50 hover:border-indigo-200 transition truncate" title="${esc(f.path)}">
+              <i class="fas fa-file text-indigo-400 mr-2"></i> ${esc(f.label)}
+           </a>`
+        : `<div class="px-3 py-2 bg-gray-50 border border-dashed border-gray-200 rounded-lg text-gray-400">
+              <i class="fas fa-file-circle-xmark mr-2"></i> ${esc(f.label)} (none)
+           </div>`).join('');
+
+    // Marketplaces
+    const mpWrap = $('#dm-marketplaces');
+    mpWrap.innerHTML = MARKETPLACES.map(mp => {
+        const info = (p.marketplaces || {})[mp.code] || {};
+        const prof = profileForMarketplace(mp.code);
+        return `
+        <div class="mp-cell ${info.asin ? 'live' : ''}" data-mp="${mp.code}">
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-xs font-bold text-gray-700">${mp.code} <span class="font-normal text-gray-500">· ${esc(mp.name)}</span></span>
+                <span class="text-[10px] ${prof ? 'text-emerald-700' : 'text-gray-400'} font-semibold">
+                    ${prof ? '<i class="fas fa-plug"></i> profile ' + esc(prof.profileId) : 'no ads profile'}
+                </span>
+            </div>
+            <input class="input mp-asin text-sm mb-1" placeholder="ASIN" value="${esc(info.asin || '')}" />
+            <input class="input mp-url text-xs"  placeholder="https://${mp.domain}/dp/…" value="${esc(info.url || '')}" />
+        </div>`;
+    }).join('');
+
+    // Multi-marketplace checklist
+    const checklist = $('#dm-mp-checklist');
+    checklist.innerHTML = MARKETPLACES.map(mp => {
+        const info = (p.marketplaces || {})[mp.code] || {};
+        const has = !!info.asin;
+        const prof = profileForMarketplace(mp.code);
+        const ready = has && prof;
+        return `
+        <label class="flex items-center gap-3 px-3 py-2 border rounded-lg ${ready ? 'border-emerald-200 bg-emerald-50' : 'border-gray-200 bg-gray-50 opacity-70'}">
+            <input type="checkbox" class="mp-check" data-mp="${mp.code}" ${ready ? '' : 'disabled'} ${ready ? 'checked' : ''} />
+            <div class="flex-1 text-sm">
+                <span class="font-semibold">${mp.code}</span>
+                <span class="text-xs text-gray-500 ml-2">
+                    ${has ? esc(info.asin) : '<em>no ASIN set</em>'}
+                    ${!prof && has ? '· <span class="text-red-600">no ads profile available</span>' : ''}
+                </span>
+            </div>
+            <span class="text-[11px] text-gray-500">${esc(mp.currency)}</span>
+        </label>`;
+    }).join('');
+
+    // Campaign history
+    const history = $('#dm-history');
+    if (!p.campaigns || p.campaigns.length === 0) {
+        history.innerHTML = '<p class="text-xs text-gray-400">No campaigns yet.</p>';
+    } else {
+        history.innerHTML = `
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs">
+                <thead><tr class="text-left text-gray-500 border-b">
+                    <th class="py-1.5">When</th><th>Type</th><th>MP</th><th>Name</th><th>Budget</th><th>State</th><th>Campaign ID</th>
+                </tr></thead>
+                <tbody>${p.campaigns.map(c => `
+                    <tr class="border-b border-gray-50">
+                        <td class="py-1.5 text-gray-500">${new Date(c.created_at*1000).toLocaleString()}</td>
+                        <td>${esc(c.campaign_type)}</td>
+                        <td>${esc(c.marketplace)}</td>
+                        <td class="truncate max-w-[200px]">${esc(c.name)}</td>
+                        <td>${esc(String(c.daily_budget))}</td>
+                        <td><span class="chip ${c.state === 'ENABLED' ? 'chip-live' : 'chip-draft'}">${esc(c.state)}</span></td>
+                        <td class="font-mono text-gray-500">${esc(c.campaign_id)}</td>
+                    </tr>`).join('')}
+                </tbody>
+              </table>
+            </div>`;
+    }
+
+    // Reset ads result
+    $('#dm-ads-result').textContent = '';
+    syncAdsTypeUI();
+
+    // Load review automation panel (defined below)
+    if (typeof loadReviewState === 'function') loadReviewState();
+}
+
+function syncAdsTypeUI() {
+    const t = $('#dm-ads-type').value;
+    $('#dm-kw-row').classList.toggle('hidden', t !== 'keyword');
+    $('#dm-cat-row').classList.toggle('hidden', t !== 'category');
+    $('#dm-asin-row').classList.toggle('hidden', t !== 'asin');
+}
+$('#dm-ads-type').addEventListener('change', syncAdsTypeUI);
+
+// Save metadata + marketplaces
+$('#dm-save').addEventListener('click', async () => {
+    if (!currentPub) return;
+    const marketplaces = {};
+    $$('#dm-marketplaces .mp-cell').forEach(c => {
+        const mp = c.dataset.mp;
+        const asin = c.querySelector('.mp-asin').value.trim();
+        const url  = c.querySelector('.mp-url').value.trim();
+        marketplaces[mp] = asin ? { asin, url } : null;
+    });
+    const body = {
+        title: $('#dm-input-title').value.trim(),
+        subtitle: $('#dm-input-subtitle').value.trim(),
+        description: $('#dm-input-description').value,
+        marketplaces,
+    };
+    const r = await fetch('/api/publications/' + currentPub.id, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (!r.ok) { alert('Save failed: ' + (data.error || r.status)); return; }
+    currentPub = data.publication;
+    renderDetail();
+    await loadPublications();
+});
+
+// Delete
+$('#dm-delete').addEventListener('click', async () => {
+    if (!currentPub) return;
+    if (!confirm('Delete this publication? Campaign records will remain in the database.')) return;
+    const r = await fetch('/api/publications/' + currentPub.id, { method: 'DELETE' });
+    if (!r.ok) { alert('Delete failed'); return; }
+    closeModal('detail-modal');
+    await loadPublications();
+});
+
+// Launch ads
+$('#dm-launch-ads').addEventListener('click', async () => {
+    if (!currentPub) return;
+    const selected = $$('#dm-mp-checklist .mp-check:checked').map(c => c.dataset.mp);
+    if (selected.length === 0) { alert('Select at least one marketplace.'); return; }
+    const t = $('#dm-ads-type').value;
+    const body = {
+        type: t,
+        state: $('#dm-ads-state').value,
+        marketplaces: selected,
+    };
+    if (t === 'keyword') {
+        body.keywords = $('#dm-keywords').value.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+    } else if (t === 'category') {
+        body.category_ids = $('#dm-cats').value.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+    } else if (t === 'asin') {
+        body.target_asins = $('#dm-target-asins').value.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+    }
+
+    const btn = $('#dm-launch-ads');
+    btn.disabled = true;
+    $('#dm-ads-result').innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Launching...';
+    try {
+        const r = await fetch('/api/publications/' + currentPub.id + '/amazon-ads/launch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await r.json();
+        const lines = (data.results || []).map(res => {
+            if (res.ok) {
+                return `<div class="text-emerald-700"><i class="fas fa-check-circle mr-1"></i> ${esc(res.marketplace)} → campaign ${esc(res.campaign.campaignId)}</div>`;
+            }
+            return `<div class="text-red-700"><i class="fas fa-times-circle mr-1"></i> ${esc(res.marketplace)} → ${esc(res.error)}</div>`;
+        });
+        $('#dm-ads-result').innerHTML = lines.join('');
+        // Refresh history
+        await openDetail(currentPub.id);
+    } catch (e) {
+        $('#dm-ads-result').innerHTML = '<span class="text-red-700">Error: ' + esc(e.message) + '</span>';
+    } finally {
+        btn.disabled = false;
+    }
+});
+
+// ==================== Review automation ====================
+let rvSettings = null;
+let rvSummary = null;
+let rvSmtpAvailable = false;
+
+function fmtTs(ts) {
+    if (!ts) return '—';
+    const d = new Date(ts * 1000);
+    const now = Date.now();
+    const diff = (d.getTime() - now) / 1000;
+    const abs = Math.abs(diff);
+    let rel;
+    if (abs < 60)        rel = 'just now';
+    else if (abs < 3600) rel = Math.round(abs/60) + 'm';
+    else if (abs < 86400) rel = Math.round(abs/3600) + 'h';
+    else                 rel = Math.round(abs/86400) + 'd';
+    return d.toLocaleString() + ' (' + (diff < 0 ? rel + ' ago' : 'in ' + rel) + ')';
+}
+
+async function loadReviewState() {
+    if (!currentPub) return;
+    const pid = currentPub.id;
+    const [s, rcps, sends] = await Promise.all([
+        fetch(`/api/publications/${pid}/review/settings`).then(r => r.json()),
+        fetch(`/api/publications/${pid}/review/recipients`).then(r => r.json()),
+        fetch(`/api/publications/${pid}/review/sends?due_only=${$('#dm-rv-due-only').checked ? '1' : '0'}`).then(r => r.json()),
+    ]);
+    rvSettings = s.settings || {};
+    rvSummary = s.summary || {};
+    rvSmtpAvailable = !!s.smtp_available;
+    renderReviewSettings();
+    renderReviewSummary();
+    renderRecipients(rcps.recipients || []);
+    renderSends(sends.sends || []);
+    $('#dm-rv-smtp').innerHTML = rvSmtpAvailable
+        ? '<span class="text-emerald-600"><i class="fas fa-bolt"></i> SMTP active</span>'
+        : '<span class="text-gray-400">manual mode</span>';
+    $('#dm-rv-process-smtp').classList.toggle('hidden', !rvSmtpAvailable);
+}
+
+function renderReviewSummary() {
+    if (!rvSummary) return;
+    const s = rvSummary;
+    $('#dm-rv-summary').textContent =
+        `${s.recipients_total} recipients · ${s.recipients_pending} pending · ${s.sends_due} due · ${s.sends_sent} sent · ${s.sends_failed} failed`;
+    $('#dm-rv-rcount').textContent = s.recipients_total;
+}
+
+function renderReviewSettings() {
+    const s = rvSettings || {};
+    $('#dm-rv-from-name').value  = s.from_name || '';
+    $('#dm-rv-from-email').value = s.from_email || '';
+    if (s.launch_date) {
+        const d = new Date(s.launch_date * 1000);
+        $('#dm-rv-launch').value = d.toISOString().slice(0, 10);
+    } else {
+        $('#dm-rv-launch').value = '';
+    }
+    $('#dm-rv-schedule').value = (s.schedule_days || [7,14,30]).join(', ');
+
+    // Render templates
+    const wrap = $('#dm-rv-templates');
+    wrap.innerHTML = '';
+    (s.templates || []).forEach((t, i) => {
+        const div = document.createElement('div');
+        div.className = 'border border-gray-200 rounded-lg p-2 bg-white';
+        div.innerHTML = `
+            <div class="flex items-center justify-between text-xs mb-1">
+                <span class="font-semibold text-gray-700">Step ${esc(String(t.step))}</span>
+                <span class="text-gray-500">Day +<input type="number" min="1" value="${esc(String(t.offset_days))}" class="rv-tpl-days w-12 input text-xs inline-block" data-i="${i}" /></span>
+            </div>
+            <input class="rv-tpl-subject input text-xs mb-1" placeholder="Subject" value="${esc(t.subject || '')}" data-i="${i}" />
+            <textarea class="rv-tpl-body input text-xs font-mono" rows="5" data-i="${i}">${esc(t.body || '')}</textarea>`;
+        wrap.appendChild(div);
+    });
+    const tokens = document.createElement('p');
+    tokens.className = 'text-[10px] text-gray-400';
+    tokens.innerHTML = 'Tokens: <code>{{name}}</code> <code>{{title}}</code> <code>{{author}}</code> <code>{{review_url}}</code> <code>{{product_url}}</code> <code>{{asin}}</code> <code>{{marketplace}}</code> <code>{{unsubscribe_url}}</code>';
+    wrap.appendChild(tokens);
+}
+
+function collectTemplates() {
+    const tpls = [];
+    $$('#dm-rv-templates > div').forEach((div, i) => {
+        const step = i + 1;
+        const days = parseInt(div.querySelector('.rv-tpl-days').value || '0', 10);
+        const subject = div.querySelector('.rv-tpl-subject').value;
+        const body = div.querySelector('.rv-tpl-body').value;
+        tpls.push({ step, offset_days: days, subject, body });
+    });
+    return tpls;
+}
+
+$('#dm-rv-save-settings').addEventListener('click', async () => {
+    if (!currentPub) return;
+    const launch = $('#dm-rv-launch').value;
+    let launch_ts = null;
+    if (launch) launch_ts = new Date(launch + 'T00:00:00').getTime() / 1000;
+    const schedule = $('#dm-rv-schedule').value.split(/[\s,]+/).map(Number).filter(n => n > 0);
+    const body = {
+        from_name: $('#dm-rv-from-name').value.trim(),
+        from_email: $('#dm-rv-from-email').value.trim(),
+        launch_date: launch_ts,
+        schedule_days: schedule,
+        templates: collectTemplates(),
+    };
+    const r = await fetch(`/api/publications/${currentPub.id}/review/settings`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+    });
+    if (!r.ok) { alert('Save failed'); return; }
+    await loadReviewState();
+});
+
+function renderRecipients(list) {
+    const wrap = $('#dm-rv-recipients');
+    if (!list.length) {
+        wrap.innerHTML = '<p class="text-xs text-gray-400 p-2">No recipients yet. Upload a CSV or add one.</p>';
+        return;
+    }
+    wrap.innerHTML = `
+        <table class="w-full text-xs">
+            <thead><tr class="text-left text-gray-500 border-b">
+                <th class="py-1">Email</th><th>Name</th><th>MP</th><th>Trigger</th><th>Status</th><th></th>
+            </tr></thead>
+            <tbody>${list.map(r => `
+                <tr class="border-b border-gray-50">
+                    <td class="py-1 font-mono text-[11px]">${esc(r.email)}</td>
+                    <td>${esc(r.name)}</td>
+                    <td>${esc(r.marketplace)}</td>
+                    <td class="text-gray-500">${esc(new Date(r.trigger_date * 1000).toLocaleDateString())}</td>
+                    <td><span class="chip ${r.status === 'reviewed' ? 'chip-live' : (r.status === 'unsubscribed' ? 'chip-retired' : 'chip-draft')}">${esc(r.status)}</span></td>
+                    <td class="text-right">
+                        ${r.status === 'pending' ? `<button class="text-[10px] text-emerald-600 hover:underline rv-mark-rev" data-r="${esc(r.id)}">Mark reviewed</button>` : ''}
+                        <button class="text-[10px] text-red-600 hover:underline ml-2 rv-del" data-r="${esc(r.id)}">Delete</button>
+                    </td>
+                </tr>`).join('')}
+            </tbody>
+        </table>`;
+    wrap.querySelectorAll('.rv-mark-rev').forEach(b => b.addEventListener('click', async () => {
+        await fetch('/api/review/recipients/' + b.dataset.r + '/status', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({status: 'reviewed'}),
+        });
+        loadReviewState();
+    }));
+    wrap.querySelectorAll('.rv-del').forEach(b => b.addEventListener('click', async () => {
+        if (!confirm('Delete this recipient (and their pending emails)?')) return;
+        await fetch('/api/review/recipients/' + b.dataset.r, { method: 'DELETE' });
+        loadReviewState();
+    }));
+}
+
+function renderSends(list) {
+    const wrap = $('#dm-rv-sends');
+    if (!list.length) {
+        wrap.innerHTML = '<p class="text-xs text-gray-400 p-2">Nothing scheduled.</p>';
+        return;
+    }
+    wrap.innerHTML = `
+        <table class="w-full text-xs">
+            <thead><tr class="text-left text-gray-500 border-b">
+                <th class="py-1">When</th><th>To</th><th>Step</th><th>Subject</th><th>Status</th><th></th>
+            </tr></thead>
+            <tbody>${list.map(s => {
+                const when = fmtTs(s.scheduled_for);
+                const due = s.status === 'scheduled' && (s.scheduled_for * 1000) <= Date.now();
+                const cls = s.status === 'sent' ? 'chip-live' : (s.status === 'failed' ? 'chip-retired' : 'chip-draft');
+                return `
+                <tr class="border-b border-gray-50 ${due ? 'bg-amber-50' : ''}">
+                    <td class="py-1 text-gray-500 text-[11px]">${esc(when)}</td>
+                    <td class="font-mono text-[11px]">${esc(s.recipient_email || '')}</td>
+                    <td>${esc(String(s.step))}</td>
+                    <td class="truncate max-w-[240px]">${esc(s.subject)}</td>
+                    <td><span class="chip ${cls}">${esc(s.status)}</span>${due ? ' <span class="chip chip-draft" style="background:#fef3c7;color:#92400e">due</span>' : ''}</td>
+                    <td class="text-right">
+                        ${s.status === 'scheduled' ? `<button class="text-[11px] text-indigo-600 hover:underline rv-open-send" data-s="${esc(s.id)}">Open</button>` : ''}
+                    </td>
+                </tr>`;
+            }).join('')}</tbody>
+        </table>`;
+    wrap.querySelectorAll('.rv-open-send').forEach(b => b.addEventListener('click', () => openSendModal(b.dataset.s)));
+}
+
+$('#dm-rv-due-only').addEventListener('change', loadReviewState);
+
+// Add recipient (one)
+$('#dm-rv-add-open').addEventListener('click', () => $('#dm-rv-add-row').classList.toggle('hidden'));
+$('#dm-rv-add-submit').addEventListener('click', async () => {
+    if (!currentPub) return;
+    const body = {
+        name: $('#dm-rv-new-name').value.trim(),
+        email: $('#dm-rv-new-email').value.trim(),
+        marketplace: $('#dm-rv-new-mp').value,
+    };
+    if (!body.email) { alert('email required'); return; }
+    const r = await fetch(`/api/publications/${currentPub.id}/review/recipients`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (!r.ok) { alert('Add failed: ' + (data.error || r.status)); return; }
+    $('#dm-rv-new-name').value = '';
+    $('#dm-rv-new-email').value = '';
+    loadReviewState();
+});
+
+// CSV upload
+$('#dm-rv-csv').addEventListener('change', async (e) => {
+    const f = e.target.files[0];
+    if (!f || !currentPub) return;
+    const fd = new FormData();
+    fd.append('file', f);
+    const r = await fetch(`/api/publications/${currentPub.id}/review/recipients/upload`, { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!r.ok) { alert('Upload failed'); return; }
+    const msg = `Added ${data.added}, skipped duplicates ${data.skipped_duplicates}` +
+        (data.errors && data.errors.length ? ', errors: ' + data.errors.length : '');
+    alert(msg);
+    e.target.value = '';
+    loadReviewState();
+});
+
+// Process all due via SMTP
+$('#dm-rv-process-smtp').addEventListener('click', async () => {
+    if (!currentPub) return;
+    if (!confirm('Send all due emails now via SMTP?')) return;
+    const r = await fetch(`/api/publications/${currentPub.id}/review/process-smtp-tick`, { method: 'POST' });
+    const d = await r.json();
+    alert('Sent: ' + (d.sent ?? '?'));
+    loadReviewState();
+});
+
+// ==================== Send modal ====================
+let currentSendId = null;
+
+async function openSendModal(sendId) {
+    currentSendId = sendId;
+    const r = await fetch('/api/review/sends/' + sendId + '/preview');
+    if (!r.ok) { alert('Failed to load'); return; }
+    const d = await r.json();
+    $('#sm-to').textContent = d.recipient.name ? `${d.recipient.name} <${d.recipient.email}>` : d.recipient.email;
+    $('#sm-from').textContent = d.from || '(no From configured — set one in Settings)';
+    $('#sm-subject').value = d.send.subject;
+    $('#sm-body').value = d.send.body;
+    $('#sm-send-now').classList.toggle('hidden', !d.smtp_available);
+    openModal('send-modal');
+}
+
+$('#sm-copy-subject').addEventListener('click', () => navigator.clipboard.writeText($('#sm-subject').value));
+$('#sm-copy-body').addEventListener('click', () => navigator.clipboard.writeText($('#sm-body').value));
+$('#sm-eml').addEventListener('click', () => {
+    if (!currentSendId) return;
+    window.open('/api/review/sends/' + currentSendId + '/eml', '_blank');
+});
+$('#sm-mark-sent').addEventListener('click', async () => {
+    if (!currentSendId) return;
+    await fetch('/api/review/sends/' + currentSendId + '/mark-sent', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ method: 'manual' }),
+    });
+    closeModal('send-modal');
+    loadReviewState();
+});
+$('#sm-cancel-send').addEventListener('click', async () => {
+    if (!currentSendId) return;
+    if (!confirm('Cancel this scheduled email?')) return;
+    await fetch('/api/review/sends/' + currentSendId + '/cancel', { method: 'POST' });
+    closeModal('send-modal');
+    loadReviewState();
+});
+$('#sm-send-now').addEventListener('click', async () => {
+    if (!currentSendId) return;
+    const r = await fetch('/api/review/sends/' + currentSendId + '/send-now', { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok) { alert('Send failed: ' + (d.error || r.status)); return; }
+    closeModal('send-modal');
+    loadReviewState();
+});
+
+// -------------------- Boot --------------------
+(async function () {
+    await Promise.all([loadAdsStatus(), loadPublications()]);
+})();
+</script>
+</body>
+</html>

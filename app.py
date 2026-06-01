@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from docx import Document
+from docx.text.paragraph import Paragraph
 from flask import Flask, abort, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
 
@@ -36,6 +37,8 @@ import openclaw_docx_writer as writer
 import pub_listing_agent
 import wp_landing_page
 import db as bookdb
+import publications as pub_routes
+import review_automation as review_routes
 
 ROOT_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = ROOT_DIR / "web_uploads"
@@ -92,6 +95,9 @@ JOBS: dict[str, Job] = {}
 JOBS_LOCK = threading.Lock()
 
 bookdb.init_db()
+pub_routes.register(app)
+review_routes.register(app)
+review_routes.start_background_tick()
 
 
 def _timestamp() -> str:
@@ -189,6 +195,18 @@ def _sync_job_to_db(job: Job) -> None:
             error=job.error,
             pre_written=bool(job.pre_written),
         )
+        was_success = job.status == "success"
+
+    # Auto-create a draft publication once the writer pipeline finishes.
+    # Idempotent: pub_routes.auto_create_from_book returns existing id if any.
+    if was_success:
+        try:
+            book = bookdb.get_book(job.id)
+            if book:
+                pub_routes.auto_create_from_book(book)
+        except Exception:
+            # Never block the writer pipeline on a publication-side failure.
+            pass
 
 
 def _detect_pre_written(doc_path: Path, min_body_paragraphs: int = 3) -> bool:
@@ -350,15 +368,7 @@ def _run_generation(job_id: str) -> None:
         _append_log(job, f"Kindle output: {kindle_doc}")
         _append_log(job, f"Paperback output: {paperback_doc}")
 
-        # --- Auto-create landing page + QR code ---
-        with job.lock:
-            page_title = job.custom_title.strip() or _derive_title(job.input_docx)
-        try:
-            _set_status(job, "running", action="creating_landing_page", error="")
-            _do_landing_page_qr(job, page_title)
-        except Exception as qr_exc:
-            # Landing page failure is non-fatal — book is still usable.
-            _append_log(job, f"WARNING: Landing page + QR failed (book is still ready): {qr_exc}")
+        # Landing page + QR is now manual-only (use the QR button in the UI).
 
         _set_status(job, "success", action="", error="")
         _sync_job_to_db(job)
@@ -792,98 +802,82 @@ def _append_qr_page(doc_path: Path, qr_png: Path, *, heading: str, caption: str)
     doc.save(str(doc_path))
 
 
-def _insert_paperback_bonus_page(doc_path: Path, qr_png: Path) -> None:
-    """Insert a FREE BONUS page with QR code into the paperback .docx.
+def _find_bonus_paragraph(doc: Document) -> Paragraph | None:
+    """Return the paragraph that contains the FREE BONUS page content."""
+    for para in doc.paragraphs:
+        raw_text = para.text or ""
+        text = " ".join(raw_text.split()).upper()
+        if not text:
+            continue
+        if "FREE BONUS" in text and "GET OUR NEXT BOOK" in text and "FOR FREE" in text:
+            return para
 
-    Layout:
-      - Page break
-      - "FREE BONUS" centred, 48 pt, bold
-      - Spacer
-      - QR image centred
-      - Spacer
-      - "GET OUR NEXT BOOK FOR FREE" centred, 24 pt
-    """
+    for para in doc.paragraphs:
+        text = " ".join((para.text or "").split()).upper()
+        if text == "FREE BONUS":
+            return para
+
+    return None
+
+
+def _insert_paperback_bonus_page(doc_path: Path, qr_png: Path) -> None:
+    """Insert a QR code into the existing FREE BONUS page in the paperback .docx."""
     from docx.shared import Inches, Pt
-    from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
 
     doc = Document(str(doc_path))
+    bonus_para = _find_bonus_paragraph(doc)
+    if bonus_para is None:
+        raise ValueError("FREE BONUS page not found in paperback docx")
 
-    # Page break
-    pb = doc.add_paragraph()
-    pb.add_run().add_break(WD_BREAK.PAGE)
+    # Preserve the existing top spacer (leading line breaks) so vertical centering stays intact.
+    raw_text = "".join(r.text or "" for r in bonus_para.runs)
+    prefix = raw_text.split("FREE BONUS", 1)[0] if "FREE BONUS" in raw_text else ""
+    leading_breaks = prefix.count("\n")
 
-    # "FREE BONUS" – 48pt
-    h1 = doc.add_paragraph()
-    h1.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run1 = h1.add_run("FREE BONUS")
-    run1.bold = True
-    run1.font.size = Pt(48)
+    # Clear existing runs but keep paragraph properties.
+    for child in list(bonus_para._p):
+        if child.tag == qn("w:pPr"):
+            continue
+        bonus_para._p.remove(child)
 
-    # Spacer
-    doc.add_paragraph()
+    bonus_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    # QR image centred
-    img_para = doc.add_paragraph()
-    img_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    img_para.add_run().add_picture(str(qr_png), width=Inches(3.0))
+    if leading_breaks:
+        spacer = bonus_para.add_run("\n" * leading_breaks)
+        spacer.font.size = Pt(1)
 
-    # Spacer
-    doc.add_paragraph()
+    title_run = bonus_para.add_run("FREE BONUS")
+    title_run.font.size = Pt(36)
+    bonus_para.add_run("\n\n")
 
-    # "GET OUR NEXT BOOK FOR FREE" – 24pt (below QR code)
-    h2 = doc.add_paragraph()
-    h2.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run2 = h2.add_run("GET OUR NEXT BOOK FOR FREE")
-    run2.bold = True
-    run2.font.size = Pt(24)
+    qr_run = bonus_para.add_run()
+    qr_run.add_picture(str(qr_png), width=Inches(3.0))
+
+    bonus_para.add_run("\n\n")
+    line2 = bonus_para.add_run("GET OUR NEXT BOOK")
+    line2.font.size = Pt(20)
+    bonus_para.add_run("\n")
+    line3 = bonus_para.add_run("FOR FREE")
+    line3.font.size = Pt(20)
 
     doc.save(str(doc_path))
 
 
 def _insert_kindle_bonus_page(doc_path: Path, landing_url: str) -> None:
-    """Insert a FREE BONUS page with a clickable link into the Kindle .docx.
-
-    Layout:
-      - Page break
-      - "FREE BONUS" centred, 48 pt, bold
-      - "GET OUR NEXT BOOK FOR FREE" centred, 24 pt
-      - Spacer
-      - Clickable hyperlink to landing page, 24 pt, centred
-    """
-    from docx.shared import Pt
-    from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
+    """Insert a clickable link into the existing FREE BONUS page in the Kindle .docx."""
+    from docx.enum.text import WD_BREAK
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
 
     doc = Document(str(doc_path))
+    bonus_para = _find_bonus_paragraph(doc)
+    if bonus_para is None:
+        raise ValueError("FREE BONUS page not found in Kindle docx")
 
-    # Page break
-    pb = doc.add_paragraph()
-    pb.add_run().add_break(WD_BREAK.PAGE)
-
-    # "FREE BONUS" – 48pt
-    h1 = doc.add_paragraph()
-    h1.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run1 = h1.add_run("FREE BONUS")
-    run1.bold = True
-    run1.font.size = Pt(48)
-
-    # Spacer
-    doc.add_paragraph()
-
-    # "GET OUR NEXT BOOK FOR FREE" – 24pt
-    h2 = doc.add_paragraph()
-    h2.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run2 = h2.add_run("GET OUR NEXT BOOK FOR FREE")
-    run2.bold = True
-    run2.font.size = Pt(24)
-
-    # Spacer
-    doc.add_paragraph()
-
-    # Clickable hyperlink – 24pt, centred
-    link_para = doc.add_paragraph()
-    link_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    bonus_para.add_run().add_break(WD_BREAK.LINE)
+    bonus_para.add_run().add_break(WD_BREAK.LINE)
 
     # Build a w:hyperlink element with the URL as an external relationship.
     part = doc.part
@@ -922,7 +916,7 @@ def _insert_kindle_bonus_page(doc_path: Path, landing_url: str) -> None:
     new_run.append(text_el)
     hyperlink.append(new_run)
 
-    link_para._p.append(hyperlink)
+    bonus_para._p.append(hyperlink)
 
     doc.save(str(doc_path))
 
@@ -1576,6 +1570,277 @@ def list_openclaw_agents() -> Any:
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
+# ---------------------------------------------------------------------------
+# Amazon Ads routes
+# ---------------------------------------------------------------------------
+
+def _amazon_ads_module():
+    """Lazy import so the rest of the app keeps working if creds are missing."""
+    from amazon_ads import campaigns as _campaigns
+    from amazon_ads import categories as _categories
+    from amazon_ads import config as _config
+    from amazon_ads import profiles as _profiles
+    return _campaigns, _categories, _config, _profiles
+
+
+@app.get("/api/amazon-ads/status")
+def amazon_ads_status() -> Any:
+    """Health check: list all configured ad accounts and the profiles each can see.
+
+    Response shape:
+        {
+          "configured": true,                # at least one account exists
+          "accounts": [
+            {
+              "id": "default", "label": "Default",
+              "env": "production",
+              "profiles": {"US": [...], "UK": [...], "CA": [...], "AU": [...]}
+            }
+          ],
+          # Back-compat for the existing /launch UI that reads top-level keys:
+          "env": "production",
+          "profiles": {"US": [...], ...}
+        }
+    """
+    try:
+        _, _, _config, _profiles = _amazon_ads_module()
+    except Exception as exc:
+        return jsonify({"configured": False, "accounts": [], "error": str(exc)}), 200
+
+    accounts_out: list[dict[str, Any]] = []
+    accounts = bookdb.list_amazon_ads_accounts()
+    for acct in accounts:
+        per_mp: dict[str, Any] = {}
+        for mp in ("US", "UK", "CA", "AU"):
+            try:
+                per_mp[mp] = _profiles.list_profiles(mp, account_id=acct["id"])
+            except Exception as exc:
+                per_mp[mp] = {"error": str(exc)}
+        accounts_out.append({
+            "id": acct["id"],
+            "label": acct["label"],
+            "env": acct.get("env") or "production",
+            "notes": acct.get("notes") or "",
+            "profiles": per_mp,
+        })
+
+    # Back-compat top-level fields use the first account.
+    first = accounts_out[0] if accounts_out else None
+    return jsonify({
+        "configured": bool(accounts_out),
+        "accounts": accounts_out,
+        "env": (first or {}).get("env", ""),
+        "profiles": (first or {}).get("profiles", {}),
+    })
+
+
+@app.get("/api/amazon-ads/accounts")
+def list_amazon_ads_accounts() -> Any:
+    """List configured Amazon Ads accounts (companies). Tokens stripped."""
+    return jsonify({"accounts": bookdb.list_amazon_ads_accounts()})
+
+
+@app.post("/api/amazon-ads/accounts")
+def create_amazon_ads_account() -> Any:
+    """Add a new account by pasting a refresh token + label.
+
+    Until the OAuth flow lands, this is the interim way to register a company.
+    Body: {"label": "Company One", "lwa_refresh_token": "...", "env": "production", "notes": ""}
+    """
+    body = request.get_json(silent=True) or {}
+    label = (body.get("label") or "").strip()
+    token = (body.get("lwa_refresh_token") or "").strip()
+    if not label or not token:
+        return jsonify({"error": "label and lwa_refresh_token are required"}), 400
+    try:
+        acct_id = bookdb.save_amazon_ads_account(
+            label=label,
+            lwa_refresh_token=token,
+            env=(body.get("env") or "production").strip(),
+            notes=(body.get("notes") or "").strip(),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    # Validate the token actually works by hitting /v2/profiles
+    try:
+        _, _, _, _profiles = _amazon_ads_module()
+        # Reset cache in case this account_id was used previously
+        from amazon_ads.auth import reset_token_manager
+        reset_token_manager(acct_id)
+        sample = _profiles.list_profiles("US", account_id=acct_id)
+        ok_count = len(sample) if isinstance(sample, list) else 0
+    except Exception as exc:
+        return jsonify({
+            "warning": (
+                "Account saved but the refresh token failed validation: "
+                f"{exc}. Edit or delete it via the accounts list."
+            ),
+            "id": acct_id,
+        }), 200
+    return jsonify({"id": acct_id, "validated_profile_count": ok_count}), 201
+
+
+@app.delete("/api/amazon-ads/accounts/<account_id>")
+def delete_amazon_ads_account(account_id: str) -> Any:
+    """Remove an account. Publications keyed to it keep their id (orphan)."""
+    if not bookdb.delete_amazon_ads_account(account_id):
+        return jsonify({"error": "account not found"}), 404
+    try:
+        from amazon_ads.auth import reset_token_manager
+        reset_token_manager(account_id)
+    except Exception:
+        pass
+    return jsonify({"ok": True})
+
+
+@app.get("/api/amazon-ads/accounts/<account_id>/profiles")
+def amazon_ads_account_profiles(account_id: str) -> Any:
+    """List all marketplace profiles visible to one specific account."""
+    if not bookdb.get_amazon_ads_account(account_id, include_token=False):
+        return jsonify({"error": "account not found"}), 404
+    try:
+        _, _, _, _profiles = _amazon_ads_module()
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    out: dict[str, Any] = {}
+    for mp in ("US", "UK", "CA", "AU"):
+        try:
+            out[mp] = _profiles.list_profiles(mp, account_id=account_id)
+        except Exception as exc:
+            out[mp] = {"error": str(exc)}
+    return jsonify({"account_id": account_id, "profiles": out})
+
+
+@app.get("/api/amazon-ads/categories/search")
+def amazon_ads_categories_search() -> Any:
+    """Search Amazon Ads target categories by substring."""
+    q = (request.args.get("q") or "").strip()
+    marketplace = (request.args.get("marketplace") or "US").upper()
+    profile_id = request.args.get("profile_id")
+    if not q or not profile_id:
+        return jsonify({"error": "q and profile_id are required"}), 400
+    try:
+        _, _categories, _, _ = _amazon_ads_module()
+        return jsonify({
+            "results": _categories.search_categories(
+                marketplace, profile_id, q, limit=int(request.args.get("limit", 50)),
+            )
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.post("/api/jobs/<job_id>/amazon-ads/launch")
+def amazon_ads_launch(job_id: str) -> Any:
+    """Launch a Sponsored Products campaign for a finished book.
+
+    JSON body:
+        {
+          "marketplace": "US",
+          "profile_id": 123456,
+          "type": "auto" | "keyword" | "category" | "asin",
+          "asin": "B0XXXXXXXX",                  // required
+          "name": "Optional name override",
+          "daily_budget": 5.0,
+          "default_bid": 0.50,
+          "state": "PAUSED" | "ENABLED",
+          // type-specific extras:
+          "keywords": ["...", ...],              // keyword
+          "match_types": ["EXACT","PHRASE"],     // keyword (optional)
+          "negative_keywords": ["...", ...],     // keyword (optional)
+          "category_ids": ["156563011"],         // category
+          "target_asins": ["B0...","B0..."]      // asin
+        }
+    """
+    body = request.get_json(silent=True) or {}
+    marketplace = (body.get("marketplace") or "US").upper()
+    profile_id = body.get("profile_id")
+    ctype = (body.get("type") or "auto").lower()
+    asin = (body.get("asin") or "").strip()
+    name = (body.get("name") or "").strip()
+    daily_budget = float(body.get("daily_budget", 5.0))
+    default_bid = float(body.get("default_bid", 0.50))
+    state = (body.get("state") or "PAUSED").upper()
+
+    if not profile_id:
+        return jsonify({"error": "profile_id is required"}), 400
+    if not asin:
+        return jsonify({"error": "asin is required"}), 400
+
+    book = bookdb.get_book(job_id)
+    title = (book or {}).get("title") or job_id
+    if not name:
+        name = f"{title[:40]} - {ctype} - {int(time.time())}"
+
+    try:
+        _campaigns, _, _, _ = _amazon_ads_module()
+        common = dict(
+            marketplace=marketplace,
+            profile_id=profile_id,
+            name=name,
+            asins=[asin],
+            daily_budget=daily_budget,
+            default_bid=default_bid,
+            state=state,
+        )
+        if ctype == "auto":
+            result = _campaigns.create_auto_campaign(**common)
+        elif ctype == "keyword":
+            kws = body.get("keywords") or []
+            if not kws:
+                return jsonify({"error": "keywords is required for keyword type"}), 400
+            result = _campaigns.create_keyword_campaign(
+                **common,
+                keywords=kws,
+                match_types=tuple(body.get("match_types") or ("EXACT", "PHRASE", "BROAD")),
+                negative_keywords=body.get("negative_keywords") or [],
+            )
+        elif ctype == "category":
+            cats = body.get("category_ids") or []
+            if not cats:
+                return jsonify({"error": "category_ids is required for category type"}), 400
+            result = _campaigns.create_category_campaign(**common, category_ids=cats)
+        elif ctype == "asin":
+            tgt = body.get("target_asins") or []
+            if not tgt:
+                return jsonify({"error": "target_asins is required for asin type"}), 400
+            result = _campaigns.create_asin_campaign(**common, target_asins=tgt)
+        else:
+            return jsonify({"error": f"unknown campaign type: {ctype}"}), 400
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    # Persist
+    try:
+        bookdb.save_amazon_campaign(
+            campaign_id=str(result["campaignId"]),
+            book_id=job_id,
+            marketplace=marketplace,
+            profile_id=str(profile_id),
+            campaign_type=ctype,
+            name=name,
+            asins=[asin],
+            ad_group_id=str(result.get("adGroupId", "")),
+            product_ad_ids=list(result.get("productAdIds", []) or []),
+            keyword_ids=list(result.get("keywordIds", []) or []),
+            negative_keyword_ids=list(result.get("negativeKeywordIds", []) or []),
+            target_ids=list(result.get("targetIds", []) or []),
+            daily_budget=daily_budget,
+            default_bid=default_bid,
+            state=state,
+            payload=result,
+        )
+    except Exception as exc:
+        # Campaign created successfully but DB write failed - still return success.
+        result["_db_warning"] = str(exc)
+
+    return jsonify({"ok": True, "campaign": result})
+
+
+@app.get("/api/jobs/<job_id>/amazon-ads/campaigns")
+def amazon_ads_list_for_job(job_id: str) -> Any:
+    """Return campaigns previously launched for this book."""
+    return jsonify({"campaigns": bookdb.list_amazon_campaigns(book_id=job_id)})
 
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5000, debug=False)
