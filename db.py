@@ -269,6 +269,60 @@ def init_db() -> None:
         """)
         conn.commit()
 
+        # Launch-email campaigns: one row per publication, holds 3-5 email drafts.
+        # Scoped to publication_id (not book_id) so each Amazon listing can have
+        # its own promo sequence pushed to MailerLite as drafts.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS email_campaigns (
+                publication_id TEXT PRIMARY KEY,
+                status TEXT NOT NULL DEFAULT 'draft',
+                format TEXT NOT NULL DEFAULT 'markdown',
+                sequence_length INTEGER NOT NULL DEFAULT 5,
+                book_snapshot TEXT NOT NULL DEFAULT '{}',
+                error TEXT NOT NULL DEFAULT '',
+                launch_date TEXT NOT NULL DEFAULT '',
+                launch_time TEXT NOT NULL DEFAULT '',
+                launch_timezone TEXT NOT NULL DEFAULT '',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                FOREIGN KEY(publication_id) REFERENCES publications(id) ON DELETE CASCADE
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS emails (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                publication_id TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                day_offset INTEGER NOT NULL DEFAULT 0,
+                subject TEXT NOT NULL DEFAULT '',
+                preview TEXT NOT NULL DEFAULT '',
+                body TEXT NOT NULL DEFAULT '',
+                cta_label TEXT NOT NULL DEFAULT '',
+                cta_url TEXT NOT NULL DEFAULT '',
+                pushed_to TEXT NOT NULL DEFAULT '',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                UNIQUE(publication_id, position),
+                FOREIGN KEY(publication_id) REFERENCES publications(id) ON DELETE CASCADE
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_emails_pub
+            ON emails(publication_id, position)
+        """)
+
+        # Generic key/value settings — used by MailerLite (mailerlite.api_key,
+        # mailerlite.from_email, mailerlite.from_name, mailerlite.default_group_id)
+        # and any other org-level integration we wire up later.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL DEFAULT '',
+                updated_at REAL NOT NULL
+            )
+        """)
+        conn.commit()
+
         # QR code library — saved QR codes that can be attached to any book.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS qr_codes (
@@ -1278,3 +1332,216 @@ def review_summary(publication_id: str) -> dict[str, int]:
     out["sends_due"] = int(due or 0)
     conn.close()
     return out
+
+
+# ---------------------------------------------------------------------------
+# Launch-email campaigns (one row per publication, with N email drafts).
+# Pushed to MailerLite as drafts — NEVER auto-sent by this server.
+# ---------------------------------------------------------------------------
+
+
+def save_email_campaign(
+    publication_id: str,
+    *,
+    emails: list[dict[str, Any]],
+    status: str = "draft",
+    format: str = "markdown",
+    book_snapshot: dict[str, Any] | None = None,
+    error: str = "",
+) -> None:
+    """Upsert a campaign + replace its email rows atomically."""
+    now = time.time()
+    snapshot_json = json.dumps(book_snapshot or {})
+    seq_len = len(emails)
+    with _lock:
+        conn = _connect()
+        conn.execute(
+            """
+            INSERT INTO email_campaigns
+                (publication_id, status, format, sequence_length,
+                 book_snapshot, error, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(publication_id) DO UPDATE SET
+                status=excluded.status,
+                format=excluded.format,
+                sequence_length=excluded.sequence_length,
+                book_snapshot=excluded.book_snapshot,
+                error=excluded.error,
+                updated_at=excluded.updated_at
+            """,
+            (publication_id, status, format, seq_len, snapshot_json,
+             error, now, now),
+        )
+        conn.execute("DELETE FROM emails WHERE publication_id=?", (publication_id,))
+        for em in emails:
+            conn.execute(
+                """
+                INSERT INTO emails
+                    (publication_id, position, day_offset, subject, preview,
+                     body, cta_label, cta_url, pushed_to, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    publication_id,
+                    int(em.get("position", 0)),
+                    int(em.get("day_offset", 0)),
+                    str(em.get("subject", "")),
+                    str(em.get("preview", "")),
+                    str(em.get("body", "")),
+                    str(em.get("cta_label", "")),
+                    str(em.get("cta_url", "")),
+                    str(em.get("pushed_to", "")),
+                    now, now,
+                ),
+            )
+        conn.commit()
+        conn.close()
+
+
+def update_email_campaign(publication_id: str, **fields: Any) -> None:
+    """Update campaign-level fields (status / error / format / launch schedule)."""
+    allowed = {"status", "format", "error",
+               "launch_date", "launch_time", "launch_timezone"}
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return
+    updates["updated_at"] = time.time()
+    set_clause = ", ".join(f"{k}=?" for k in updates)
+    values = list(updates.values()) + [publication_id]
+    with _lock:
+        conn = _connect()
+        conn.execute(
+            f"UPDATE email_campaigns SET {set_clause} WHERE publication_id=?",
+            values,
+        )
+        conn.commit()
+        conn.close()
+
+
+def update_email(publication_id: str, position: int, **fields: Any) -> bool:
+    """Update fields of one email draft. Returns True if a row changed."""
+    allowed = {"day_offset", "subject", "preview", "body",
+               "cta_label", "cta_url", "pushed_to"}
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return False
+    updates["updated_at"] = time.time()
+    set_clause = ", ".join(f"{k}=?" for k in updates)
+    values = list(updates.values()) + [publication_id, position]
+    with _lock:
+        conn = _connect()
+        cur = conn.execute(
+            f"UPDATE emails SET {set_clause} "
+            f"WHERE publication_id=? AND position=?",
+            values,
+        )
+        conn.commit()
+        conn.close()
+        return cur.rowcount > 0
+
+
+def get_email_campaign(publication_id: str) -> Optional[dict[str, Any]]:
+    """Return the campaign + its emails, or None."""
+    conn = _connect()
+    camp = conn.execute(
+        "SELECT * FROM email_campaigns WHERE publication_id=?",
+        (publication_id,),
+    ).fetchone()
+    if camp is None:
+        conn.close()
+        return None
+    rows = conn.execute(
+        "SELECT * FROM emails WHERE publication_id=? ORDER BY position ASC",
+        (publication_id,),
+    ).fetchall()
+    conn.close()
+    out = dict(camp)
+    try:
+        out["book_snapshot"] = json.loads(out.get("book_snapshot") or "{}")
+    except Exception:
+        out["book_snapshot"] = {}
+    out["emails"] = [dict(r) for r in rows]
+    return out
+
+
+def find_email_by_mailerlite_id(campaign_id: str) -> Optional[dict[str, Any]]:
+    """Reverse-lookup: given a MailerLite campaign id, return the matching
+    email row (so we can recover the publication_id + position).
+
+    Returns None if no draft was ever pushed for that id.
+    """
+    if not campaign_id:
+        return None
+    needle = f"mailerlite:{campaign_id}"
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT * FROM emails WHERE pushed_to=? LIMIT 1", (needle,),
+        ).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else None
+
+
+def delete_email_campaign(publication_id: str) -> bool:
+    with _lock:
+        conn = _connect()
+        conn.execute("DELETE FROM emails WHERE publication_id=?", (publication_id,))
+        cur = conn.execute(
+            "DELETE FROM email_campaigns WHERE publication_id=?",
+            (publication_id,),
+        )
+        conn.commit()
+        conn.close()
+        return cur.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Generic settings (key/value) — MailerLite credentials and future integrations
+# ---------------------------------------------------------------------------
+
+
+def get_setting(key: str, default: Optional[str] = None) -> Optional[str]:
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key=?", (key,)
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return default
+    value = row["value"]
+    return default if (value is None or value == "") else value
+
+
+def set_setting(key: str, value: Optional[str]) -> None:
+    """Upsert a setting. Empty/None deletes the row."""
+    now = time.time()
+    with _lock:
+        conn = _connect()
+        if value is None or value == "":
+            conn.execute("DELETE FROM settings WHERE key=?", (key,))
+        else:
+            conn.execute(
+                """
+                INSERT INTO settings(key, value, updated_at) VALUES(?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value,
+                                               updated_at=excluded.updated_at
+                """,
+                (key, value, now),
+            )
+        conn.commit()
+        conn.close()
+
+
+def get_settings_with_prefix(prefix: str) -> dict[str, str]:
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT key, value FROM settings WHERE key LIKE ?",
+            (prefix + "%",),
+        ).fetchall()
+    finally:
+        conn.close()
+    return {r["key"]: r["value"] for r in rows}

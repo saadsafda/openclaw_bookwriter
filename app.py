@@ -39,6 +39,8 @@ import wp_landing_page
 import db as bookdb
 import publications as pub_routes
 import review_automation as review_routes
+import launch_emails as launch_email_routes
+import book_editor as book_editor_routes
 
 ROOT_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = ROOT_DIR / "web_uploads"
@@ -91,6 +93,9 @@ class Job:
 
 
 app = Flask(__name__)
+# Re-read templates from disk on each request so HTML edits show up without a
+# restart (small per-request cost; fine for this single-user local app).
+app.config["TEMPLATES_AUTO_RELOAD"] = True
 JOBS: dict[str, Job] = {}
 JOBS_LOCK = threading.Lock()
 
@@ -98,6 +103,8 @@ bookdb.init_db()
 pub_routes.register(app)
 review_routes.register(app)
 review_routes.start_background_tick()
+launch_email_routes.register(app)
+book_editor_routes.register(app)
 
 
 def _timestamp() -> str:
@@ -535,6 +542,11 @@ def index() -> str:
 @app.get("/qr-code")
 def qr_code_page() -> str:
     return render_template("qr_code.html")
+
+
+@app.get("/settings")
+def settings_page() -> str:
+    return render_template("settings.html")
 
 
 _QR_EC_LEVELS = {

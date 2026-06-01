@@ -29,6 +29,7 @@ from flask import (
     send_file,
     url_for,
 )
+from werkzeug.exceptions import HTTPException
 
 import db as bookdb
 import email_sender
@@ -133,6 +134,50 @@ def _schedule_for_recipient(
         if sid:
             created += 1
     return created
+
+
+def add_recipient_and_schedule(
+    pub_id: str,
+    *,
+    email: str,
+    name: str = "",
+    marketplace: str | None = None,
+    trigger_date: float | None = None,
+    source: str = "manual",
+    notes: str = "",
+    base_url: str = "",
+) -> dict[str, Any]:
+    """Public helper: add a review recipient AND schedule the 7/14/30 day sends.
+
+    Idempotent on (publication_id, email). Used by both the manual-add route and
+    the MailerLite click-webhook bridge.
+
+    Returns: ``{"id": <rid>, "created": bool, "scheduled_steps": <int>}``.
+    """
+    pub = bookdb.get_publication(pub_id)
+    if not pub:
+        raise ValueError(f"publication '{pub_id}' not found")
+    settings = _effective_settings(pub_id)
+    mp = (marketplace or pub.get("primary_marketplace") or "US").upper()
+    if trigger_date is None:
+        trigger_date = float(settings.get("launch_date") or time.time())
+    rid, created = bookdb.add_review_recipient(
+        pub_id,
+        email=email,
+        name=name,
+        marketplace=mp,
+        trigger_date=float(trigger_date),
+        source=source,
+        notes=notes,
+    )
+    scheduled = 0
+    if created:
+        recip = bookdb.get_review_recipient(rid)
+        scheduled = _schedule_for_recipient(
+            pub, recip, settings,
+            base_url=(base_url or "").rstrip("/"),
+        )
+    return {"id": rid, "created": created, "scheduled_steps": scheduled}
 
 
 def _reschedule_all(pub_id: str, *, base_url: str) -> int:
@@ -278,34 +323,30 @@ def register(app) -> None:  # noqa: ANN001
         pub = bookdb.get_publication(pub_id)
         if not pub:
             abort(404)
-        settings = _effective_settings(pub_id)
         body = request.get_json(silent=True) or {}
         email = (body.get("email") or "").strip().lower()
         if not email:
             return jsonify({"error": "email required"}), 400
-        marketplace = (body.get("marketplace") or pub.get("primary_marketplace") or "US").upper()
-        trigger_date = body.get("trigger_date")
-        if trigger_date is None:
-            trigger_date = float(settings.get("launch_date") or time.time())
         try:
-            rid, created = bookdb.add_review_recipient(
+            result = add_recipient_and_schedule(
                 pub_id,
                 email=email,
                 name=(body.get("name") or "").strip(),
-                marketplace=marketplace,
-                trigger_date=float(trigger_date),
+                marketplace=body.get("marketplace"),
+                trigger_date=(
+                    float(body["trigger_date"])
+                    if body.get("trigger_date") is not None else None
+                ),
                 source=(body.get("source") or "manual"),
                 notes=(body.get("notes") or "").strip(),
+                base_url=_base_url_from_request(),
             )
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
-        if created:
-            recip = bookdb.get_review_recipient(rid)
-            _schedule_for_recipient(pub, recip, settings, base_url=_base_url_from_request())
         return jsonify({
-            "id": rid,
-            "created": created,
-            "recipient": bookdb.get_review_recipient(rid),
+            "id": result["id"],
+            "created": result["created"],
+            "recipient": bookdb.get_review_recipient(result["id"]),
             "summary": bookdb.review_summary(pub_id),
         })
 
@@ -322,19 +363,51 @@ def register(app) -> None:  # noqa: ANN001
             text = f.read().decode("utf-8-sig", errors="replace")
         except Exception as exc:
             return jsonify({"error": f"bad file: {exc}"}), 400
-        reader = csv.DictReader(io.StringIO(text))
-        # Normalize header keys to lowercase
+
+        # Sniff the delimiter (comma / semicolon / tab) so European CSVs work too.
+        sample = text[:2048]
+        try:
+            dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
+        except Exception:
+            dialect = csv.excel
+        reader = csv.DictReader(io.StringIO(text), dialect=dialect)
+
+        # Accept common header variants for the email/name/marketplace columns.
+        EMAIL_KEYS = ("email", "e-mail", "email address", "emailaddress", "mail")
+        NAME_KEYS = ("name", "full name", "first name", "fullname")
+        MP_KEYS = ("marketplace", "market", "country", "mp")
+        DATE_KEYS = ("trigger_date", "date", "trigger date", "purchase date")
+
+        def _pick(row: dict, keys: tuple) -> str:
+            for k in keys:
+                if k in row and (row[k] or "").strip():
+                    return row[k].strip()
+            return ""
+
+        headers = [(h or "").strip().lower() for h in (reader.fieldnames or [])]
+        has_email_col = any(any(k == h for k in EMAIL_KEYS) for h in headers)
+        if not has_email_col:
+            return jsonify({
+                "error": (
+                    "No email column found in the CSV. "
+                    f"Columns detected: {headers or 'none'}. "
+                    "Add a header row with an 'email' column "
+                    "(also accepted: e-mail, email address)."
+                ),
+                "added": 0, "skipped_duplicates": 0, "errors": [],
+            }), 400
+
         added = 0
         skipped = 0
         errors: list[str] = []
-        for i, row in enumerate(reader, start=2):  # row 1 is header
-            row = {(k or "").strip().lower(): (v or "").strip() for k, v in row.items()}
-            email = row.get("email") or ""
+        for i, raw in enumerate(reader, start=2):  # row 1 is header
+            row = {(k or "").strip().lower(): (v or "").strip() for k, v in raw.items()}
+            email = _pick(row, EMAIL_KEYS)
             if not email:
                 continue
-            name = row.get("name") or ""
-            marketplace = (row.get("marketplace") or pub.get("primary_marketplace") or "US").upper()
-            trigger_raw = row.get("trigger_date") or row.get("date") or ""
+            name = _pick(row, NAME_KEYS)
+            marketplace = (_pick(row, MP_KEYS) or pub.get("primary_marketplace") or "US").upper()
+            trigger_raw = _pick(row, DATE_KEYS)
             trigger_date: float | None = None
             if trigger_raw:
                 try:
@@ -370,6 +443,92 @@ def register(app) -> None:  # noqa: ANN001
             "skipped_duplicates": skipped,
             "errors": errors,
             "summary": bookdb.review_summary(pub_id),
+        })
+
+    @app.post("/api/publications/<pub_id>/review/push-to-mailerlite")
+    def push_reviews_to_mailerlite(pub_id: str):  # noqa: ANN202
+        """Sync pending recipients into a MailerLite group and create one DRAFT
+        campaign per review step. Nothing is sent — you publish in MailerLite.
+
+        Per-recipient personalization uses MailerLite's own {$name} merge tag;
+        book-level fields (title, review link, author) are filled in directly.
+        """
+        pub = bookdb.get_publication(pub_id)
+        if not pub:
+            return jsonify({"error": "publication not found"}), 404
+        settings = _effective_settings(pub_id)
+
+        import launch_emails  # reuse the MailerLite client + settings helpers
+        try:
+            client = launch_emails._ml_get_client()  # 400s if MailerLite unconfigured
+        except HTTPException as exc:
+            msg = exc.description or "MailerLite is not configured."
+            return jsonify({"error": msg}), exc.code or 400
+
+        from_email = (settings.get("from_email")
+                      or bookdb.get_setting(launch_emails._ML_KEYS["from_email"])
+                      or "").strip()
+        from_name = (settings.get("from_name")
+                     or bookdb.get_setting(launch_emails._ML_KEYS["from_name"])
+                     or "").strip()
+        if not from_email or not from_name:
+            return jsonify({
+                "error": "Set a verified From name + From email (review settings or /settings) first.",
+            }), 400
+
+        # 1) Ensure a group, then sync this publication's pending recipients into it.
+        synced = 0
+        sync_errors: list[str] = []
+        try:
+            gid = (bookdb.get_setting(launch_emails._ML_KEYS["default_group_id"]) or "").strip()
+            if not gid:
+                gid = client.ensure_group(f"{pub.get('title') or 'Book'} — Review requests")
+        except Exception as exc:
+            return jsonify({"error": f"MailerLite group setup failed: {exc}"}), 400
+        for r in bookdb.list_review_recipients(pub_id, status="pending"):
+            try:
+                client.upsert_subscriber(
+                    email=r["email"], name=r.get("name", ""), group_ids=[gid],
+                )
+                synced += 1
+            except Exception as exc:
+                sync_errors.append(f"{r['email']}: {exc}")
+
+        # 2) Build a broadcast context: {$name}/{$unsubscribe} for per-recipient
+        #    fields, concrete values for book-level fields.
+        base = _base_url_from_request()
+        mp = (pub.get("primary_marketplace") or "US")
+        rep = {"name": "{$name}", "email": "", "marketplace": mp, "unsubscribe_token": ""}
+        ctx = _build_context(pub, rep, settings, base_url=base)
+        ctx["name"] = "{$name}"
+        ctx["unsubscribe_url"] = "{$unsubscribe}"
+
+        # 3) One draft campaign per step.
+        created, errors = [], []
+        for tpl in settings.get("templates", []):
+            step = tpl.get("step")
+            subject = email_sender.render(tpl.get("subject", ""), ctx)
+            body_txt = email_sender.render(tpl.get("body", ""), ctx)
+            html = launch_emails._ml_markdown_to_html(body_txt)
+            name = (f"{pub.get('title') or 'Book'} — Review Step {step} "
+                    f"(day +{tpl.get('offset_days', '')})")[:255]
+            try:
+                res = client.create_draft_campaign(
+                    name=name, subject=subject,
+                    from_email=from_email, from_name=from_name,
+                    html_content=html, group_ids=[gid],
+                )
+                created.append({"step": step, "mailerlite_id": res.get("id"),
+                                "name": res.get("name", name)})
+            except Exception as exc:
+                errors.append(f"step {step}: {exc}")
+
+        return jsonify({
+            "ok": True,
+            "group_id": gid,
+            "subscribers_synced": synced,
+            "campaigns": created,
+            "errors": errors + sync_errors,
         })
 
     @app.post("/api/review/recipients/<recipient_id>/status")

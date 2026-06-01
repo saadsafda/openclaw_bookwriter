@@ -8,7 +8,7 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Carlito:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet" />
     <style>
         html, body {
             font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -38,6 +38,56 @@
         details > summary::-webkit-details-marker { display: none; }
         .scrollx::-webkit-scrollbar { width: 6px; height: 6px; }
         .scrollx::-webkit-scrollbar-thumb { background: rgba(15,23,42,.14); border-radius: 999px; }
+
+        /* ---- MS Word-style document viewer (Calibri 11pt on US Letter) ---- */
+        .doc-canvas { background: #e0e1e5; padding: 24px 0; }
+        .doc-page {
+            background: #fff; width: 8.5in; max-width: 95%; min-height: 11in; margin: 0 auto;
+            padding: 1in; box-shadow: 0 1px 4px rgba(0,0,0,.16), 0 6px 20px rgba(0,0,0,.12);
+            font-family: 'Carlito', Calibri, 'Segoe UI', Candara, sans-serif;
+            font-size: 11pt; line-height: 1.08; color: #000;
+        }
+        /* Word Heading 1 / 2 — Calibri Light, Word's blue */
+        .doc-h { font-weight: 400; font-size: 16pt; line-height: 1.15; margin: 14pt 0 4pt; color: #2e74b5; }
+        .doc-h:first-child { margin-top: 0; }
+        .doc-sub { font-weight: 400; font-size: 13pt; line-height: 1.15; margin: 10pt 0 3pt; color: #2e74b5; }
+        .doc-p { font-size: 11pt; line-height: 1.08; margin: 0 0 8pt; white-space: pre-wrap; word-wrap: break-word; }
+        .doc-page [contenteditable] { outline: none; border-radius: 2px; transition: background .12s; min-height: 1.05em; }
+        .doc-page [contenteditable]:hover { background: #f3f6fc; }
+        .doc-page [contenteditable]:focus { background: #fff; box-shadow: 0 0 0 2px rgba(46,116,181,.35); }
+        .doc-page [contenteditable].dirty { background: #fffbe6; }
+        .doc-img { display: block; margin: 12pt auto; max-width: 100%; max-height: 5in; }
+        /* Word-style toolbar */
+        /* Outline / TOC navigator panel */
+        .bke-bodyrow { flex: 1; display: flex; min-height: 0; }
+        .bke-outline { width: 240px; flex-shrink: 0; flex-direction: column; border-right: 1px solid #e5e7eb; background: #fafbfc; overflow-y: auto; padding: 8px; }
+        .bke-outline-h { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #6b7280; padding: 4px 6px 8px; }
+        .bke-outline-empty { font-size: 12px; color: #9ca3af; padding: 6px; }
+        .bke-outline-row { display: flex; align-items: center; gap: 4px; margin-bottom: 2px; }
+        .bke-outline-row.sub { padding-left: 14px; }
+        .bke-outline-jump { width: 24px; height: 26px; border: none; background: transparent; color: #9ca3af; cursor: pointer; border-radius: 5px; font-size: 11px; }
+        .bke-outline-jump:hover { background: #eef2ff; color: #6366f1; }
+        .bke-outline-text { flex: 1; min-width: 0; border: 1px solid transparent; border-radius: 5px; padding: 4px 6px; font-size: 12.5px; color: #374151; background: transparent; }
+        .bke-outline-text:hover { border-color: #e5e7eb; background: #fff; }
+        .bke-outline-text:focus { outline: none; border-color: #6366f1; background: #fff; }
+        .bke-root { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+        .bke-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 6px 10px; background: #f8f9fb; border-bottom: 1px solid #e5e7eb; position: sticky; top: 0; z-index: 5; }
+        .bke-canvas { flex: 1; overflow-y: auto; min-height: 0; }
+        .bke-btn { width: 30px; height: 30px; border: 1px solid transparent; background: transparent; border-radius: 6px; color: #374151; cursor: pointer; font-size: 13px; }
+        .bke-btn:hover { background: #e8eaf0; border-color: #d7dae2; }
+        .bke-btn-text { width: auto; padding: 0 10px; font-size: 12px; font-weight: 600; }
+        .bke-select { height: 30px; border: 1px solid #d7dae2; border-radius: 6px; background: #fff; font-size: 12px; padding: 0 6px; color: #374151; }
+        .bke-size { width: 56px; }
+        .bke-sep { width: 1px; height: 22px; background: #d7dae2; margin: 0 4px; }
+        .bke-colorbtn { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; cursor: pointer; color: #374151; position: relative; }
+        .bke-colorbtn:hover { background: #e8eaf0; }
+        .bke-color { position: absolute; bottom: 2px; left: 3px; width: 24px; height: 6px; border: none; padding: 0; background: none; cursor: pointer; }
+        .bke-findbar { display: flex; gap: 6px; padding: 6px 10px; background: #fffdf0; border-bottom: 1px solid #eee; }
+        .bke-find { border: 1px solid #d7dae2; border-radius: 6px; padding: 4px 8px; font-size: 12px; }
+        .doc-page [contenteditable].bke-li-bullet { list-style: none; position: relative; padding-left: 1.4em; }
+        .doc-page [contenteditable].bke-li-bullet::before { content: "•"; position: absolute; left: 0.4em; }
+        .doc-page [contenteditable].bke-li-number { position: relative; padding-left: 1.4em; }
+        .doc-page [contenteditable].bke-li-number::before { content: "•"; position: absolute; left: 0.4em; color: #888; }
     </style>
 </head>
 <body class="min-h-screen">
@@ -55,13 +105,16 @@
                     <a href="/launch" class="px-3 py-1.5 text-sm font-semibold bg-pink-50 text-pink-700 border border-pink-100 rounded-lg flex items-center gap-1.5">
                         <i class="fas fa-rocket text-xs"></i> Launch
                     </a>
+                    <a href="/settings" class="px-3 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-1.5 transition">
+                        <i class="fas fa-sliders text-xs"></i> Settings
+                    </a>
                 </nav>
             </div>
             <div class="flex items-center gap-2">
                 <span id="ads-conn" class="text-xs text-gray-500"><i class="fas fa-circle-notch fa-spin"></i> Checking Amazon connection…</span>
-                <button id="btn-accounts" class="btn-ghost text-sm">
+                <a href="/settings#amazon" class="btn-ghost text-sm">
                     <i class="fas fa-building mr-1 text-indigo-500"></i> Accounts
-                </button>
+                </a>
                 <button id="btn-new-pub" class="btn-primary text-sm">
                     <i class="fas fa-plus mr-1"></i> New publication
                 </button>
@@ -117,58 +170,6 @@
         </div>
     </div>
 
-    <!-- Amazon Ads Accounts Modal -->
-    <div id="accounts-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-        <div class="card w-full max-w-2xl overflow-hidden">
-            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-                <h3 class="font-semibold text-gray-800"><i class="fas fa-building text-indigo-500 mr-2"></i> Amazon Ads accounts</h3>
-                <button class="text-gray-400 hover:text-gray-700" data-close="accounts-modal"><i class="fas fa-times"></i></button>
-            </div>
-            <div class="px-5 py-4 space-y-4">
-                <div id="accounts-list" class="space-y-2">
-                    <div class="text-xs text-gray-500"><i class="fas fa-circle-notch fa-spin"></i> Loading accounts…</div>
-                </div>
-
-                <div class="pt-3 border-t border-gray-100">
-                    <h4 class="font-semibold text-sm text-gray-800 mb-2"><i class="fas fa-plus text-indigo-500 mr-1"></i> Add a company</h4>
-                    <p class="text-[11px] text-gray-500 mb-3">
-                        Paste a long-lived LWA refresh token for the company's Amazon Ads account.
-                        The OAuth-driven flow is coming next; for now, generate one with
-                        <code>python -m amazon_ads.get_refresh_token</code> (or copy from an existing setup).
-                    </p>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div>
-                            <label class="label">Company label</label>
-                            <input id="acct-label" class="input" placeholder="Company One" />
-                        </div>
-                        <div>
-                            <label class="label">Environment</label>
-                            <select id="acct-env" class="input">
-                                <option value="production">production</option>
-                                <option value="sandbox">sandbox</option>
-                            </select>
-                        </div>
-                        <div class="md:col-span-2">
-                            <label class="label">LWA refresh token</label>
-                            <textarea id="acct-token" class="input" rows="2" placeholder="Atzr|IwEBI…"></textarea>
-                        </div>
-                        <div class="md:col-span-2">
-                            <label class="label">Notes (optional)</label>
-                            <input id="acct-notes" class="input" placeholder="e.g. KDP US/UK/CA/AU royalties go to Stripe acct_123" />
-                        </div>
-                    </div>
-                    <div id="acct-error" class="hidden mt-2 text-xs text-red-600"></div>
-                </div>
-            </div>
-            <div class="px-5 py-3 bg-gray-50 border-t border-gray-100 flex justify-end gap-2">
-                <button class="btn-ghost text-sm" data-close="accounts-modal">Close</button>
-                <button id="acct-add" class="btn-primary text-sm">
-                    <i class="fas fa-plus mr-1"></i> Add company
-                </button>
-            </div>
-        </div>
-    </div>
-
     <!-- Publication Detail Modal -->
     <div id="detail-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
         <div class="card w-full max-w-4xl max-h-[92vh] overflow-hidden flex flex-col">
@@ -192,7 +193,16 @@
 
                 <!-- Files -->
                 <section>
-                    <h4 class="text-xs uppercase tracking-wider font-bold text-gray-500 mb-2"><i class="fas fa-folder-open mr-1"></i> Files</h4>
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="text-xs uppercase tracking-wider font-bold text-gray-500"><i class="fas fa-folder-open mr-1"></i> Files</h4>
+                        <div class="flex items-center gap-2">
+                            <select id="dm-edit-which" class="text-xs border border-gray-200 rounded-lg px-2 py-1">
+                                <option value="kindle">Kindle</option>
+                                <option value="paperback">Paperback</option>
+                            </select>
+                            <button id="dm-view-edit" class="btn-ghost text-xs"><i class="fas fa-book-open mr-1 text-indigo-500"></i> View / Edit book</button>
+                        </div>
+                    </div>
                     <div id="dm-files" class="grid grid-cols-2 gap-3 text-sm"></div>
                 </section>
 
@@ -315,6 +325,7 @@
                                 <label class="text-[11px] text-gray-500 inline-flex items-center gap-1">
                                     <input id="dm-rv-due-only" type="checkbox" checked /> Due only
                                 </label>
+                                <button id="dm-rv-push-ml" class="btn-ghost text-xs" title="Sync pending recipients to MailerLite and create one DRAFT campaign per review step. Nothing is sent — you publish in MailerLite."><i class="fas fa-envelope-open-text mr-1 text-indigo-500"></i> Push to MailerLite (drafts)</button>
                                 <button id="dm-rv-process-smtp" class="hidden btn-ghost text-xs"><i class="fas fa-paper-plane mr-1"></i> Send all due (SMTP)</button>
                             </div>
                         </div>
@@ -327,6 +338,27 @@
                 <div class="flex gap-2">
                     <button class="btn-ghost text-sm" data-close="detail-modal">Close</button>
                     <button id="dm-save" class="btn-primary text-sm"><i class="fas fa-save mr-1"></i> Save changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Book viewer / editor modal (shared shape with the Write page) -->
+    <div id="book-modal" class="hidden fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div class="card w-full max-w-4xl overflow-hidden flex flex-col max-h-[94vh]">
+            <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-indigo-50 to-white">
+                <div class="min-w-0">
+                    <h3 id="bk-title" class="font-bold text-lg text-gray-900 truncate">Book</h3>
+                    <p id="bk-sub" class="text-xs text-gray-500 mt-0.5">Edit body text inline. Headings &amp; images are read-only.</p>
+                </div>
+                <button class="text-gray-400 hover:text-gray-700 text-xl" data-close="book-modal"><i class="fas fa-times"></i></button>
+            </div>
+            <div id="bk-body" class="flex-1 overflow-hidden flex flex-col min-h-0"></div>
+            <div class="px-6 py-3 border-t border-gray-100 bg-gray-50 flex justify-between items-center">
+                <span id="bk-status" class="text-xs text-gray-500"></span>
+                <div class="flex gap-2">
+                    <button class="btn-ghost text-sm" data-close="book-modal">Close</button>
+                    <button id="bk-save" class="btn-primary text-sm"><i class="fas fa-save mr-1"></i> Save edits</button>
                 </div>
             </div>
         </div>
@@ -369,6 +401,7 @@
         </div>
     </div>
 
+<script src="/static/book_editor.js"></script>
 <script>
 const MARKETPLACES = [
     { code: 'US', name: 'United States', domain: 'amazon.com',    currency: 'USD' },
@@ -390,127 +423,31 @@ let adsStatus = null;         // { configured, env, profiles }
 function openModal(id) { $('#' + id).classList.remove('hidden'); }
 function closeModal(id) { $('#' + id).classList.add('hidden'); }
 $$('[data-close]').forEach(b => b.addEventListener('click', () => closeModal(b.dataset.close)));
-['new-modal', 'detail-modal', 'accounts-modal'].forEach(id => {
+['new-modal', 'detail-modal', 'book-modal'].forEach(id => {
     const el = $('#' + id);
     if (!el) return;
     el.addEventListener('click', (e) => { if (e.target === el) closeModal(id); });
 });
 
-// -------------------- Accounts modal --------------------
-async function loadAccountsList() {
-    const list = $('#accounts-list');
-    list.innerHTML = '<div class="text-xs text-gray-500"><i class="fas fa-circle-notch fa-spin"></i> Loading accounts…</div>';
-    let accounts = [];
-    let perAccountProfiles = {};
-    try {
-        const [a, s] = await Promise.all([
-            fetch('/api/amazon-ads/accounts').then(r => r.json()),
-            fetch('/api/amazon-ads/status').then(r => r.json()),
-        ]);
-        accounts = a.accounts || [];
-        for (const acct of (s.accounts || [])) {
-            perAccountProfiles[acct.id] = acct.profiles || {};
-        }
-    } catch (e) {
-        list.innerHTML = `<div class="text-xs text-red-600">Failed to load: ${esc(e.message || e)}</div>`;
-        return;
-    }
-    if (!accounts.length) {
-        list.innerHTML = '<div class="text-xs text-gray-500">No companies yet. Add one below.</div>';
-        return;
-    }
-    list.innerHTML = accounts.map(acct => {
-        const profs = perAccountProfiles[acct.id] || {};
-        const counts = ['US','UK','CA','AU'].map(mp => {
-            const arr = profs[mp];
-            const n = Array.isArray(arr) ? arr.length : null;
-            const color = (n === null) ? 'text-red-500'
-                        : (n === 0) ? 'text-gray-400'
-                        : 'text-green-600';
-            return `<span class="${color}">${mp}:${n === null ? '!' : n}</span>`;
-        }).join(' &middot; ');
-        const envClass = acct.env === 'sandbox' ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700';
-        const notes = acct.notes ? `<div class="text-[11px] text-gray-500 mt-0.5">${esc(acct.notes)}</div>` : '';
-        return `
-        <div class="flex items-start justify-between gap-3 border border-gray-100 rounded-lg px-3 py-2 bg-white">
-            <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-2">
-                    <div class="font-semibold text-sm text-gray-800 truncate">${esc(acct.label)}</div>
-                    <span class="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${envClass}">${esc(acct.env || '')}</span>
-                </div>
-                <div class="text-[11px] text-gray-500 mt-0.5 font-mono">id: ${esc(acct.id)}</div>
-                <div class="text-[11px] mt-1">${counts}</div>
-                ${notes}
-            </div>
-            <button data-acct-delete="${esc(acct.id)}" class="btn-ghost text-xs text-red-600 hover:bg-red-50" title="Remove this company"><i class="fas fa-trash"></i></button>
-        </div>`;
-    }).join('');
-    $$('[data-acct-delete]').forEach(b => b.addEventListener('click', () => deleteAccount(b.dataset.acctDelete)));
-}
-
-async function deleteAccount(accountId) {
-    if (!confirm(`Remove the "${accountId}" company? Publications linked to it will lose the link but won't be deleted.`)) return;
-    const r = await fetch('/api/amazon-ads/accounts/' + encodeURIComponent(accountId), { method: 'DELETE' });
-    if (!r.ok) {
-        alert(`Delete failed (${r.status})`);
-        return;
-    }
-    await Promise.all([loadAccountsList(), loadAdsStatus()]);
-}
-
-async function submitAddAccount() {
-    const label = $('#acct-label').value.trim();
-    const token = $('#acct-token').value.trim();
-    const env = $('#acct-env').value;
-    const notes = $('#acct-notes').value.trim();
-    const err = $('#acct-error');
-    err.classList.add('hidden');
-    if (!label || !token) {
-        err.textContent = 'Label and refresh token are both required.';
-        err.classList.remove('hidden');
-        return;
-    }
-    const btn = $('#acct-add');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-1"></i> Adding…';
-    try {
-        const r = await fetch('/api/amazon-ads/accounts', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ label, lwa_refresh_token: token, env, notes }),
+// -------------------- Book viewer / editor (Word-style widget) --------------------
+let bookWidget = null;
+function ensureBookWidget() {
+    if (!bookWidget) {
+        bookWidget = new BookEditorWidget($('#bk-body'), {
+            contentUrl: id => `/api/publications/${id}/content`,
+            onStatus: msg => { $('#bk-status').textContent = msg; },
         });
-        const data = await r.json();
-        if (!r.ok && r.status !== 201) {
-            err.textContent = data.error || `Failed (${r.status})`;
-            err.classList.remove('hidden');
-            return;
-        }
-        if (data.warning) {
-            // Saved but validation failed — show warning, keep modal open so user can edit
-            err.textContent = data.warning;
-            err.classList.remove('hidden');
-            err.classList.remove('text-red-600');
-            err.classList.add('text-amber-600');
-        } else {
-            $('#acct-label').value = '';
-            $('#acct-token').value = '';
-            $('#acct-notes').value = '';
-        }
-        await Promise.all([loadAccountsList(), loadAdsStatus()]);
-    } catch (e) {
-        err.textContent = e.message || String(e);
-        err.classList.remove('hidden');
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-plus mr-1"></i> Add company';
     }
+    return bookWidget;
 }
-
-document.addEventListener('DOMContentLoaded', () => {
-    const btn = document.getElementById('btn-accounts');
-    if (btn) btn.addEventListener('click', () => { loadAccountsList(); openModal('accounts-modal'); });
-    const addBtn = document.getElementById('acct-add');
-    if (addBtn) addBtn.addEventListener('click', submitAddAccount);
+$('#bk-save').addEventListener('click', () => { if (bookWidget) bookWidget.save(); });
+$('#dm-view-edit').addEventListener('click', () => {
+    if (!currentPub) return;
+    const which = $('#dm-edit-which').value || 'kindle';
+    $('#bk-title').textContent = currentPub.title || 'Book';
+    $('#bk-status').textContent = '';
+    openModal('book-modal');
+    ensureBookWidget().load(currentPub.id, which, currentPub.title);
 });
 
 // -------------------- Status / connection --------------------
@@ -1075,12 +1012,33 @@ $('#dm-rv-csv').addEventListener('change', async (e) => {
     fd.append('file', f);
     const r = await fetch(`/api/publications/${currentPub.id}/review/recipients/upload`, { method: 'POST', body: fd });
     const data = await r.json();
-    if (!r.ok) { alert('Upload failed'); return; }
-    const msg = `Added ${data.added}, skipped duplicates ${data.skipped_duplicates}` +
-        (data.errors && data.errors.length ? ', errors: ' + data.errors.length : '');
+    if (!r.ok) { alert('Upload failed: ' + (data.error || ('HTTP ' + r.status))); e.target.value=''; return; }
+    let msg = `Added ${data.added}, skipped ${data.skipped_duplicates} duplicate(s).`;
+    if (data.errors && data.errors.length) msg += '\n\nRow errors:\n' + data.errors.slice(0, 10).join('\n');
+    if (data.added === 0 && data.skipped_duplicates === 0 && (!data.errors || !data.errors.length)) {
+        msg = 'No recipients were added — the file had no usable rows. Make sure it has a header row with an "email" column and at least one data row.';
+    }
     alert(msg);
     e.target.value = '';
     loadReviewState();
+});
+
+// Push review emails to MailerLite as drafts
+$('#dm-rv-push-ml').addEventListener('click', async () => {
+    if (!currentPub) return;
+    if (!confirm('Sync pending recipients to MailerLite and create draft review campaigns?\n\nNothing is sent — you review and publish inside MailerLite.')) return;
+    const btn = $('#dm-rv-push-ml'); btn.disabled = true; const old = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-1"></i> Pushing…';
+    try {
+        const r = await fetch(`/api/publications/${currentPub.id}/review/push-to-mailerlite`, { method: 'POST' });
+        const d = await r.json();
+        if (!r.ok) { alert('Push failed: ' + (d.error || ('HTTP ' + r.status))); return; }
+        let msg = `Done.\nSubscribers synced to MailerLite: ${d.subscribers_synced}\nDraft campaigns created: ${d.campaigns.length}`;
+        if (d.errors && d.errors.length) msg += '\n\nWarnings:\n' + d.errors.slice(0, 8).join('\n');
+        msg += '\n\nOpen MailerLite → Campaigns to review and publish each draft.';
+        alert(msg);
+    } catch (e) { alert(e.message || String(e)); }
+    finally { btn.disabled = false; btn.innerHTML = old; }
 });
 
 // Process all due via SMTP

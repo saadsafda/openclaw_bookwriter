@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full antialiased">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Settings — OpenClaw Book Writer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <style>
+        :root {
+            --bg: #f7f8fb;
+            --panel: #ffffff;
+            --row-line: rgba(15,23,42,0.08);
+            --nav-hover: #f1f2f6;
+            --nav-active: #eef2ff;
+            --txt: #1f2937;
+            --txt-muted: #6b7280;
+            --txt-dim: #9ca3af;
+            --field-bg: #ffffff;
+            --field-border: #e5e7eb;
+            --accent: #6366f1;
+            --accent-hover: #5457e5;
+            --ok: #047857;
+            --err: #b91c1c;
+        }
+        html, body {
+            font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+            background: var(--bg); color: var(--txt); min-height: 100%;
+        }
+        .serif { font-family: 'Newsreader', Georgia, serif; }
+        .font-mono, code { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; }
+
+        .nav-item {
+            display: flex; align-items: center; gap: .6rem;
+            padding: 9px 14px; border-radius: 10px; cursor: pointer;
+            font-size: 14px; font-weight: 500; color: var(--txt-muted);
+            transition: background .12s, color .12s; user-select: none;
+        }
+        .nav-item:hover { background: var(--nav-hover); color: var(--txt); }
+        .nav-item.active { background: var(--nav-active); color: var(--accent); font-weight: 600; }
+
+        .row {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 1.5rem; padding: 18px 0; border-bottom: 1px solid var(--row-line);
+        }
+        .row.stack { align-items: flex-start; flex-direction: column; gap: .6rem; }
+        .row-label { font-size: 14.5px; color: var(--txt); font-weight: 500; }
+        .row-sub { font-size: 12.5px; color: var(--txt-dim); margin-top: 3px; max-width: 30rem; }
+        .section-title { font-size: 14px; font-weight: 700; color: var(--txt); letter-spacing: .01em; }
+
+        .field {
+            background: var(--field-bg); border: 1px solid var(--field-border);
+            border-radius: 9px; padding: 9px 12px; font-size: 14px; color: var(--txt);
+            width: 100%;
+        }
+        .field::placeholder { color: var(--txt-dim); }
+        .field:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,102,241,0.15); }
+        select.field { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%239ca3af' viewBox='0 0 16 16'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; padding-right: 30px; }
+
+        .btn { font-weight: 600; font-size: 13.5px; padding: 8px 15px; border-radius: 9px; cursor: pointer; transition: filter .12s, background .12s; border: none; }
+        .btn-accent { background: var(--accent); color: #fff; }
+        .btn-accent:hover { background: var(--accent-hover); }
+        .btn-accent:disabled { opacity: .5; cursor: not-allowed; }
+        .btn-outline { background: #fff; color: var(--txt); border: 1px solid var(--field-border); }
+        .btn-outline:hover { background: var(--nav-hover); }
+        .btn-danger { background: #fff; color: var(--err); border: 1px solid #fecaca; }
+        .btn-danger:hover { background: #fef2f2; }
+
+        .pill { display:inline-flex; align-items:center; gap:.35rem; font-size:11px; font-weight:600; padding:.18rem .6rem; border-radius:999px; }
+        .pill-on  { background: #ecfdf5; color: var(--ok); border:1px solid #a7f3d0; }
+        .pill-off { background: #fef2f2; color: var(--err); border:1px solid #fecaca; }
+
+        .panel { display: none; }
+        .panel.active { display: block; }
+
+        .card-panel { background: var(--panel); border: 1px solid var(--row-line); border-radius: 14px; box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 8px 24px rgba(15,23,42,.04); padding: 24px 28px; }
+
+        .toplink { font-size: 13px; color: var(--txt-muted); padding: 6px 10px; border-radius: 8px; }
+        .toplink:hover { background: var(--nav-hover); color: var(--txt); }
+        a { color: var(--accent); }
+    </style>
+</head>
+<body>
+    <!-- Top bar with app nav -->
+    <div class="bg-white/80 backdrop-blur border-b sticky top-0 z-30" style="border-color: var(--row-line);">
+        <div class="max-w-6xl mx-auto px-6 h-14 flex items-center gap-1">
+            <a href="/" class="toplink"><i class="fas fa-pen-nib text-xs mr-1"></i> Write</a>
+            <a href="/launch" class="toplink"><i class="fas fa-rocket text-xs mr-1"></i> Launch</a>
+            <a href="/settings" class="toplink" style="background: var(--nav-active); color: var(--accent); font-weight:600;"><i class="fas fa-sliders text-xs mr-1"></i> Settings</a>
+        </div>
+    </div>
+
+    <div class="max-w-6xl mx-auto px-6 py-10">
+        <h1 class="serif" style="font-size: 38px; font-weight: 500; margin-bottom: 32px;">Settings</h1>
+
+        <div class="flex gap-10">
+            <!-- Sidebar -->
+            <aside class="w-56 shrink-0">
+                <nav class="space-y-1" id="settings-nav">
+                    <div class="nav-item active" data-panel="mailerlite"><i class="fas fa-envelope-open-text w-4 text-center"></i> MailerLite</div>
+                    <div class="nav-item" data-panel="amazon"><i class="fab fa-amazon w-4 text-center"></i> Amazon Ads</div>
+                    <div class="nav-item" data-panel="webhook"><i class="fas fa-link w-4 text-center"></i> Click bridge</div>
+                </nav>
+            </aside>
+
+            <!-- Content -->
+            <div class="flex-1 min-w-0 max-w-3xl">
+
+                <!-- ============ MailerLite panel ============ -->
+                <div class="panel card-panel active" id="panel-mailerlite">
+                    <div class="flex items-center justify-between mb-1">
+                        <div class="section-title">MailerLite</div>
+                        <span id="ml-status" class="pill pill-off"><i class="fas fa-circle-notch fa-spin"></i> Loading…</span>
+                    </div>
+                    <p class="row-sub mb-2">Used to push launch-email drafts. Emails are never auto-sent — you publish them manually inside MailerLite.</p>
+
+                    <div class="row stack">
+                        <div><div class="row-label">API key</div><div class="row-sub">MailerLite → Integrations → API. Stored server-side; never shown back.</div></div>
+                        <input id="ml-api-key" type="password" class="field" placeholder="Leave blank to keep the current key" autocomplete="off" />
+                    </div>
+
+                    <div class="row">
+                        <div><div class="row-label">From name</div></div>
+                        <input id="ml-from-name" class="field" style="max-width: 22rem;" placeholder="Jane Author" />
+                    </div>
+
+                    <div class="row">
+                        <div><div class="row-label">From email</div><div class="row-sub">Must be a verified sender in MailerLite.</div></div>
+                        <input id="ml-from-email" type="email" class="field" style="max-width: 22rem;" placeholder="jane@yourdomain.com" />
+                    </div>
+
+                    <div class="row stack">
+                        <div><div class="row-label">Default subscriber group</div><div class="row-sub">Drafts target this group unless overridden per publication.</div></div>
+                        <div class="flex gap-2 w-full">
+                            <select id="ml-group" class="field"><option value="">— none / load groups —</option></select>
+                            <button id="ml-load-groups" class="btn btn-outline whitespace-nowrap"><i class="fas fa-rotate mr-1"></i> Load</button>
+                        </div>
+                    </div>
+
+                    <div id="ml-msg" class="hidden text-sm rounded-lg px-3 py-2 mt-4"></div>
+
+                    <div class="flex items-center gap-2 mt-5">
+                        <button id="ml-save" class="btn btn-accent"><i class="fas fa-save mr-1"></i> Save settings</button>
+                        <button id="ml-test" class="btn btn-outline"><i class="fas fa-plug mr-1"></i> Test connection</button>
+                    </div>
+                </div>
+
+                <!-- ============ Amazon Ads panel ============ -->
+                <div class="panel card-panel" id="panel-amazon">
+                    <div class="section-title mb-1">Amazon Ads companies</div>
+                    <p class="row-sub mb-4">Each company is one Amazon Ads account (its own LWA refresh token). Profiles inside it are the per-marketplace ad accounts (US / UK / CA / AU).</p>
+
+                    <div id="accounts-list" class="space-y-2 mb-6">
+                        <div class="row-sub"><i class="fas fa-circle-notch fa-spin"></i> Loading companies…</div>
+                    </div>
+
+                    <div class="section-title mb-3" style="font-size:13px; color: var(--txt-muted);"><i class="fas fa-plus mr-1"></i> Add a company</div>
+                    <p class="row-sub mb-3">Paste a long-lived LWA refresh token. Generate one with <code>python -m amazon_ads.get_refresh_token</code>. The OAuth button is coming next.</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div><div class="row-label mb-1">Company label</div><input id="acct-label" class="field" placeholder="Company One" /></div>
+                        <div><div class="row-label mb-1">Environment</div>
+                            <select id="acct-env" class="field">
+                                <option value="production">production</option>
+                                <option value="sandbox">sandbox</option>
+                            </select>
+                        </div>
+                        <div class="md:col-span-2"><div class="row-label mb-1">LWA refresh token</div><textarea id="acct-token" class="field" rows="2" placeholder="Atzr|IwEBI…"></textarea></div>
+                        <div class="md:col-span-2"><div class="row-label mb-1">Notes (optional)</div><input id="acct-notes" class="field" placeholder="e.g. royalties → Stripe acct_123" /></div>
+                    </div>
+                    <div id="acct-error" class="hidden text-sm rounded-lg px-3 py-2 mt-3"></div>
+                    <div class="mt-4">
+                        <button id="acct-add" class="btn btn-accent"><i class="fas fa-plus mr-1"></i> Add company</button>
+                    </div>
+                </div>
+
+                <!-- ============ Webhook panel ============ -->
+                <div class="panel card-panel" id="panel-webhook">
+                    <div class="flex items-center justify-between mb-1">
+                        <div class="section-title">Click → review bridge</div>
+                        <span id="wh-status" class="pill pill-off"><i class="fas fa-circle-notch fa-spin"></i> Loading…</span>
+                    </div>
+                    <p class="row-sub mb-2">When a reader clicks a promo email link, MailerLite notifies us and we schedule their +7 / +14 / +30 day review-ask drafts automatically.</p>
+
+                    <div class="row stack">
+                        <div><div class="row-label">Webhook URL</div><div class="row-sub">Paste into MailerLite. Behind a tunnel/domain? Swap the host for your public URL.</div></div>
+                        <div class="flex gap-2 w-full">
+                            <input id="wh-url" class="field font-mono text-xs" readonly />
+                            <button id="wh-copy" class="btn btn-outline whitespace-nowrap"><i class="fas fa-copy mr-1"></i> Copy</button>
+                        </div>
+                    </div>
+
+                    <div class="row stack">
+                        <div><div class="row-label">Signing secret</div><div class="row-sub">Paste the same string into MailerLite's webhook config. Without it, events are accepted unverified.</div></div>
+                        <input id="wh-secret" type="password" class="field" placeholder="Leave blank to keep current" autocomplete="off" />
+                    </div>
+
+                    <div class="row stack">
+                        <div><div class="row-label">Recognised click events</div></div>
+                        <div id="wh-events" class="text-xs font-mono" style="color: var(--txt-dim);"></div>
+                    </div>
+
+                    <div id="wh-msg" class="hidden text-sm rounded-lg px-3 py-2 mt-4"></div>
+                    <div class="mt-5">
+                        <button id="wh-save" class="btn btn-accent"><i class="fas fa-save mr-1"></i> Save webhook secret</button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const esc = s => String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+
+function flash(el, kind, text) {
+    el.style.cssText = kind === 'ok'
+        ? 'background:rgba(127,184,138,.12);color:var(--ok);border:1px solid rgba(127,184,138,.3);'
+        : 'background:rgba(224,129,111,.10);color:var(--err);border:1px solid rgba(224,129,111,.3);';
+    el.textContent = text;
+    el.classList.remove('hidden');
+}
+
+// -------------------- Sidebar nav --------------------
+$$('#settings-nav .nav-item').forEach(item => {
+    item.addEventListener('click', () => {
+        $$('#settings-nav .nav-item').forEach(n => n.classList.remove('active'));
+        item.classList.add('active');
+        $$('.panel').forEach(p => p.classList.remove('active'));
+        $('#panel-' + item.dataset.panel).classList.add('active');
+        if (item.dataset.panel === 'amazon') loadAccountsList();
+        location.hash = item.dataset.panel;
+    });
+});
+
+// -------------------- MailerLite --------------------
+async function loadMlSettings() {
+    try {
+        const d = await fetch('/api/settings/mailerlite').then(r => r.json());
+        $('#ml-from-name').value = d.from_name || '';
+        $('#ml-from-email').value = d.from_email || '';
+        const st = $('#ml-status');
+        if (d.configured) { st.className = 'pill pill-on'; st.innerHTML = `<i class="fas fa-check"></i> Configured (${d.source})`; }
+        else { st.className = 'pill pill-off'; st.innerHTML = `<i class="fas fa-xmark"></i> Not configured`; }
+        const sel = $('#ml-group');
+        sel.dataset.selected = d.default_group_id || '';
+        if (d.default_group_id) {
+            const o = document.createElement('option');
+            o.value = d.default_group_id; o.textContent = `current: ${d.default_group_id}`; o.selected = true;
+            sel.appendChild(o);
+        }
+    } catch (e) { flash($('#ml-msg'), 'err', 'Failed to load: ' + (e.message || e)); }
+}
+async function loadGroups() {
+    const btn = $('#ml-load-groups'); btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-1"></i>';
+    try {
+        const d = await fetch('/api/mailerlite/groups').then(r => r.json());
+        if (!d.ok) { flash($('#ml-msg'), 'err', d.error || 'Could not load groups (API key set?)'); return; }
+        const sel = $('#ml-group'); const want = sel.dataset.selected || '';
+        sel.innerHTML = '<option value="">— none —</option>';
+        (d.groups || []).forEach(g => {
+            const o = document.createElement('option'); o.value = g.id;
+            o.textContent = `${g.name} (${g.active_count} subs)`;
+            if (g.id === want) o.selected = true; sel.appendChild(o);
+        });
+        flash($('#ml-msg'), 'ok', `Loaded ${(d.groups || []).length} group(s).`);
+    } catch (e) { flash($('#ml-msg'), 'err', e.message || String(e)); }
+    finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-rotate mr-1"></i> Load'; }
+}
+async function saveMl() {
+    const body = {
+        from_name: $('#ml-from-name').value.trim(),
+        from_email: $('#ml-from-email').value.trim(),
+        default_group_id: $('#ml-group').value,
+    };
+    const key = $('#ml-api-key').value.trim();
+    if (key) body.api_key = key;
+    const btn = $('#ml-save'); btn.disabled = true;
+    try {
+        const r = await fetch('/api/settings/mailerlite', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        if (!r.ok) { flash($('#ml-msg'), 'err', 'Save failed (' + r.status + ')'); return; }
+        $('#ml-api-key').value = ''; flash($('#ml-msg'), 'ok', 'Saved.'); await loadMlSettings();
+    } catch (e) { flash($('#ml-msg'), 'err', e.message || String(e)); }
+    finally { btn.disabled = false; }
+}
+async function testMl() {
+    const btn = $('#ml-test'); btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-1"></i> Testing';
+    try {
+        const r = await fetch('/api/mailerlite/test', { method: 'POST' });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.ok) flash($('#ml-msg'), 'ok', 'Connection OK — API key is valid.');
+        else flash($('#ml-msg'), 'err', d.error || ('Test failed (' + r.status + ')'));
+    } catch (e) { flash($('#ml-msg'), 'err', e.message || String(e)); }
+    finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-plug mr-1"></i> Test connection'; }
+}
+
+// -------------------- Amazon Ads accounts --------------------
+async function loadAccountsList() {
+    const list = $('#accounts-list');
+    list.innerHTML = '<div class="row-sub"><i class="fas fa-circle-notch fa-spin"></i> Loading companies…</div>';
+    let accounts = [], perAccountProfiles = {};
+    try {
+        const [a, s] = await Promise.all([
+            fetch('/api/amazon-ads/accounts').then(r => r.json()),
+            fetch('/api/amazon-ads/status').then(r => r.json()),
+        ]);
+        accounts = a.accounts || [];
+        for (const acct of (s.accounts || [])) perAccountProfiles[acct.id] = acct.profiles || {};
+    } catch (e) {
+        list.innerHTML = `<div class="row-sub" style="color:var(--err)">Failed to load: ${esc(e.message || e)}</div>`; return;
+    }
+    if (!accounts.length) { list.innerHTML = '<div class="row-sub">No companies yet. Add one below.</div>'; return; }
+    list.innerHTML = accounts.map(acct => {
+        const profs = perAccountProfiles[acct.id] || {};
+        const counts = ['US','UK','CA','AU'].map(mp => {
+            const arr = profs[mp]; const n = Array.isArray(arr) ? arr.length : null;
+            const col = (n === null) ? 'var(--err)' : (n === 0 ? 'var(--txt-dim)' : 'var(--ok)');
+            return `<span style="color:${col}">${mp}:${n === null ? '!' : n}</span>`;
+        }).join(' &middot; ');
+        const notes = acct.notes ? `<div class="row-sub mt-1">${esc(acct.notes)}</div>` : '';
+        return `
+        <div class="flex items-start justify-between gap-3" style="border:1px solid var(--field-border); border-radius:11px; padding:12px 14px; background:var(--field-bg);">
+            <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                    <div class="row-label truncate">${esc(acct.label)}</div>
+                    <span class="pill ${acct.env === 'sandbox' ? 'pill-off' : 'pill-on'}">${esc(acct.env || '')}</span>
+                </div>
+                <div class="row-sub font-mono mt-0.5">id: ${esc(acct.id)}</div>
+                <div class="text-xs mt-1">${counts}</div>
+                ${notes}
+            </div>
+            <button data-acct-delete="${esc(acct.id)}" class="btn btn-danger" title="Remove company"><i class="fas fa-trash"></i></button>
+        </div>`;
+    }).join('');
+    $$('[data-acct-delete]').forEach(b => b.addEventListener('click', () => deleteAccount(b.dataset.acctDelete)));
+}
+async function deleteAccount(id) {
+    if (!confirm(`Remove the "${id}" company? Publications linked to it keep the id but lose the live connection.`)) return;
+    const r = await fetch('/api/amazon-ads/accounts/' + encodeURIComponent(id), { method: 'DELETE' });
+    if (!r.ok) { alert('Delete failed (' + r.status + ')'); return; }
+    loadAccountsList();
+}
+async function submitAddAccount() {
+    const label = $('#acct-label').value.trim();
+    const token = $('#acct-token').value.trim();
+    const env = $('#acct-env').value;
+    const notes = $('#acct-notes').value.trim();
+    const err = $('#acct-error'); err.classList.add('hidden');
+    if (!label || !token) { flash(err, 'err', 'Label and refresh token are both required.'); return; }
+    const btn = $('#acct-add'); btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-1"></i> Adding…';
+    try {
+        const r = await fetch('/api/amazon-ads/accounts', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ label, lwa_refresh_token: token, env, notes }),
+        });
+        const data = await r.json();
+        if (!r.ok && r.status !== 201) { flash(err, 'err', data.error || ('Failed (' + r.status + ')')); return; }
+        if (data.warning) { flash(err, 'err', data.warning); }
+        else { $('#acct-label').value=''; $('#acct-token').value=''; $('#acct-notes').value=''; }
+        loadAccountsList();
+    } catch (e) { flash(err, 'err', e.message || String(e)); }
+    finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-plus mr-1"></i> Add company'; }
+}
+
+// -------------------- Webhook --------------------
+async function loadWebhook() {
+    $('#wh-url').value = window.location.origin + '/api/webhooks/mailerlite';
+    try {
+        const d = await fetch('/api/webhooks/mailerlite/status').then(r => r.json());
+        const st = $('#wh-status');
+        if (d.signature_verification === 'enabled') { st.className = 'pill pill-on'; st.innerHTML = '<i class="fas fa-shield-halved"></i> Verified'; }
+        else { st.className = 'pill pill-off'; st.innerHTML = '<i class="fas fa-shield"></i> Unverified'; }
+        $('#wh-events').innerHTML = (d.expected_event_names || []).map(e => `<div>• ${esc(e)}</div>`).join('');
+    } catch (e) { $('#wh-events').textContent = 'Could not load status.'; }
+}
+async function saveWebhook() {
+    const secret = $('#wh-secret').value.trim();
+    if (!secret) { flash($('#wh-msg'), 'err', 'Enter a secret to save.'); return; }
+    const btn = $('#wh-save'); btn.disabled = true;
+    try {
+        const r = await fetch('/api/settings/mailerlite', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ webhook_secret: secret }) });
+        if (!r.ok) { flash($('#wh-msg'), 'err', 'Save failed (' + r.status + ')'); return; }
+        $('#wh-secret').value = ''; flash($('#wh-msg'), 'ok', 'Webhook secret saved.'); loadWebhook();
+    } catch (e) { flash($('#wh-msg'), 'err', e.message || String(e)); }
+    finally { btn.disabled = false; }
+}
+
+// -------------------- Wire up --------------------
+$('#ml-save').addEventListener('click', saveMl);
+$('#ml-test').addEventListener('click', testMl);
+$('#ml-load-groups').addEventListener('click', loadGroups);
+$('#acct-add').addEventListener('click', submitAddAccount);
+$('#wh-save').addEventListener('click', saveWebhook);
+$('#wh-copy').addEventListener('click', () => { navigator.clipboard.writeText($('#wh-url').value); flash($('#wh-msg'), 'ok', 'Webhook URL copied.'); });
+
+// Open the panel named in the hash, if any
+(function initHash() {
+    const h = (location.hash || '').replace('#', '');
+    if (h && ['mailerlite','amazon','webhook'].includes(h)) {
+        const item = $(`#settings-nav .nav-item[data-panel="${h}"]`);
+        if (item) item.click();
+    }
+})();
+
+loadMlSettings();
+loadWebhook();
+</script>
+</body>
+</html>
