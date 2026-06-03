@@ -69,6 +69,11 @@ DEFAULTS: dict[str, Any] = {
     "image_width": 5.5,
 }
 
+LONG_BOOK_MIN_PAGES = 600
+LONG_BOOK_AGENT_ID = "long-writer-agent-1"
+DASHBOARD_MODE_STANDARD = "standard"
+DASHBOARD_MODE_LONG = "long-book"
+
 
 @dataclass
 class Job:
@@ -529,13 +534,35 @@ def _parse_float(value: str | None, fallback: float) -> float:
         return fallback
 
 
+def _normalize_dashboard_mode(value: str | None, *, default: str = DASHBOARD_MODE_STANDARD) -> str:
+    mode = (value or default).strip().lower()
+    if mode not in {DASHBOARD_MODE_STANDARD, DASHBOARD_MODE_LONG}:
+        return default
+    return mode
+
+
 @app.get("/")
 def index() -> str:
+    return _render_writer_dashboard(is_long_book=False)
+
+
+@app.get("/long-book")
+def long_book_index() -> str:
+    return _render_writer_dashboard(is_long_book=True)
+
+
+def _render_writer_dashboard(*, is_long_book: bool) -> str:
     prompt_variants = sorted(image_maker.PROMPT_VARIANTS.keys())
+    dashboard_mode = DASHBOARD_MODE_LONG if is_long_book else DASHBOARD_MODE_STANDARD
     return render_template(
         "index.html",
         defaults=DEFAULTS,
         prompt_variants=prompt_variants,
+        dashboard_mode=dashboard_mode,
+        is_long_book=is_long_book,
+        long_book_min_pages=LONG_BOOK_MIN_PAGES,
+        long_book_agent_id=LONG_BOOK_AGENT_ID,
+        estimated_pages_default=(LONG_BOOK_MIN_PAGES if is_long_book else 0),
     )
 
 
@@ -1071,6 +1098,13 @@ def create_job() -> Any:
     job_id = uuid.uuid4().hex
     # Write in-place, same as the requested terminal command pattern.
     output_doc = input_doc
+    dashboard_mode = _normalize_dashboard_mode(request.form.get("dashboard_mode"))
+
+    estimated_pages = _parse_int(request.form.get("estimated_pages"), 0)
+    if dashboard_mode == DASHBOARD_MODE_LONG and estimated_pages < LONG_BOOK_MIN_PAGES:
+        return jsonify({
+            "error": f"Long Book dashboard requires estimated_pages >= {LONG_BOOK_MIN_PAGES}"
+        }), 400
 
     cfg: dict[str, Any] = {
         "agent": (request.form.get("agent") or DEFAULTS["agent"]).strip() or DEFAULTS["agent"],
@@ -1082,8 +1116,11 @@ def create_job() -> Any:
         "openai_api_key": (request.form.get("openai_api_key") or "").strip(),
         "title_placeholder": (request.form.get("title_placeholder") or "Book Title Placeholder").strip() or "Book Title Placeholder",
         "author_placeholder": (request.form.get("author_placeholder") or "Author Name").strip() or "Author Name",
-        "estimated_pages": _parse_int(request.form.get("estimated_pages"), 0),
+        "estimated_pages": estimated_pages,
+        "dashboard_mode": dashboard_mode,
     }
+    if dashboard_mode == DASHBOARD_MODE_LONG:
+        cfg["agent"] = LONG_BOOK_AGENT_ID
 
     if cfg["image_prompt_variant"] not in image_maker.PROMPT_VARIANTS:
         return jsonify({"error": "Invalid image prompt variant"}), 400
@@ -1102,6 +1139,11 @@ def create_job() -> Any:
         pre_written=pre_written,
     )
     _append_log(job, "Job created.")
+    if dashboard_mode == DASHBOARD_MODE_LONG:
+        _append_log(
+            job,
+            f"Long-book dashboard mode active (estimated pages: {estimated_pages}, agent: {cfg['agent']}).",
+        )
     if pre_written:
         _append_log(job, "Input file detected as already-written (contains full prose).")
 
@@ -1433,7 +1475,13 @@ def download_file(job_id: str, kind: str) -> Any:
 def list_books() -> Any:
     """Return recent books for the history sidebar."""
     limit = _parse_int(request.args.get("limit"), 50)
-    return jsonify({"books": bookdb.list_books(limit=limit)})
+    mode_raw = (request.args.get("dashboard_mode") or "").strip()
+    dashboard_mode: str | None = None
+    if mode_raw:
+        dashboard_mode = _normalize_dashboard_mode(mode_raw, default="")
+        if dashboard_mode not in {DASHBOARD_MODE_STANDARD, DASHBOARD_MODE_LONG}:
+            return jsonify({"error": "dashboard_mode must be 'standard' or 'long-book'"}), 400
+    return jsonify({"books": bookdb.list_books(limit=limit, dashboard_mode=dashboard_mode)})
 
 
 @app.get("/api/books/<book_id>")

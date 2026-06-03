@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OpenClaw Book Writer</title>
+    <title>{% if is_long_book %}OpenClaw Long Book Dashboard{% else %}OpenClaw Book Writer{% endif %}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -245,7 +245,9 @@
         <div class="flex-1 overflow-y-auto custom-scrollbar" id="history-panel">
             <div class="px-3 py-3">
                 <div class="flex items-center justify-between mb-2 px-2">
-                    <h2 class="text-[10px] font-semibold text-gray-500 uppercase tracking-[0.12em]">Recent Books</h2>
+                    <h2 class="text-[10px] font-semibold text-gray-500 uppercase tracking-[0.12em]">
+                        {% if is_long_book %}Recent Long Books{% else %}Recent Books{% endif %}
+                    </h2>
                     <span class="text-[10px] text-gray-600"><i class="fas fa-clock-rotate-left"></i></span>
                 </div>
                 <div id="history-list" class="space-y-0.5">
@@ -268,6 +270,8 @@
             <div id="config-panel" class="hidden overflow-y-auto custom-scrollbar border-t border-white/5" style="max-height: 50vh;">
                 <div class="px-4 py-4 space-y-3.5">
                     <form id="config-form" class="space-y-3.5">
+                        <input type="hidden" name="dashboard_mode" id="dashboardMode" value="{{ dashboard_mode or 'standard' }}">
+                        <input type="hidden" name="estimated_pages" id="estimatedPages" value="{{ estimated_pages_default or 0 }}">
                         <div>
                             <label class="block text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5"><i class="fas fa-robot text-blue-400 mr-1"></i> Writer Agent</label>
                             <select name="agent" id="openclawAgent" class="w-full bg-white/[0.04] border border-white/10 text-gray-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500/50 transition">
@@ -355,8 +359,11 @@
         <header class="h-16 bg-white/70 backdrop-blur-xl border-b border-gray-200/70 flex items-center justify-between px-6 z-10 sticky top-0">
             <div class="min-w-0 flex items-center gap-4">
                 <nav class="flex items-center gap-1 mr-2">
-                    <a href="/" class="px-3 py-1.5 text-sm font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-lg flex items-center gap-1.5">
+                    <a href="/" class="px-3 py-1.5 text-sm font-semibold {% if not is_long_book %}bg-indigo-50 text-indigo-700 border border-indigo-100{% else %}text-gray-600 hover:bg-gray-100{% endif %} rounded-lg flex items-center gap-1.5 transition">
                         <i class="fas fa-pen-nib text-xs"></i> Write
+                    </a>
+                    <a href="/long-book" class="px-3 py-1.5 text-sm font-semibold {% if is_long_book %}bg-indigo-50 text-indigo-700 border border-indigo-100{% else %}text-gray-600 hover:bg-gray-100{% endif %} rounded-lg flex items-center gap-1.5 transition">
+                        <i class="fas fa-book text-xs"></i> Long Book
                     </a>
                     <a href="/launch" class="px-3 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-1.5 transition">
                         <i class="fas fa-rocket text-xs"></i> Launch
@@ -478,12 +485,18 @@
                     </div>
                     <div class="premium-card p-6 rounded-2xl rounded-tl-none max-w-2xl w-full">
                         <div class="flex items-center gap-2 mb-1">
-                            <span class="chip bg-indigo-50 text-indigo-700 border border-indigo-100">
-                                <i class="fas fa-sparkles text-[9px]"></i> Workspace ready
+                            <span class="chip {% if is_long_book %}bg-amber-50 text-amber-700 border border-amber-200{% else %}bg-indigo-50 text-indigo-700 border border-indigo-100{% endif %}">
+                                <i class="fas {% if is_long_book %}fa-book-open{% else %}fa-sparkles{% endif %} text-[9px]"></i>
+                                {% if is_long_book %}Long-book mode{% else %}Workspace ready{% endif %}
                             </span>
                         </div>
+                        {% if is_long_book %}
+                        <h3 class="font-semibold text-gray-900 text-lg tracking-tight mb-1.5">Long Book Dashboard</h3>
+                        <p class="text-gray-600 text-sm leading-relaxed">Use this workspace for large projects around <strong>{{ long_book_min_pages or 600 }}+ pages</strong>. It automatically submits the KDP page estimate as <strong>{{ long_book_min_pages or 600 }}</strong> and locks the writer agent to <strong>{{ long_book_agent_id or "long-writer-agent-1" }}</strong>.</p>
+                        {% else %}
                         <h3 class="font-semibold text-gray-900 text-lg tracking-tight mb-1.5">Welcome to <span class="gradient-text">BookWriter</span></h3>
                         <p class="text-gray-600 text-sm leading-relaxed">Upload a <code class="px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-700 text-[12px] font-mono">.docx</code> layout file below — or paste a local path — to start writing. We'll fill in prose, generate images, and produce Kindle &amp; Paperback exports.</p>
+                        {% endif %}
                         <div class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                             <div class="flex items-center gap-2.5 p-2.5 rounded-xl bg-gray-50/80 border border-gray-100">
                                 <div class="w-7 h-7 rounded-lg bg-white border border-gray-200 flex items-center justify-center shadow-sm">
@@ -575,8 +588,13 @@
                 </div>
 
                 <div class="premium-card rounded-2xl p-3 flex flex-col gap-2.5 focus-glow transition-shadow hover:shadow-[0_1px_2px_rgba(15,23,42,0.06),0_12px_36px_rgba(15,23,42,0.08)]">
+                    {% if is_long_book %}
+                    <div class="px-3 py-2 rounded-xl bg-amber-50 border border-amber-100 text-amber-800 text-xs font-medium">
+                        <i class="fas fa-ruler-vertical mr-1 text-amber-600"></i> Long-book dashboard active: {{ long_book_agent_id or "long-writer-agent-1" }} + {{ long_book_min_pages or 600 }} pages locked.
+                    </div>
+                    {% endif %}
                     <!-- Row 1: text input across the top -->
-                    <input type="text" id="layoutPath" class="w-full px-3 py-2.5 text-sm bg-transparent border-none focus:outline-none focus:ring-0 text-gray-800 placeholder-gray-400" placeholder="Paste a local .docx path… or use the paperclip to upload">
+                    <input type="text" id="layoutPath" class="w-full px-3 py-2.5 text-sm bg-transparent border-none focus:outline-none focus:ring-0 text-gray-800 placeholder-gray-400" placeholder="{% if is_long_book %}Paste a local .docx path for your long book… or use the paperclip to upload{% else %}Paste a local .docx path… or use the paperclip to upload{% endif %}">
                     <input type="file" id="file-upload" name="layout_file" class="hidden" accept=".docx" />
 
                     <!-- Row 2: paperclip (bottom-left), action chips, Write button (bottom-right) -->
@@ -607,7 +625,7 @@
                         </div>
 
                         <button id="btn-generate" class="btn-lift flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-indigo-600 via-indigo-600 to-purple-600 hover:shadow-lg hover:shadow-indigo-500/30 text-white rounded-xl text-sm font-semibold shadow-md transition disabled:from-gray-300 disabled:to-gray-300 disabled:shadow-none disabled:cursor-not-allowed flex-shrink-0 ml-auto">
-                            <i class="fas fa-play text-xs"></i> Write
+                            <i class="fas fa-play text-xs"></i> {% if is_long_book %}Write Long Book{% else %}Write{% endif %}
                         </button>
                     </div>
                 </div>
@@ -621,6 +639,8 @@
 
     <script>
         document.addEventListener("DOMContentLoaded", () => {
+            const isLongBookMode = {{ "true" if is_long_book else "false" }};
+            const longBookMinPages = {{ long_book_min_pages or 600 }};
             const state = {
                 jobId: null,
                 cursor: 0,
@@ -687,10 +707,12 @@
 
             let historyBooks = [];
             let historySearchQuery = "";
+            const historyMode = isLongBookMode ? "long-book" : "standard";
 
             async function loadHistory() {
                 try {
-                    const res = await fetch("/api/books");
+                    const params = new URLSearchParams({ dashboard_mode: historyMode });
+                    const res = await fetch(`/api/books?${params.toString()}`);
                     const data = await res.json();
                     historyBooks = data.books || [];
                     renderHistory();
@@ -702,7 +724,9 @@
             function renderHistory() {
                 historyList.innerHTML = "";
                 if (historyBooks.length === 0) {
-                    historyList.innerHTML = '<div class="px-3 py-4 text-xs text-gray-600 italic text-center">No books yet. Upload a .docx to get started.</div>';
+                    historyList.innerHTML = isLongBookMode
+                        ? '<div class="px-3 py-4 text-xs text-gray-600 italic text-center">No long-book jobs yet. Start writing a 600+ page book.</div>'
+                        : '<div class="px-3 py-4 text-xs text-gray-600 italic text-center">No books yet. Upload a .docx to get started.</div>';
                     return;
                 }
                 const q = historySearchQuery.trim().toLowerCase();
@@ -1075,54 +1099,16 @@
             const agentSelect = document.getElementById("openclawAgent");
             const agentHint = document.getElementById("agentStatusHint");
             const defaultAgent = "{{ defaults.agent }}";
+            const longBookAgentId = "{{ long_book_agent_id or 'long-writer-agent-1' }}";
             const agentModelMap = {};  // agentId → model key
 
-            async function loadAgents(forceRefresh) {
-                agentSelect.innerHTML = `<option value="${defaultAgent}">Loading agents...</option>`;
-                agentHint.textContent = "Fetching agents...";
-                agentHint.classList.remove("text-red-400");
-                agentHint.classList.add("text-gray-400");
-                try {
-                    const url = forceRefresh ? "/api/openclaw-agents?refresh=1" : "/api/openclaw-agents";
-                    const res = await fetch(url);
-                    const data = await res.json();
-                    if (!res.ok) throw new Error(data.error || "Failed to fetch agents");
-                    const agents = data.agents || [];
-
-                    agentSelect.innerHTML = "";
-                    agents.forEach(a => {
-                        const opt = document.createElement("option");
-                        opt.value = a.id;
-                        let label = a.name || a.id;
-                        if (a.model) {
-                            label += ` — ${a.model.split("/").pop()}`;
-                            agentModelMap[a.id] = a.model;
-                        }
-                        if (a.isDefault) label += " (★ default)";
-                        opt.textContent = label;
-                        if (a.id === defaultAgent) opt.selected = true;
-                        agentSelect.appendChild(opt);
-                    });
-                    agentHint.textContent = `${agents.length} agent(s) available`;
-                } catch (e) {
-                    agentSelect.innerHTML = `<option value="${defaultAgent}">${defaultAgent}</option>`;
-                    agentHint.innerHTML = `${e.message} — <a href="#" id="retry-agents" class="underline text-indigo-500">Retry</a>`;
-                    agentHint.classList.remove("text-gray-400");
-                    agentHint.classList.add("text-red-400");
-                    document.getElementById("retry-agents")?.addEventListener("click", (ev) => { ev.preventDefault(); loadAgents(true); });
-                }
-            }
-
-            agentSelect.addEventListener("change", async () => {
-                const agentId = agentSelect.value;
+            async function applyAgentModel(agentId) {
                 const agentModel = agentModelMap[agentId];
                 if (!agentModel) return;
 
-                // Select the matching model in the model dropdown
                 const modelOpt = Array.from(modelSelect.options).find(o => o.value === agentModel);
                 if (modelOpt) {
                     modelSelect.value = agentModel;
-                    // Also set it as the active model in OpenClaw
                     modelHint.textContent = "Switching model...";
                     try {
                         const res = await fetch("/api/openclaw-models/set", {
@@ -1140,6 +1126,89 @@
                         modelHint.classList.add("text-red-400");
                     }
                 }
+            }
+
+            async function loadAgents(forceRefresh) {
+                agentSelect.innerHTML = `<option value="${defaultAgent}">Loading agents...</option>`;
+                agentHint.textContent = "Fetching agents...";
+                agentHint.classList.remove("text-red-400");
+                agentHint.classList.add("text-gray-400");
+                try {
+                    const url = forceRefresh ? "/api/openclaw-agents?refresh=1" : "/api/openclaw-agents";
+                    const res = await fetch(url);
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || "Failed to fetch agents");
+                    const agents = data.agents || [];
+
+                    agentSelect.innerHTML = "";
+                    Object.keys(agentModelMap).forEach(k => delete agentModelMap[k]);
+                    const preferredAgent = isLongBookMode ? longBookAgentId : defaultAgent;
+                    let preferredFound = false;
+                    agents.forEach(a => {
+                        const opt = document.createElement("option");
+                        opt.value = a.id;
+                        let label = a.name || a.id;
+                        if (a.model) {
+                            label += ` — ${a.model.split("/").pop()}`;
+                            agentModelMap[a.id] = a.model;
+                        }
+                        if (a.isDefault) label += " (★ default)";
+                        opt.textContent = label;
+                        if (a.id === preferredAgent) {
+                            opt.selected = true;
+                            preferredFound = true;
+                        }
+                        agentSelect.appendChild(opt);
+                    });
+                    if (isLongBookMode && !preferredFound) {
+                        const forced = document.createElement("option");
+                        forced.value = longBookAgentId;
+                        forced.textContent = `${longBookAgentId} (forced)`;
+                        forced.selected = true;
+                        agentSelect.appendChild(forced);
+                    }
+
+                    if (isLongBookMode) {
+                        agentSelect.value = longBookAgentId;
+                        agentSelect.disabled = true;
+                        agentSelect.classList.add("opacity-70", "cursor-not-allowed");
+                        agentHint.textContent = preferredFound
+                            ? `Long-book mode locked to ${longBookAgentId}`
+                            : `Long-book mode forcing ${longBookAgentId} (not listed in agent catalog)`;
+                    } else {
+                        agentSelect.disabled = false;
+                        agentSelect.classList.remove("opacity-70", "cursor-not-allowed");
+                        agentHint.textContent = `${agents.length} agent(s) available`;
+                    }
+
+                    await applyAgentModel(agentSelect.value);
+                } catch (e) {
+                    if (isLongBookMode) {
+                        agentSelect.innerHTML = `<option value="${longBookAgentId}" selected>${longBookAgentId} (forced)</option>`;
+                        agentSelect.disabled = true;
+                        agentSelect.classList.add("opacity-70", "cursor-not-allowed");
+                        agentHint.innerHTML = `Long-book mode locked to ${longBookAgentId}. Agent list unavailable — <a href="#" id="retry-agents" class="underline text-indigo-500">Retry</a>`;
+                    } else {
+                        agentSelect.innerHTML = `<option value="${defaultAgent}">${defaultAgent}</option>`;
+                        agentSelect.disabled = false;
+                        agentSelect.classList.remove("opacity-70", "cursor-not-allowed");
+                        agentHint.innerHTML = `${e.message} — <a href="#" id="retry-agents" class="underline text-indigo-500">Retry</a>`;
+                    }
+                    agentHint.classList.remove("text-gray-400");
+                    agentHint.classList.add("text-red-400");
+                    document.getElementById("retry-agents")?.addEventListener("click", (ev) => { ev.preventDefault(); loadAgents(true); });
+                }
+            }
+
+            agentSelect.addEventListener("change", async () => {
+                const agentId = agentSelect.value;
+                if (isLongBookMode && agentId !== longBookAgentId) {
+                    agentSelect.value = longBookAgentId;
+                    return;
+                }
+                await applyAgentModel(agentId);
+                const agentModel = agentModelMap[agentId];
+                if (!agentModel) return;
                 agentHint.textContent = `Agent: ${agentId} → model: ${agentModel.split("/").pop()}`;
             });
 
@@ -1349,6 +1418,14 @@
 
             btnGenerate.addEventListener("click", async () => {
                 const formData = new FormData(document.getElementById("config-form"));
+                if (isLongBookMode) {
+                    formData.set("dashboard_mode", "long-book");
+                    formData.set("estimated_pages", String(longBookMinPages));
+                    formData.set("agent", longBookAgentId);
+                } else {
+                    formData.set("dashboard_mode", "standard");
+                    formData.set("estimated_pages", "0");
+                }
                 formData.append('layout_path', layoutPath.value);
                 if(fileUpload.files.length > 0) {
                     formData.append('layout_file', fileUpload.files[0]);
@@ -1358,7 +1435,10 @@
                 state.cursor = 0;
                 document.getElementById('downloadLinks').classList.add('hidden');
                 
-                const summary = `Start writing: <span class="font-mono text-xs ml-1">${escapeHtml(layoutPath.value || 'No file selected')}</span>`;
+                const modeNote = isLongBookMode
+                    ? ` <span class="ml-2 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-semibold">${longBookMinPages}+ pages mode</span>`
+                    : "";
+                const summary = `Start writing: <span class="font-mono text-xs ml-1">${escapeHtml(layoutPath.value || 'No file selected')}</span>${modeNote}`;
                 addMessage("user", summary);
                 
                 btnGenerate.disabled = true;

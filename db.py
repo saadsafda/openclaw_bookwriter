@@ -436,16 +436,46 @@ def update_book(book_id: str, **fields: Any) -> None:
         conn.close()
 
 
-def list_books(limit: int = 50) -> list[dict[str, Any]]:
-    """Return recent books, newest first."""
+def list_books(limit: int = 50, dashboard_mode: str | None = None) -> list[dict[str, Any]]:
+    """Return recent books, newest first, optionally filtered by dashboard mode."""
+    dashboard_mode = (dashboard_mode or "").strip().lower() or None
+    try:
+        limit_n = int(limit)
+    except Exception:
+        limit_n = 50
+    if limit_n <= 0:
+        return []
+
     conn = _connect()
     rows = conn.execute(
-        "SELECT id, title, status, agent, model, pre_written, created_at, updated_at "
-        "FROM books ORDER BY updated_at DESC LIMIT ?",
-        (limit,),
+        "SELECT id, title, status, agent, model, pre_written, created_at, updated_at, config "
+        "FROM books ORDER BY updated_at DESC",
     ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        rec = dict(row)
+        cfg_raw = rec.pop("config", "{}")
+        rec_mode = "standard"
+        try:
+            cfg = json.loads(cfg_raw or "{}")
+            if isinstance(cfg, dict):
+                mode = str(cfg.get("dashboard_mode") or "").strip().lower()
+                if mode == "long-book":
+                    rec_mode = "long-book"
+        except Exception:
+            pass
+
+        if dashboard_mode and rec_mode != dashboard_mode:
+            continue
+
+        rec["dashboard_mode"] = rec_mode
+        out.append(rec)
+        if len(out) >= limit_n:
+            break
+
+    return out
 
 
 def get_book(book_id: str) -> Optional[dict[str, Any]]:
