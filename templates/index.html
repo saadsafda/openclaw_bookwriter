@@ -492,7 +492,7 @@
                         </div>
                         {% if is_long_book %}
                         <h3 class="font-semibold text-gray-900 text-lg tracking-tight mb-1.5">Long Book Dashboard</h3>
-                        <p class="text-gray-600 text-sm leading-relaxed">Use this workspace for large projects around <strong>{{ long_book_min_pages or 600 }}+ pages</strong>. It automatically submits the KDP page estimate as <strong>{{ long_book_min_pages or 600 }}</strong> and locks the writer agent to <strong>{{ long_book_agent_id or "long-writer-agent-1" }}</strong>.</p>
+                        <p class="text-gray-600 text-sm leading-relaxed">Use this workspace for large projects around <strong>{{ long_book_min_pages or 600 }}+ pages</strong>. It automatically submits the KDP page estimate as <strong>{{ long_book_min_pages or 600 }}</strong>, locks the writer agent to <strong>{{ long_book_agent_id or "long-writer-agent-1" }}</strong>, and switches model to <strong>{{ long_book_model_key or "claude-sonnet-4.6" }}</strong>.</p>
                         {% else %}
                         <h3 class="font-semibold text-gray-900 text-lg tracking-tight mb-1.5">Welcome to <span class="gradient-text">BookWriter</span></h3>
                         <p class="text-gray-600 text-sm leading-relaxed">Upload a <code class="px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-700 text-[12px] font-mono">.docx</code> layout file below — or paste a local path — to start writing. We'll fill in prose, generate images, and produce Kindle &amp; Paperback exports.</p>
@@ -590,7 +590,7 @@
                 <div class="premium-card rounded-2xl p-3 flex flex-col gap-2.5 focus-glow transition-shadow hover:shadow-[0_1px_2px_rgba(15,23,42,0.06),0_12px_36px_rgba(15,23,42,0.08)]">
                     {% if is_long_book %}
                     <div class="px-3 py-2 rounded-xl bg-amber-50 border border-amber-100 text-amber-800 text-xs font-medium">
-                        <i class="fas fa-ruler-vertical mr-1 text-amber-600"></i> Long-book dashboard active: {{ long_book_agent_id or "long-writer-agent-1" }} + {{ long_book_min_pages or 600 }} pages locked.
+                        <i class="fas fa-ruler-vertical mr-1 text-amber-600"></i> Long-book dashboard active: {{ long_book_agent_id or "long-writer-agent-1" }} + {{ long_book_model_key or "claude-sonnet-4.6" }} + {{ long_book_min_pages or 600 }} pages locked.
                     </div>
                     {% endif %}
                     <!-- Row 1: text input across the top -->
@@ -1029,6 +1029,32 @@
             // --- OpenClaw Model dropdown ---
             const modelSelect = document.getElementById("openclawModel");
             const modelHint = document.getElementById("modelStatusHint");
+            const longBookModelKey = "{{ long_book_model_key or 'claude-sonnet-4.6' }}";
+
+            async function setActiveModel(modelKey, labelHint) {
+                if (!modelKey) return false;
+                modelHint.textContent = "Switching model...";
+                try {
+                    const res = await fetch("/api/openclaw-models/set", {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({ model: modelKey })
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || "Failed");
+                    const selectedOpt = Array.from(modelSelect.options).find(o => o.value === modelKey);
+                    const resolved = (labelHint || (selectedOpt ? selectedOpt.textContent : modelKey) || modelKey)
+                        .replace(/ \(.*\)$/, "");
+                    modelHint.textContent = `Active: ${resolved}`;
+                    modelHint.classList.remove("text-red-400");
+                    modelHint.classList.add("text-gray-400");
+                    return true;
+                } catch (e) {
+                    modelHint.textContent = `Error: ${e.message}`;
+                    modelHint.classList.add("text-red-400");
+                    return false;
+                }
+            }
 
             async function loadModels(forceRefresh) {
                 modelSelect.innerHTML = '<option value="">Loading models...</option>';
@@ -1059,12 +1085,42 @@
                         modelSelect.appendChild(opt);
                     });
                     const active = models.find(m => m.key === current);
-                    modelHint.textContent = active ? `Active: ${active.name || current}` : `Active: ${current}`;
-                    modelHint.classList.remove("text-red-400");
-                    modelHint.classList.add("text-gray-400");
+                    if (isLongBookMode) {
+                        let forcedOpt = Array.from(modelSelect.options).find(o => o.value === longBookModelKey);
+                        if (!forcedOpt) {
+                            forcedOpt = document.createElement("option");
+                            forcedOpt.value = longBookModelKey;
+                            forcedOpt.textContent = `${longBookModelKey} (forced)`;
+                            modelSelect.appendChild(forcedOpt);
+                        }
+                        modelSelect.value = longBookModelKey;
+                        modelSelect.disabled = true;
+                        modelSelect.classList.add("opacity-70", "cursor-not-allowed");
+                        const switched = await setActiveModel(longBookModelKey, forcedOpt.textContent);
+                        if (switched) {
+                            modelHint.textContent = `Long-book mode locked to ${longBookModelKey}`;
+                            modelHint.classList.remove("text-red-400");
+                            modelHint.classList.add("text-gray-400");
+                        }
+                    } else {
+                        modelSelect.disabled = false;
+                        modelSelect.classList.remove("opacity-70", "cursor-not-allowed");
+                        modelHint.textContent = active ? `Active: ${active.name || current}` : `Active: ${current}`;
+                        modelHint.classList.remove("text-red-400");
+                        modelHint.classList.add("text-gray-400");
+                    }
                 } catch (e) {
-                    modelSelect.innerHTML = '<option value="">Click retry below</option>';
-                    modelHint.innerHTML = `${e.message} — <a href="#" id="retry-models" class="underline text-indigo-500">Retry</a>`;
+                    if (isLongBookMode) {
+                        modelSelect.innerHTML = `<option value="${longBookModelKey}" selected>${longBookModelKey} (forced)</option>`;
+                        modelSelect.disabled = true;
+                        modelSelect.classList.add("opacity-70", "cursor-not-allowed");
+                        modelHint.innerHTML = `Long-book mode locked to ${longBookModelKey}. Model list unavailable — <a href="#" id="retry-models" class="underline text-indigo-500">Retry</a>`;
+                    } else {
+                        modelSelect.innerHTML = '<option value="">Click retry below</option>';
+                        modelSelect.disabled = false;
+                        modelSelect.classList.remove("opacity-70", "cursor-not-allowed");
+                        modelHint.innerHTML = `${e.message} — <a href="#" id="retry-models" class="underline text-indigo-500">Retry</a>`;
+                    }
                     modelHint.classList.remove("text-gray-400");
                     modelHint.classList.add("text-red-400");
                     document.getElementById("retry-models")?.addEventListener("click", (ev) => { ev.preventDefault(); loadModels(true); });
@@ -1074,23 +1130,12 @@
             modelSelect.addEventListener("change", async () => {
                 const chosen = modelSelect.value;
                 if (!chosen) return;
-                modelHint.textContent = "Switching model...";
-                try {
-                    const res = await fetch("/api/openclaw-models/set", {
-                        method: "POST",
-                        headers: {"Content-Type": "application/json"},
-                        body: JSON.stringify({ model: chosen })
-                    });
-                    const data = await res.json();
-                    if (!res.ok) throw new Error(data.error || "Failed");
-                    const opt = modelSelect.options[modelSelect.selectedIndex];
-                    modelHint.textContent = `Active: ${opt.textContent.replace(/ \(.*\)$/, "")}`;
-                    modelHint.classList.remove("text-red-400");
-                    modelHint.classList.add("text-gray-400");
-                } catch (e) {
-                    modelHint.textContent = `Error: ${e.message}`;
-                    modelHint.classList.add("text-red-400");
+                if (isLongBookMode) {
+                    modelSelect.value = longBookModelKey;
+                    return;
                 }
+                const opt = modelSelect.options[modelSelect.selectedIndex];
+                await setActiveModel(chosen, opt ? opt.textContent : chosen);
             });
 
             loadModels();
@@ -1103,28 +1148,23 @@
             const agentModelMap = {};  // agentId → model key
 
             async function applyAgentModel(agentId) {
+                if (isLongBookMode) {
+                    const switched = await setActiveModel(longBookModelKey, longBookModelKey);
+                    if (switched) {
+                        modelHint.textContent = `Long-book mode locked to ${longBookModelKey}`;
+                        modelHint.classList.remove("text-red-400");
+                        modelHint.classList.add("text-gray-400");
+                    }
+                    return;
+                }
+
                 const agentModel = agentModelMap[agentId];
                 if (!agentModel) return;
 
                 const modelOpt = Array.from(modelSelect.options).find(o => o.value === agentModel);
                 if (modelOpt) {
                     modelSelect.value = agentModel;
-                    modelHint.textContent = "Switching model...";
-                    try {
-                        const res = await fetch("/api/openclaw-models/set", {
-                            method: "POST",
-                            headers: {"Content-Type": "application/json"},
-                            body: JSON.stringify({ model: agentModel })
-                        });
-                        const data = await res.json();
-                        if (!res.ok) throw new Error(data.error || "Failed");
-                        modelHint.textContent = `Active: ${modelOpt.textContent.replace(/ \(.*\)$/, "")}`;
-                        modelHint.classList.remove("text-red-400");
-                        modelHint.classList.add("text-gray-400");
-                    } catch (e) {
-                        modelHint.textContent = `Error: ${e.message}`;
-                        modelHint.classList.add("text-red-400");
-                    }
+                    await setActiveModel(agentModel, modelOpt.textContent);
                 }
             }
 

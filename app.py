@@ -71,6 +71,7 @@ DEFAULTS: dict[str, Any] = {
 
 LONG_BOOK_MIN_PAGES = 600
 LONG_BOOK_AGENT_ID = "long-writer-agent-1"
+LONG_BOOK_MODEL_KEY = "claude-sonnet-4.6"
 DASHBOARD_MODE_STANDARD = "standard"
 DASHBOARD_MODE_LONG = "long-book"
 
@@ -541,6 +542,22 @@ def _normalize_dashboard_mode(value: str | None, *, default: str = DASHBOARD_MOD
     return mode
 
 
+def _set_openclaw_default_model(model_key: str) -> None:
+    proc = subprocess.run(
+        ["openclaw", "models", "set", model_key],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or "Unknown error")
+
+    # Invalidate model cache when available.
+    if "_MODEL_CACHE" in globals() and isinstance(_MODEL_CACHE, dict):
+        _MODEL_CACHE["data"] = None
+        _MODEL_CACHE["ts"] = 0.0
+
+
 @app.get("/")
 def index() -> str:
     return _render_writer_dashboard(is_long_book=False)
@@ -562,6 +579,7 @@ def _render_writer_dashboard(*, is_long_book: bool) -> str:
         is_long_book=is_long_book,
         long_book_min_pages=LONG_BOOK_MIN_PAGES,
         long_book_agent_id=LONG_BOOK_AGENT_ID,
+        long_book_model_key=LONG_BOOK_MODEL_KEY,
         estimated_pages_default=(LONG_BOOK_MIN_PAGES if is_long_book else 0),
     )
 
@@ -1105,6 +1123,13 @@ def create_job() -> Any:
         return jsonify({
             "error": f"Long Book dashboard requires estimated_pages >= {LONG_BOOK_MIN_PAGES}"
         }), 400
+    if dashboard_mode == DASHBOARD_MODE_LONG:
+        try:
+            _set_openclaw_default_model(LONG_BOOK_MODEL_KEY)
+        except subprocess.TimeoutExpired:
+            return jsonify({"error": "OpenClaw CLI timed out while setting long-book model. Make sure the gateway is running (openclaw gateway)."}), 504
+        except Exception as exc:
+            return jsonify({"error": f"Failed to set long-book model '{LONG_BOOK_MODEL_KEY}': {exc}"}), 500
 
     cfg: dict[str, Any] = {
         "agent": (request.form.get("agent") or DEFAULTS["agent"]).strip() or DEFAULTS["agent"],
@@ -1118,6 +1143,7 @@ def create_job() -> Any:
         "author_placeholder": (request.form.get("author_placeholder") or "Author Name").strip() or "Author Name",
         "estimated_pages": estimated_pages,
         "dashboard_mode": dashboard_mode,
+        "openclaw_model": (LONG_BOOK_MODEL_KEY if dashboard_mode == DASHBOARD_MODE_LONG else ""),
     }
     if dashboard_mode == DASHBOARD_MODE_LONG:
         cfg["agent"] = LONG_BOOK_AGENT_ID
@@ -1142,7 +1168,7 @@ def create_job() -> Any:
     if dashboard_mode == DASHBOARD_MODE_LONG:
         _append_log(
             job,
-            f"Long-book dashboard mode active (estimated pages: {estimated_pages}, agent: {cfg['agent']}).",
+            f"Long-book dashboard mode active (estimated pages: {estimated_pages}, agent: {cfg['agent']}, model: {LONG_BOOK_MODEL_KEY}).",
         )
     if pre_written:
         _append_log(job, "Input file detected as already-written (contains full prose).")
@@ -1588,15 +1614,7 @@ def set_openclaw_model() -> Any:
         return jsonify({"error": "model is required"}), 400
 
     try:
-        proc = subprocess.run(
-            ["openclaw", "models", "set", model_key],
-            capture_output=True, text=True, timeout=60,
-        )
-        if proc.returncode != 0:
-            return jsonify({"error": f"Failed to set model: {proc.stderr.strip() or proc.stdout.strip()}"}), 500
-        # Invalidate cache so next fetch reflects the change
-        _MODEL_CACHE["data"] = None
-        _MODEL_CACHE["ts"] = 0.0
+        _set_openclaw_default_model(model_key)
         return jsonify({"ok": True, "model": model_key})
     except subprocess.TimeoutExpired:
         return jsonify({"error": "OpenClaw CLI timed out. Make sure the gateway is running (openclaw gateway)."}), 504
