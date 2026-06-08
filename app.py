@@ -41,6 +41,7 @@ import publications as pub_routes
 import review_automation as review_routes
 import launch_emails as launch_email_routes
 import book_editor as book_editor_routes
+import acos_routes as acos_routes_mod
 
 ROOT_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = ROOT_DIR / "web_uploads"
@@ -111,6 +112,7 @@ review_routes.register(app)
 review_routes.start_background_tick()
 launch_email_routes.register(app)
 book_editor_routes.register(app)
+acos_routes_mod.register(app)
 
 
 def _timestamp() -> str:
@@ -1123,16 +1125,26 @@ def create_job() -> Any:
         return jsonify({
             "error": f"Long Book dashboard requires estimated_pages >= {LONG_BOOK_MIN_PAGES}"
         }), 400
-    if dashboard_mode == DASHBOARD_MODE_LONG:
+
+    submitted_agent = (request.form.get("agent") or "").strip()
+    submitted_model = (request.form.get("openclaw_model") or "").strip()
+    chosen_agent = submitted_agent or (
+        LONG_BOOK_AGENT_ID if dashboard_mode == DASHBOARD_MODE_LONG else DEFAULTS["agent"]
+    )
+    chosen_model = submitted_model or (
+        LONG_BOOK_MODEL_KEY if dashboard_mode == DASHBOARD_MODE_LONG else ""
+    )
+
+    if chosen_model:
         try:
-            _set_openclaw_default_model(LONG_BOOK_MODEL_KEY)
+            _set_openclaw_default_model(chosen_model)
         except subprocess.TimeoutExpired:
-            return jsonify({"error": "OpenClaw CLI timed out while setting long-book model. Make sure the gateway is running (openclaw gateway)."}), 504
+            return jsonify({"error": "OpenClaw CLI timed out while setting model. Make sure the gateway is running (openclaw gateway)."}), 504
         except Exception as exc:
-            return jsonify({"error": f"Failed to set long-book model '{LONG_BOOK_MODEL_KEY}': {exc}"}), 500
+            return jsonify({"error": f"Failed to set model '{chosen_model}': {exc}"}), 500
 
     cfg: dict[str, Any] = {
-        "agent": (request.form.get("agent") or DEFAULTS["agent"]).strip() or DEFAULTS["agent"],
+        "agent": chosen_agent,
         "image_prompt_variant": (request.form.get("image_prompt_variant") or DEFAULTS["image_prompt_variant"]).strip() or DEFAULTS["image_prompt_variant"],
         "image_model": (request.form.get("image_model") or DEFAULTS["image_model"]).strip() or DEFAULTS["image_model"],
         "image_size": (request.form.get("image_size") or DEFAULTS["image_size"]).strip() or DEFAULTS["image_size"],
@@ -1143,10 +1155,8 @@ def create_job() -> Any:
         "author_placeholder": (request.form.get("author_placeholder") or "Author Name").strip() or "Author Name",
         "estimated_pages": estimated_pages,
         "dashboard_mode": dashboard_mode,
-        "openclaw_model": (LONG_BOOK_MODEL_KEY if dashboard_mode == DASHBOARD_MODE_LONG else ""),
+        "openclaw_model": chosen_model,
     }
-    if dashboard_mode == DASHBOARD_MODE_LONG:
-        cfg["agent"] = LONG_BOOK_AGENT_ID
 
     if cfg["image_prompt_variant"] not in image_maker.PROMPT_VARIANTS:
         return jsonify({"error": "Invalid image prompt variant"}), 400
@@ -1168,7 +1178,7 @@ def create_job() -> Any:
     if dashboard_mode == DASHBOARD_MODE_LONG:
         _append_log(
             job,
-            f"Long-book dashboard mode active (estimated pages: {estimated_pages}, agent: {cfg['agent']}, model: {LONG_BOOK_MODEL_KEY}).",
+            f"Long-book dashboard mode active (estimated pages: {estimated_pages}, agent: {cfg['agent']}, model: {cfg.get('openclaw_model') or ''}).",
         )
     if pre_written:
         _append_log(job, "Input file detected as already-written (contains full prose).")

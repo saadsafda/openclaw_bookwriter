@@ -118,7 +118,17 @@
                     <p class="row-sub mb-2">Used to push launch-email drafts. Emails are never auto-sent — you publish them manually inside MailerLite.</p>
 
                     <div class="row stack">
-                        <div><div class="row-label">API key</div><div class="row-sub">MailerLite → Integrations → API. Stored server-side; never shown back.</div></div>
+                        <div>
+                            <div class="row-label">Configuration scope</div>
+                            <div class="row-sub" id="ml-scope-sub">Global default — used by every publisher unless that publisher has its own MailerLite config below.</div>
+                        </div>
+                        <select id="ml-scope" class="field" style="max-width: 28rem;">
+                            <option value="">Global default (all publishers)</option>
+                        </select>
+                    </div>
+
+                    <div class="row stack">
+                        <div><div class="row-label">API key</div><div class="row-sub" id="ml-api-sub">MailerLite → Integrations → API. Stored server-side; never shown back.</div></div>
                         <input id="ml-api-key" type="password" class="field" placeholder="Leave blank to keep the current key" autocomplete="off" />
                     </div>
 
@@ -240,19 +250,72 @@ $$('#settings-nav .nav-item').forEach(item => {
 });
 
 // -------------------- MailerLite --------------------
+// The selected scope: "" = global default, else an Amazon Ads account_id (publisher).
+let mlScope = '';
+
+function mlQS() { return mlScope ? ('?account_id=' + encodeURIComponent(mlScope)) : ''; }
+
+// Populate the scope dropdown from the configured companies.
+async function loadMlScopes() {
+    try {
+        const a = await fetch('/api/amazon-ads/accounts').then(r => r.json());
+        const sel = $('#ml-scope');
+        const cur = sel.value;
+        sel.innerHTML = '<option value="">Global default (all publishers)</option>';
+        (a.accounts || []).forEach(acct => {
+            const o = document.createElement('option');
+            o.value = acct.id;
+            o.textContent = acct.label || acct.id;
+            sel.appendChild(o);
+        });
+        sel.value = cur;  // preserve selection across reloads
+    } catch (e) { /* companies are optional; global still works */ }
+}
+
 async function loadMlSettings() {
     try {
-        const d = await fetch('/api/settings/mailerlite').then(r => r.json());
+        const d = await fetch('/api/settings/mailerlite' + mlQS()).then(r => r.json());
         $('#ml-from-name').value = d.from_name || '';
         $('#ml-from-email').value = d.from_email || '';
+
+        const company = !!d.account_id;
+        const inh = d.inherited || {};
+        // From fields: show inherited global as placeholder when company-scoped & blank
+        $('#ml-from-name').placeholder  = company && inh.from_name  ? `inherits: ${inh.from_name}`  : 'Jane Author';
+        $('#ml-from-email').placeholder = company && inh.from_email ? `inherits: ${inh.from_email}` : 'jane@yourdomain.com';
+        $('#ml-api-key').placeholder = company
+            ? (d.api_key_set ? 'Leave blank to keep this publisher’s key'
+                             : (inh.api_key_set ? 'Leave blank to inherit the global key' : 'Paste this publisher’s API key'))
+            : 'Leave blank to keep the current key';
+        $('#ml-api-sub').textContent = company
+            ? 'This publisher’s own MailerLite key. Leave blank to inherit the global key.'
+            : 'MailerLite → Integrations → API. Stored server-side; never shown back.';
+        $('#ml-scope-sub').textContent = company
+            ? 'This publisher’s MailerLite account. Blank fields inherit the global default.'
+            : 'Global default — used by every publisher unless that publisher has its own config.';
+
         const st = $('#ml-status');
-        if (d.configured) { st.className = 'pill pill-on'; st.innerHTML = `<i class="fas fa-check"></i> Configured (${d.source})`; }
-        else { st.className = 'pill pill-off'; st.innerHTML = `<i class="fas fa-xmark"></i> Not configured`; }
+        if (d.configured) {
+            st.className = 'pill pill-on';
+            st.innerHTML = company
+                ? `<i class="fas fa-check"></i> ${d.api_key_set ? 'Publisher key set' : 'Inherits global'}`
+                : `<i class="fas fa-check"></i> Configured (${d.source})`;
+        } else {
+            st.className = 'pill pill-off';
+            st.innerHTML = `<i class="fas fa-xmark"></i> Not configured`;
+        }
+
         const sel = $('#ml-group');
-        sel.dataset.selected = d.default_group_id || '';
-        if (d.default_group_id) {
+        const gid = d.default_group_id || '';
+        sel.dataset.selected = gid;
+        sel.innerHTML = '<option value="">— none / load groups —</option>';
+        if (gid) {
             const o = document.createElement('option');
-            o.value = d.default_group_id; o.textContent = `current: ${d.default_group_id}`; o.selected = true;
+            o.value = gid; o.textContent = `current: ${gid}`; o.selected = true;
+            sel.appendChild(o);
+        } else if (company && inh.default_group_id) {
+            const o = document.createElement('option');
+            o.value = ''; o.textContent = `inherits global group: ${inh.default_group_id}`;
             sel.appendChild(o);
         }
     } catch (e) { flash($('#ml-msg'), 'err', 'Failed to load: ' + (e.message || e)); }
@@ -260,7 +323,7 @@ async function loadMlSettings() {
 async function loadGroups() {
     const btn = $('#ml-load-groups'); btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-1"></i>';
     try {
-        const d = await fetch('/api/mailerlite/groups').then(r => r.json());
+        const d = await fetch('/api/mailerlite/groups' + mlQS()).then(r => r.json());
         if (!d.ok) { flash($('#ml-msg'), 'err', d.error || 'Could not load groups (API key set?)'); return; }
         const sel = $('#ml-group'); const want = sel.dataset.selected || '';
         sel.innerHTML = '<option value="">— none —</option>';
@@ -279,20 +342,23 @@ async function saveMl() {
         from_email: $('#ml-from-email').value.trim(),
         default_group_id: $('#ml-group').value,
     };
+    if (mlScope) body.account_id = mlScope;
     const key = $('#ml-api-key').value.trim();
     if (key) body.api_key = key;
     const btn = $('#ml-save'); btn.disabled = true;
     try {
         const r = await fetch('/api/settings/mailerlite', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
         if (!r.ok) { flash($('#ml-msg'), 'err', 'Save failed (' + r.status + ')'); return; }
-        $('#ml-api-key').value = ''; flash($('#ml-msg'), 'ok', 'Saved.'); await loadMlSettings();
+        $('#ml-api-key').value = '';
+        flash($('#ml-msg'), 'ok', mlScope ? 'Saved for this publisher.' : 'Saved.');
+        await loadMlSettings();
     } catch (e) { flash($('#ml-msg'), 'err', e.message || String(e)); }
     finally { btn.disabled = false; }
 }
 async function testMl() {
     const btn = $('#ml-test'); btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-1"></i> Testing';
     try {
-        const r = await fetch('/api/mailerlite/test', { method: 'POST' });
+        const r = await fetch('/api/mailerlite/test' + mlQS(), { method: 'POST' });
         const d = await r.json().catch(() => ({}));
         if (r.ok && d.ok) flash($('#ml-msg'), 'ok', 'Connection OK — API key is valid.');
         else flash($('#ml-msg'), 'err', d.error || ('Test failed (' + r.status + ')'));
@@ -395,6 +461,7 @@ async function saveWebhook() {
 $('#ml-save').addEventListener('click', saveMl);
 $('#ml-test').addEventListener('click', testMl);
 $('#ml-load-groups').addEventListener('click', loadGroups);
+$('#ml-scope').addEventListener('change', (e) => { mlScope = e.target.value || ''; loadMlSettings(); });
 $('#acct-add').addEventListener('click', submitAddAccount);
 $('#wh-save').addEventListener('click', saveWebhook);
 $('#wh-copy').addEventListener('click', () => { navigator.clipboard.writeText($('#wh-url').value); flash($('#wh-msg'), 'ok', 'Webhook URL copied.'); });
@@ -408,6 +475,7 @@ $('#wh-copy').addEventListener('click', () => { navigator.clipboard.writeText($(
     }
 })();
 
+loadMlScopes();
 loadMlSettings();
 loadWebhook();
 </script>

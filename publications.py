@@ -536,3 +536,73 @@ def register(app) -> None:
             "dry_run": dry_run,
             "results": per_mp_results,
         })
+
+    # -- Suggested bids (best-effort; never blocks a launch) --------------
+    @app.post("/api/publications/<pub_id>/amazon-ads/suggested-bids")
+    def suggested_bids(pub_id: str):  # noqa: ANN202
+        """Return Amazon's suggested bid range per marketplace.
+
+        Body:
+          {
+            "account_id": "default",                  # optional
+            "type": "auto" | "keyword",
+            "bidding_strategy": "LEGACY_FOR_SALES",    # optional
+            "marketplaces": ["US","UK",...],
+            "keywords": ["self help", ...]             # for keyword type
+            "match_types": ["EXACT","PHRASE","BROAD"]  # for keyword type
+          }
+
+        Always 200. Each marketplace result has ``available: bool``; when false
+        the UI simply shows "no suggestion" and the operator uses their own bid.
+        """
+        pub = bookdb.get_publication(pub_id)
+        if not pub:
+            abort(404)
+        body = request.get_json(silent=True) or {}
+        ctype = (body.get("type") or "auto").lower()
+        bidding_strategy = (body.get("bidding_strategy") or "LEGACY_FOR_SALES").upper()
+        keywords = [str(k).strip() for k in (body.get("keywords") or []) if str(k).strip()]
+        match_types = tuple(body.get("match_types") or ("EXACT", "PHRASE", "BROAD"))
+
+        account_id = (body.get("account_id")
+                      or pub.get("amazon_account_id")
+                      or bookdb.get_default_amazon_ads_account_id()
+                      or "")
+        if not account_id:
+            return jsonify({"error": "no Amazon Ads account configured"}), 400
+
+        mps = [str(m).upper() for m in (body.get("marketplaces") or []) if str(m).strip()]
+        if not mps:
+            return jsonify({"error": "marketplaces (list) is required"}), 400
+
+        try:
+            from amazon_ads import bids as _bids
+            from amazon_ads import profiles as _profiles
+        except Exception as exc:
+            return jsonify({"error": f"amazon_ads module unavailable: {exc}"}), 500
+
+        results: list[dict[str, Any]] = []
+        for mp in mps:
+            try:
+                profs = _profiles.list_profiles(mp, account_id=account_id)
+                profile_id = _profiles.find_profile_id(profs, mp)
+            except Exception:
+                profile_id = None
+            if not profile_id:
+                results.append({"marketplace": mp, "available": False,
+                                "reason": f"no profile for {mp}"})
+                continue
+            if ctype == "keyword":
+                rec = _bids.suggest_keyword_bids(
+                    profile_id, mp, keywords, match_types,
+                    account_id=account_id, bidding_strategy=bidding_strategy,
+                )
+            else:
+                rec = _bids.suggest_auto_bids(
+                    profile_id, mp,
+                    account_id=account_id, bidding_strategy=bidding_strategy,
+                )
+            rec["marketplace"] = mp
+            results.append(rec)
+
+        return jsonify({"ok": True, "account_id": account_id, "results": results})

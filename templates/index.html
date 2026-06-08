@@ -106,6 +106,15 @@
         .btn-lift:hover:not(:disabled)  { transform: translateY(-1px); }
         .btn-lift:active:not(:disabled) { transform: translateY(0); }
 
+        /* Floating post-completion action bar — hovers just above the input.
+           Hidden until at least one of its action buttons is revealed. */
+        #post-actions { display: none; }
+        #post-actions:has(> button:not(.hidden)) {
+            display: flex;
+            animation: postActionsIn .28s cubic-bezier(.22,1,.36,1) both;
+        }
+        @keyframes postActionsIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
         /* Sidebar item — refined hover + active indicator */
         .sidebar-item { position: relative; transition: background-color .15s ease, color .15s ease; }
         .sidebar-item.active::before {
@@ -384,22 +393,34 @@
                 </div>
             </div>
 
-            <div id="downloadLinks" class="hidden flex gap-2 items-center">
-                <a id="downloadInput" href="#" class="btn-lift px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition shadow-sm text-sm font-medium flex items-center gap-1.5" title="Original layout file">
-                    <i class="fas fa-file-word text-gray-500"></i> Input
-                </a>
-                <button id="btnAttachQr" type="button" class="btn-lift px-3 py-2 bg-gradient-to-r from-indigo-500 to-pink-500 text-white rounded-lg hover:shadow-lg hover:shadow-pink-500/20 transition shadow-sm text-sm font-medium flex items-center gap-1.5" title="Attach a saved QR code to the last page">
-                    <i class="fas fa-qrcode"></i> Attach QR
+            <div id="downloadLinks" class="hidden relative">
+                <button id="downloadMenuBtn" type="button" class="btn-lift px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-lg hover:shadow-lg hover:shadow-blue-500/25 transition shadow-sm text-sm font-semibold flex items-center gap-2">
+                    <i class="fas fa-download"></i> Download
+                    <i id="downloadMenuChevron" class="fas fa-chevron-down text-[10px] opacity-80 transition-transform"></i>
                 </button>
-                 <a id="downloadFinal" href="#" class="btn-lift px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-lg hover:shadow-lg hover:shadow-blue-500/25 transition shadow-sm text-sm font-medium flex items-center gap-1.5">
-                    <i class="fas fa-download"></i> Final File
-                </a>
-                <a id="downloadKindle" href="#" class="btn-lift px-4 py-2 bg-gradient-to-r from-emerald-600 to-emerald-500 text-white rounded-lg hover:shadow-lg hover:shadow-emerald-500/25 transition shadow-sm text-sm font-medium flex items-center gap-1.5">
-                    <i class="fas fa-book-open"></i> Kindle DOCX
-                </a>
-                <a id="downloadPaperback" href="#" class="btn-lift px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-500 text-white rounded-lg hover:shadow-lg hover:shadow-amber-500/25 transition shadow-sm text-sm font-medium flex items-center gap-1.5">
-                    <i class="fas fa-book"></i> Paperback DOCX
-                </a>
+                <div id="downloadMenu" class="hidden absolute right-0 mt-2 w-60 bg-white border border-gray-200 rounded-xl shadow-[0_12px_32px_-8px_rgba(15,23,42,0.25)] overflow-hidden z-40 py-1.5">
+                    <a id="downloadFinal" href="#" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 transition">
+                        <span class="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0"><i class="fas fa-file-arrow-down"></i></span>
+                        <span><span class="font-semibold block leading-tight">Final File</span><span class="text-[11px] text-gray-400">Formatted layout .docx</span></span>
+                    </a>
+                    <a id="downloadKindle" href="#" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-emerald-50 transition">
+                        <span class="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0"><i class="fas fa-book-open"></i></span>
+                        <span><span class="font-semibold block leading-tight">Kindle DOCX</span><span class="text-[11px] text-gray-400">eBook-ready manuscript</span></span>
+                    </a>
+                    <a id="downloadPaperback" href="#" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-amber-50 transition">
+                        <span class="w-8 h-8 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center flex-shrink-0"><i class="fas fa-book"></i></span>
+                        <span><span class="font-semibold block leading-tight">Paperback DOCX</span><span class="text-[11px] text-gray-400">Print interior</span></span>
+                    </a>
+                    <a id="downloadInput" href="#" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition" title="Original layout file">
+                        <span class="w-8 h-8 rounded-lg bg-gray-100 text-gray-500 flex items-center justify-center flex-shrink-0"><i class="fas fa-file-word"></i></span>
+                        <span><span class="font-semibold block leading-tight">Original input</span><span class="text-[11px] text-gray-400">The layout you uploaded</span></span>
+                    </a>
+                    <div class="border-t border-gray-100 my-1"></div>
+                    <button id="btnAttachQr" type="button" class="w-full text-left flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-pink-50 transition" title="Attach a saved QR code to the last page">
+                        <span class="w-8 h-8 rounded-lg bg-pink-100 text-pink-600 flex items-center justify-center flex-shrink-0"><i class="fas fa-qrcode"></i></span>
+                        <span><span class="font-semibold block leading-tight">Attach QR</span><span class="text-[11px] text-gray-400">Add a QR code to the last page</span></span>
+                    </button>
+                </div>
             </div>
         </header>
 
@@ -492,7 +513,7 @@
                         </div>
                         {% if is_long_book %}
                         <h3 class="font-semibold text-gray-900 text-lg tracking-tight mb-1.5">Long Book Dashboard</h3>
-                        <p class="text-gray-600 text-sm leading-relaxed">Use this workspace for large projects around <strong>{{ long_book_min_pages or 600 }}+ pages</strong>. It automatically submits the KDP page estimate as <strong>{{ long_book_min_pages or 600 }}</strong>, locks the writer agent to <strong>{{ long_book_agent_id or "long-writer-agent-1" }}</strong>, and switches model to <strong>{{ long_book_model_key or "claude-sonnet-4.6" }}</strong>.</p>
+                        <p class="text-gray-600 text-sm leading-relaxed">Use this workspace for large projects around <strong>{{ long_book_min_pages or 600 }}+ pages</strong>. Default agent is <strong>{{ long_book_agent_id or "long-writer-agent-1" }}</strong> and default model is <strong>{{ long_book_model_key or "claude-sonnet-4.6" }}</strong>, and you can change both before writing.</p>
                         {% else %}
                         <h3 class="font-semibold text-gray-900 text-lg tracking-tight mb-1.5">Welcome to <span class="gradient-text">BookWriter</span></h3>
                         <p class="text-gray-600 text-sm leading-relaxed">Upload a <code class="px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-700 text-[12px] font-mono">.docx</code> layout file below — or paste a local path — to start writing. We'll fill in prose, generate images, and produce Kindle &amp; Paperback exports.</p>
@@ -522,7 +543,7 @@
             </div>
         </div>
 
-        <div class="absolute bottom-0 inset-x-0 bg-gradient-to-t from-[#f7f8fb] via-[#f7f8fb]/95 to-transparent pt-12 pb-6 px-4 md:px-8 pointer-events-none">
+        <div class="absolute bottom-0 inset-x-0 bg-gradient-to-t from-[#f7f8fb] via-[#f7f8fb]/95 to-transparent pt-12 pb-2 px-4 md:px-8 pointer-events-none">
             <div class="max-w-4xl mx-auto relative group pointer-events-auto">
                 
                 <div id="replace-menu" class="hidden absolute bottom-full left-0 mb-4 bg-white border border-gray-200 rounded-2xl shadow-xl w-full max-h-80 flex flex-col z-20 overflow-hidden transform origin-bottom transition-all">
@@ -587,42 +608,48 @@
                     </div>
                 </div>
 
+                <!-- Floating action bar — appears above the input once a book is ready -->
+                <div id="post-actions" class="items-center gap-1.5 flex-wrap mb-3 px-3 py-2 rounded-2xl bg-white/95 backdrop-blur border border-gray-200/80 shadow-[0_2px_4px_rgba(15,23,42,0.04),0_16px_40px_-12px_rgba(15,23,42,0.18)]">
+                    <span class="inline-flex items-center gap-1.5 text-[11px] font-bold text-gray-500 pr-2 mr-1 border-r border-gray-200">
+                        <i class="fas fa-circle-check text-emerald-500"></i> Book ready
+                    </span>
+                    <button id="btn-generate-listing" class="hidden btn-lift px-3.5 py-1.5 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-100 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="Generate subtitles, description & categories">
+                        <i class="fas fa-list-alt"></i> Pub Listing
+                    </button>
+                    <button id="btn-show-rewrite" class="hidden btn-lift px-3.5 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-100 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="Rewrite paragraph text for selected headings">
+                        <i class="fas fa-pen-nib"></i> Rewrite text…
+                    </button>
+                    <button id="btn-show-replace" class="hidden btn-lift px-3.5 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-100 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="Start Image Replacement manually">
+                        <i class="fas fa-magic"></i> Replace image…
+                    </button>
+                    <button id="btn-landing-qr" class="hidden btn-lift px-3.5 py-1.5 bg-pink-50 text-pink-700 hover:bg-pink-100 border border-pink-100 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="Create WordPress landing page, QR code for paperback, and link for Kindle">
+                        <i class="fas fa-qrcode"></i> QR
+                    </button>
+                    <button id="btn-amazon-ads" class="hidden btn-lift px-3.5 py-1.5 bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-100 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="Launch an Amazon Sponsored Products ad campaign for this book">
+                        <i class="fab fa-amazon"></i> Amazon Ads
+                    </button>
+                    <button id="btn-view-edit" class="hidden btn-lift px-3.5 py-1.5 bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="View and edit the full book text">
+                        <i class="fas fa-book-open"></i> View / Edit book
+                    </button>
+                </div>
+
                 <div class="premium-card rounded-2xl p-3 flex flex-col gap-2.5 focus-glow transition-shadow hover:shadow-[0_1px_2px_rgba(15,23,42,0.06),0_12px_36px_rgba(15,23,42,0.08)]">
                     {% if is_long_book %}
                     <div class="px-3 py-2 rounded-xl bg-amber-50 border border-amber-100 text-amber-800 text-xs font-medium">
-                        <i class="fas fa-ruler-vertical mr-1 text-amber-600"></i> Long-book dashboard active: {{ long_book_agent_id or "long-writer-agent-1" }} + {{ long_book_model_key or "claude-sonnet-4.6" }} + {{ long_book_min_pages or 600 }} pages locked.
+                        <i class="fas fa-ruler-vertical mr-1 text-amber-600"></i> Long-book dashboard active: defaults are {{ long_book_agent_id or "long-writer-agent-1" }} + {{ long_book_model_key or "claude-sonnet-4.6" }} + {{ long_book_min_pages or 600 }} pages (editable).
                     </div>
                     {% endif %}
-                    <!-- Row 1: text input across the top -->
-                    <input type="text" id="layoutPath" class="w-full px-3 py-2.5 text-sm bg-transparent border-none focus:outline-none focus:ring-0 text-gray-800 placeholder-gray-400" placeholder="{% if is_long_book %}Paste a local .docx path for your long book… or use the paperclip to upload{% else %}Paste a local .docx path… or use the paperclip to upload{% endif %}">
-                    <input type="file" id="file-upload" name="layout_file" class="hidden" accept=".docx" />
 
-                    <!-- Row 2: paperclip (bottom-left), action chips, Write button (bottom-right) -->
+
+                    <!-- Row 2: paperclip (bottom-left), Write button (bottom-right) -->
                     <div class="flex items-center gap-2">
                         <button class="p-2.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition rounded-xl flex-shrink-0" title="Upload layout .docx file" onclick="document.getElementById('file-upload').click()">
                             <i class="fas fa-paperclip text-base"></i>
                         </button>
 
-                        <div class="flex items-center gap-1.5 flex-wrap flex-1">
-                            <button id="btn-generate-listing" class="hidden btn-lift px-3.5 py-1.5 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-100 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="Generate subtitles, description & categories">
-                                <i class="fas fa-list-alt"></i> Pub Listing
-                            </button>
-                            <button id="btn-show-rewrite" class="hidden btn-lift px-3.5 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-100 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="Rewrite paragraph text for selected headings">
-                                <i class="fas fa-pen-nib"></i> Rewrite text…
-                            </button>
-                            <button id="btn-show-replace" class="hidden btn-lift px-3.5 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-100 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="Start Image Replacement manually">
-                                <i class="fas fa-magic"></i> Replace image…
-                            </button>
-                            <button id="btn-landing-qr" class="hidden btn-lift px-3.5 py-1.5 bg-pink-50 text-pink-700 hover:bg-pink-100 border border-pink-100 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="Create WordPress landing page, QR code for paperback, and link for Kindle">
-                                <i class="fas fa-qrcode"></i> QR
-                            </button>
-                            <button id="btn-amazon-ads" class="hidden btn-lift px-3.5 py-1.5 bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-100 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="Launch an Amazon Sponsored Products ad campaign for this book">
-                                <i class="fab fa-amazon"></i> Amazon Ads
-                            </button>
-                            <button id="btn-view-edit" class="hidden btn-lift px-3.5 py-1.5 bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="View and edit the full book text">
-                                <i class="fas fa-book-open"></i> View / Edit book
-                            </button>
-                        </div>
+                        <!-- Row 1: text input across the top -->
+                        <input type="text" id="layoutPath" class="w-full px-3 py-2.5 text-sm bg-transparent border-none focus:outline-none focus:ring-0 text-gray-800 placeholder-gray-400" placeholder="{% if is_long_book %}Paste a local .docx path for your long book… or use the paperclip to upload{% else %}Paste a local .docx path… or use the paperclip to upload{% endif %}">
+                        <input type="file" id="file-upload" name="layout_file" class="hidden" accept=".docx" />
 
                         <button id="btn-generate" class="btn-lift flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-indigo-600 via-indigo-600 to-purple-600 hover:shadow-lg hover:shadow-indigo-500/30 text-white rounded-xl text-sm font-semibold shadow-md transition disabled:from-gray-300 disabled:to-gray-300 disabled:shadow-none disabled:cursor-not-allowed flex-shrink-0 ml-auto">
                             <i class="fas fa-play text-xs"></i> {% if is_long_book %}Write Long Book{% else %}Write{% endif %}
@@ -1086,19 +1113,19 @@
                     });
                     const active = models.find(m => m.key === current);
                     if (isLongBookMode) {
-                        let forcedOpt = Array.from(modelSelect.options).find(o => o.value === longBookModelKey);
-                        if (!forcedOpt) {
-                            forcedOpt = document.createElement("option");
-                            forcedOpt.value = longBookModelKey;
-                            forcedOpt.textContent = `${longBookModelKey} (forced)`;
-                            modelSelect.appendChild(forcedOpt);
+                        let defaultOpt = Array.from(modelSelect.options).find(o => o.value === longBookModelKey);
+                        if (!defaultOpt) {
+                            defaultOpt = document.createElement("option");
+                            defaultOpt.value = longBookModelKey;
+                            defaultOpt.textContent = `${longBookModelKey} (default)`;
+                            modelSelect.appendChild(defaultOpt);
                         }
                         modelSelect.value = longBookModelKey;
-                        modelSelect.disabled = true;
-                        modelSelect.classList.add("opacity-70", "cursor-not-allowed");
-                        const switched = await setActiveModel(longBookModelKey, forcedOpt.textContent);
+                        modelSelect.disabled = false;
+                        modelSelect.classList.remove("opacity-70", "cursor-not-allowed");
+                        const switched = await setActiveModel(longBookModelKey, defaultOpt.textContent);
                         if (switched) {
-                            modelHint.textContent = `Long-book mode locked to ${longBookModelKey}`;
+                            modelHint.textContent = `Default for long-book: ${longBookModelKey} (change allowed)`;
                             modelHint.classList.remove("text-red-400");
                             modelHint.classList.add("text-gray-400");
                         }
@@ -1111,10 +1138,10 @@
                     }
                 } catch (e) {
                     if (isLongBookMode) {
-                        modelSelect.innerHTML = `<option value="${longBookModelKey}" selected>${longBookModelKey} (forced)</option>`;
-                        modelSelect.disabled = true;
-                        modelSelect.classList.add("opacity-70", "cursor-not-allowed");
-                        modelHint.innerHTML = `Long-book mode locked to ${longBookModelKey}. Model list unavailable — <a href="#" id="retry-models" class="underline text-indigo-500">Retry</a>`;
+                        modelSelect.innerHTML = `<option value="${longBookModelKey}" selected>${longBookModelKey} (default)</option>`;
+                        modelSelect.disabled = false;
+                        modelSelect.classList.remove("opacity-70", "cursor-not-allowed");
+                        modelHint.innerHTML = `Default for long-book: ${longBookModelKey}. Model list unavailable — <a href="#" id="retry-models" class="underline text-indigo-500">Retry</a>`;
                     } else {
                         modelSelect.innerHTML = '<option value="">Click retry below</option>';
                         modelSelect.disabled = false;
@@ -1130,10 +1157,6 @@
             modelSelect.addEventListener("change", async () => {
                 const chosen = modelSelect.value;
                 if (!chosen) return;
-                if (isLongBookMode) {
-                    modelSelect.value = longBookModelKey;
-                    return;
-                }
                 const opt = modelSelect.options[modelSelect.selectedIndex];
                 await setActiveModel(chosen, opt ? opt.textContent : chosen);
             });
@@ -1148,16 +1171,6 @@
             const agentModelMap = {};  // agentId → model key
 
             async function applyAgentModel(agentId) {
-                if (isLongBookMode) {
-                    const switched = await setActiveModel(longBookModelKey, longBookModelKey);
-                    if (switched) {
-                        modelHint.textContent = `Long-book mode locked to ${longBookModelKey}`;
-                        modelHint.classList.remove("text-red-400");
-                        modelHint.classList.add("text-gray-400");
-                    }
-                    return;
-                }
-
                 const agentModel = agentModelMap[agentId];
                 if (!agentModel) return;
 
@@ -1201,33 +1214,35 @@
                         agentSelect.appendChild(opt);
                     });
                     if (isLongBookMode && !preferredFound) {
-                        const forced = document.createElement("option");
-                        forced.value = longBookAgentId;
-                        forced.textContent = `${longBookAgentId} (forced)`;
-                        forced.selected = true;
-                        agentSelect.appendChild(forced);
+                        const fallback = document.createElement("option");
+                        fallback.value = longBookAgentId;
+                        fallback.textContent = `${longBookAgentId} (default)`;
+                        fallback.selected = true;
+                        agentSelect.appendChild(fallback);
                     }
 
                     if (isLongBookMode) {
                         agentSelect.value = longBookAgentId;
-                        agentSelect.disabled = true;
-                        agentSelect.classList.add("opacity-70", "cursor-not-allowed");
+                        agentSelect.disabled = false;
+                        agentSelect.classList.remove("opacity-70", "cursor-not-allowed");
                         agentHint.textContent = preferredFound
-                            ? `Long-book mode locked to ${longBookAgentId}`
-                            : `Long-book mode forcing ${longBookAgentId} (not listed in agent catalog)`;
+                            ? `Default for long-book: ${longBookAgentId} (change allowed)`
+                            : `Default for long-book: ${longBookAgentId} (agent list missing this id)`;
                     } else {
                         agentSelect.disabled = false;
                         agentSelect.classList.remove("opacity-70", "cursor-not-allowed");
                         agentHint.textContent = `${agents.length} agent(s) available`;
                     }
 
-                    await applyAgentModel(agentSelect.value);
+                    if (!isLongBookMode) {
+                        await applyAgentModel(agentSelect.value);
+                    }
                 } catch (e) {
                     if (isLongBookMode) {
-                        agentSelect.innerHTML = `<option value="${longBookAgentId}" selected>${longBookAgentId} (forced)</option>`;
-                        agentSelect.disabled = true;
-                        agentSelect.classList.add("opacity-70", "cursor-not-allowed");
-                        agentHint.innerHTML = `Long-book mode locked to ${longBookAgentId}. Agent list unavailable — <a href="#" id="retry-agents" class="underline text-indigo-500">Retry</a>`;
+                        agentSelect.innerHTML = `<option value="${longBookAgentId}" selected>${longBookAgentId} (default)</option>`;
+                        agentSelect.disabled = false;
+                        agentSelect.classList.remove("opacity-70", "cursor-not-allowed");
+                        agentHint.innerHTML = `Default for long-book: ${longBookAgentId}. Agent list unavailable — <a href="#" id="retry-agents" class="underline text-indigo-500">Retry</a>`;
                     } else {
                         agentSelect.innerHTML = `<option value="${defaultAgent}">${defaultAgent}</option>`;
                         agentSelect.disabled = false;
@@ -1242,10 +1257,6 @@
 
             agentSelect.addEventListener("change", async () => {
                 const agentId = agentSelect.value;
-                if (isLongBookMode && agentId !== longBookAgentId) {
-                    agentSelect.value = longBookAgentId;
-                    return;
-                }
                 await applyAgentModel(agentId);
                 const agentModel = agentModelMap[agentId];
                 if (!agentModel) return;
@@ -1461,11 +1472,12 @@
                 if (isLongBookMode) {
                     formData.set("dashboard_mode", "long-book");
                     formData.set("estimated_pages", String(longBookMinPages));
-                    formData.set("agent", longBookAgentId);
                 } else {
                     formData.set("dashboard_mode", "standard");
                     formData.set("estimated_pages", "0");
                 }
+                formData.set("agent", agentSelect.value || (isLongBookMode ? longBookAgentId : defaultAgent));
+                formData.set("openclaw_model", modelSelect.value || (isLongBookMode ? longBookModelKey : ""));
                 formData.append('layout_path', layoutPath.value);
                 if(fileUpload.files.length > 0) {
                     formData.append('layout_file', fileUpload.files[0]);
@@ -1896,6 +1908,29 @@
                     qrAttachLabel.innerHTML = '<i class="fas fa-check mr-1"></i> Attach selected';
                 }
             });
+
+            // ----- Header "Download" dropdown -----
+            const downloadMenuBtn = document.getElementById("downloadMenuBtn");
+            const downloadMenu = document.getElementById("downloadMenu");
+            const downloadMenuChevron = document.getElementById("downloadMenuChevron");
+            function closeDownloadMenu() {
+                downloadMenu.classList.add("hidden");
+                if (downloadMenuChevron) downloadMenuChevron.style.transform = "";
+            }
+            if (downloadMenuBtn) {
+                downloadMenuBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    const willOpen = downloadMenu.classList.contains("hidden");
+                    downloadMenu.classList.toggle("hidden");
+                    if (downloadMenuChevron) downloadMenuChevron.style.transform = willOpen ? "rotate(180deg)" : "";
+                });
+                // Close after picking an item, or when clicking outside / pressing Esc
+                downloadMenu.querySelectorAll("a, button").forEach(el => el.addEventListener("click", closeDownloadMenu));
+                document.addEventListener("click", (e) => {
+                    if (!downloadMenu.classList.contains("hidden") && !e.target.closest("#downloadLinks")) closeDownloadMenu();
+                });
+                document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDownloadMenu(); });
+            }
 
             btnAttachQr.addEventListener("click", openQrModal);
             qrModalClose.addEventListener("click", closeQrModal);

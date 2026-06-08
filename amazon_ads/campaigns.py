@@ -294,16 +294,36 @@ def create_keyword_campaign(
     keyword_payloads: list[dict] = []
     for kw in keywords:
         if isinstance(kw, dict):
-            keyword_payloads.append(
-                {
-                    "campaignId": campaign_id,
-                    "adGroupId": ad_group_id,
-                    "state": "ENABLED",
-                    "keywordText": kw["keywordText"],
-                    "matchType": kw.get("matchType", "EXACT").upper(),
-                    "bid": float(kw.get("bid", default_bid)),
-                }
-            )
+            text = kw["keywordText"]
+            # Per-keyword bid wins; fall back to the campaign default bid.
+            kw_bid = float(kw.get("bid") or default_bid)
+            explicit_mt = kw.get("matchType")
+            if explicit_mt:
+                # Caller pinned a single match type for this keyword.
+                keyword_payloads.append(
+                    {
+                        "campaignId": campaign_id,
+                        "adGroupId": ad_group_id,
+                        "state": "ENABLED",
+                        "keywordText": text,
+                        "matchType": str(explicit_mt).upper(),
+                        "bid": kw_bid,
+                    }
+                )
+            else:
+                # No match type pinned -> fan this keyword out across every
+                # match type chosen for the launch, each at its own bid.
+                for mt in match_types:
+                    keyword_payloads.append(
+                        {
+                            "campaignId": campaign_id,
+                            "adGroupId": ad_group_id,
+                            "state": "ENABLED",
+                            "keywordText": text,
+                            "matchType": mt.upper(),
+                            "bid": kw_bid,
+                        }
+                    )
         else:
             for mt in match_types:
                 keyword_payloads.append(

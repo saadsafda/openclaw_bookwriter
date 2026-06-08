@@ -48,6 +48,50 @@ _ML_KEYS = {
     "webhook_secret":   "mailerlite.webhook_secret",
 }
 
+# Per-company (publisher) MailerLite config lives under scoped keys so each
+# Amazon Ads account / publisher can point at its own MailerLite account or
+# draft-access sub-user. A book published under "Oak Harbor Press" uses Oak
+# Harbor's list; a different publisher uses its own — with the global keys
+# above acting as the shared default (today: everything runs on Oak Harbor as
+# the global default). Adding a publisher later is one settings row, no code.
+#
+#   global:       mailerlite.api_key
+#   per-company:  mailerlite.<account_id>.api_key
+#
+# webhook_secret is intentionally global only — there's a single webhook
+# endpoint and we can't know the company at delivery time.
+_ML_COMPANY_FIELDS = ("api_key", "from_email", "from_name", "default_group_id")
+
+
+def _ml_company_key(field: str, account_id: str) -> str:
+    return f"mailerlite.{account_id}.{field}"
+
+
+def _ml_setting(field: str, account_id: str | None = None) -> str:
+    """Resolve a MailerLite setting: per-company → global → env (api_key only).
+
+    This is the single source of truth for which credentials a given publisher
+    uses. Pass the publication's company (``account_id``) and you get that
+    company's value, falling back to the global Oak Harbor default.
+    """
+    if account_id and field in _ML_COMPANY_FIELDS:
+        scoped = bookdb.get_setting(_ml_company_key(field, account_id))
+        if scoped:
+            return scoped
+    glob = bookdb.get_setting(_ML_KEYS[field]) or ""
+    if glob:
+        return glob
+    if field == "api_key":
+        return os.environ.get("MAILERLITE_API_KEY", "")
+    return ""
+
+
+def _account_for_pub(pub: dict) -> str:
+    """Which company (Amazon Ads account / publisher) owns this publication."""
+    return (str(pub.get("amazon_account_id") or "").strip()
+            or bookdb.get_default_amazon_ads_account_id()
+            or "")
+
 
 # ---------------------------------------------------------------------------
 # Webhook signature verification + event parsing
@@ -160,11 +204,13 @@ def _parse_timestamp(ts: Any) -> float:
     return time.time()
 
 
-def _ml_get_client() -> mailerlite_client.MailerLiteClient:
-    """Build a MailerLite client from stored settings; 400 if unconfigured."""
-    api_key = bookdb.get_setting(_ML_KEYS["api_key"]) or os.environ.get(
-        "MAILERLITE_API_KEY", ""
-    )
+def _ml_get_client(account_id: str | None = None) -> mailerlite_client.MailerLiteClient:
+    """Build a MailerLite client for a company; 400 if unconfigured.
+
+    Pass the publication's company (``account_id``) to use that publisher's
+    MailerLite account, falling back to the global Oak Harbor default.
+    """
+    api_key = _ml_setting("api_key", account_id)
     if not api_key:
         abort(400, description=(
             "MailerLite API key not configured. Add it via PUT "
@@ -498,36 +544,77 @@ def register(app) -> None:  # noqa: ANN001
 
     # ---- MailerLite settings + management -------------------------------
 
-    @app.get("/api/settings/mailerlite")
-    def get_ml_settings():  # noqa: ANN202
+    def _ml_settings_payload(account_id: str = ""):
+        """Build the settings response for the global default or one company.
+
+        For a company (``account_id`` set), each field shows that company's own
+        stored value, plus an ``inherited`` block showing the global value that
+        would be used as fallback when the company's field is blank.
+        """
+        if account_id:
+            own_key = bookdb.get_setting(_ml_company_key("api_key", account_id)) or ""
+            glob_key = bookdb.get_setting(_ML_KEYS["api_key"]) or ""
+            env_key = os.environ.get("MAILERLITE_API_KEY", "")
+            return {
+                "scope": "company",
+                "account_id": account_id,
+                "configured": bool(own_key or glob_key or env_key),
+                "api_key_set": bool(own_key),          # company-specific key present?
+                "from_email":       bookdb.get_setting(_ml_company_key("from_email", account_id)) or "",
+                "from_name":        bookdb.get_setting(_ml_company_key("from_name", account_id)) or "",
+                "default_group_id": bookdb.get_setting(_ml_company_key("default_group_id", account_id)) or "",
+                "inherited": {
+                    "api_key_set":      bool(glob_key or env_key),
+                    "from_email":       bookdb.get_setting(_ML_KEYS["from_email"]) or "",
+                    "from_name":        bookdb.get_setting(_ML_KEYS["from_name"]) or "",
+                    "default_group_id": bookdb.get_setting(_ML_KEYS["default_group_id"]) or "",
+                },
+            }
         stored = bookdb.get_setting(_ML_KEYS["api_key"]) or ""
         env_key = os.environ.get("MAILERLITE_API_KEY", "")
-        return jsonify({
+        return {
+            "scope": "global",
+            "account_id": "",
             "configured": bool(stored or env_key),
             "source": "database" if stored else ("env" if env_key else "none"),
+            "api_key_set":        bool(stored),
             "from_email":         bookdb.get_setting(_ML_KEYS["from_email"]) or "",
             "from_name":          bookdb.get_setting(_ML_KEYS["from_name"]) or "",
             "default_group_id":   bookdb.get_setting(_ML_KEYS["default_group_id"]) or "",
             "webhook_secret_set": bool(bookdb.get_setting(_ML_KEYS["webhook_secret"])),
-        })
+        }
+
+    @app.get("/api/settings/mailerlite")
+    def get_ml_settings():  # noqa: ANN202
+        account_id = (request.args.get("account_id") or "").strip()
+        return jsonify(_ml_settings_payload(account_id))
 
     @app.put("/api/settings/mailerlite")
     def put_ml_settings():  # noqa: ANN202
         body = request.get_json(silent=True) or {}
-        for field in ("api_key", "from_email", "from_name",
-                      "default_group_id", "webhook_secret"):
-            if field in body:
-                val = body.get(field)
-                if val is None:
-                    val = ""
-                if not isinstance(val, str):
-                    val = str(val)
-                bookdb.set_setting(_ML_KEYS[field], val.strip())
-        return get_ml_settings()
+        account_id = (body.get("account_id") or "").strip()
+
+        if account_id:
+            # Per-company config. webhook_secret stays global (single endpoint).
+            for field in _ML_COMPANY_FIELDS:
+                if field in body:
+                    val = body.get(field)
+                    val = "" if val is None else (val if isinstance(val, str) else str(val))
+                    bookdb.set_setting(_ml_company_key(field, account_id), val.strip())
+        else:
+            for field in ("api_key", "from_email", "from_name",
+                          "default_group_id", "webhook_secret"):
+                if field in body:
+                    val = body.get(field)
+                    val = "" if val is None else (val if isinstance(val, str) else str(val))
+                    bookdb.set_setting(_ML_KEYS[field], val.strip())
+        return jsonify(_ml_settings_payload(account_id))
 
     @app.post("/api/mailerlite/test")
     def test_ml():  # noqa: ANN202
-        client = _ml_get_client()
+        account_id = ((request.get_json(silent=True) or {}).get("account_id")
+                      or request.args.get("account_id") or "").strip()
+        client = _ml_get_client(account_id or None)
         try:
             client.test_connection()
         except mailerlite_client.MailerLiteError as exc:
@@ -537,7 +624,8 @@ def register(app) -> None:  # noqa: ANN001
 
     @app.get("/api/mailerlite/groups")
     def list_ml_groups():  # noqa: ANN202
-        client = _ml_get_client()
+        account_id = (request.args.get("account_id") or "").strip()
+        client = _ml_get_client(account_id or None)
         try:
             groups = client.list_groups()
         except mailerlite_client.MailerLiteError as exc:
@@ -562,16 +650,23 @@ def register(app) -> None:  # noqa: ANN001
             abort(404, description=f"email #{position} not found")
 
         body = request.get_json(silent=True) or {}
+
+        # Which publisher (company) owns this book → which MailerLite account.
+        # Explicit account_id in the request (launch dialog company dropdown) wins;
+        # else resolve from the publication's pinned company.
+        account_id = (str(body.get("account_id") or "").strip()
+                      or _account_for_pub(pub))
+
         group_id = (body.get("group_id")
-                    or bookdb.get_setting(_ML_KEYS["default_group_id"])
+                    or _ml_setting("default_group_id", account_id)
                     or "").strip()
         group_ids = [group_id] if group_id else []
 
         from_email = (body.get("from_email")
-                      or bookdb.get_setting(_ML_KEYS["from_email"])
+                      or _ml_setting("from_email", account_id)
                       or "").strip()
         from_name = (body.get("from_name")
-                     or bookdb.get_setting(_ML_KEYS["from_name"])
+                     or _ml_setting("from_name", account_id)
                      or "").strip()
         if not from_email or not from_name:
             return jsonify({
@@ -619,7 +714,7 @@ def register(app) -> None:  # noqa: ANN001
                 date_tag = ""
         name = f"{title} — Email {position}{date_tag}: {subject}"[:255]
 
-        client = _ml_get_client()
+        client = _ml_get_client(account_id)
         try:
             result = client.create_draft_campaign(
                 name=name,

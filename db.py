@@ -340,6 +340,23 @@ def init_db() -> None:
             )
         """)
         conn.commit()
+
+        # ACoS cache — one row per Amazon Ads profile_id.
+        # The reporting flow is async (30s–2 min) so we cache results and serve
+        # stale data while a background thread refreshes.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS acos_cache (
+                profile_id TEXT PRIMARY KEY,
+                account_id TEXT NOT NULL DEFAULT '',
+                marketplace TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'idle',
+                campaigns_json TEXT NOT NULL DEFAULT '[]',
+                error_msg TEXT NOT NULL DEFAULT '',
+                fetched_at REAL NOT NULL DEFAULT 0,
+                updated_at REAL NOT NULL DEFAULT 0
+            )
+        """)
+        conn.commit()
         conn.close()
 
 
@@ -1575,3 +1592,111 @@ def get_settings_with_prefix(prefix: str) -> dict[str, str]:
     finally:
         conn.close()
     return {r["key"]: r["value"] for r in rows}
+
+
+# ---------------------------------------------------------------------------
+# ACoS cache helpers
+# ---------------------------------------------------------------------------
+
+
+def get_acos_cache(profile_id: str) -> Optional[dict[str, Any]]:
+    """Return the cached ACoS row for a profile_id, or None if not found."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT * FROM acos_cache WHERE profile_id = ?", (profile_id,)
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def set_acos_cache(
+    profile_id: str,
+    *,
+    account_id: str = "",
+    marketplace: str = "",
+    campaigns: list,
+    status: str = "ready",
+    error: str = "",
+) -> None:
+    """Upsert a completed ACoS fetch result."""
+    now = time.time()
+    with _lock:
+        conn = _connect()
+        conn.execute(
+            """
+            INSERT INTO acos_cache
+                (profile_id, account_id, marketplace, status,
+                 campaigns_json, error_msg, fetched_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(profile_id) DO UPDATE SET
+                account_id    = excluded.account_id,
+                marketplace   = excluded.marketplace,
+                status        = excluded.status,
+                campaigns_json= excluded.campaigns_json,
+                error_msg     = excluded.error_msg,
+                fetched_at    = excluded.fetched_at,
+                updated_at    = excluded.updated_at
+            """,
+            (
+                profile_id, account_id, marketplace, status,
+                json.dumps(campaigns), error, now, now,
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+
+def list_acos_cache_profiles() -> list[dict[str, Any]]:
+    """Return all rows from acos_cache (used to discover previously fetched profiles)."""
+    conn = _connect()
+    try:
+        rows = conn.execute("SELECT * FROM acos_cache").fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def seed_acos_profile(profile_id: str, marketplace: str, account_id: str = "") -> None:
+    """Insert a new profile into acos_cache with status='idle' if not already present."""
+    now = time.time()
+    with _lock:
+        conn = _connect()
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO acos_cache
+                (profile_id, account_id, marketplace, status,
+                 campaigns_json, error_msg, fetched_at, updated_at)
+            VALUES (?, ?, ?, 'idle', '[]', '', 0, ?)
+            """,
+            (profile_id, account_id, marketplace, now),
+        )
+        conn.commit()
+        conn.close()
+
+
+def set_acos_cache_status(
+    profile_id: str,
+    status: str,
+    *,
+    error: str = "",
+) -> None:
+    """Update only the status/error_msg of an existing (or new) cache row."""
+    now = time.time()
+    with _lock:
+        conn = _connect()
+        conn.execute(
+            """
+            INSERT INTO acos_cache
+                (profile_id, status, error_msg, fetched_at, updated_at)
+            VALUES (?, ?, ?, 0, ?)
+            ON CONFLICT(profile_id) DO UPDATE SET
+                status    = excluded.status,
+                error_msg = excluded.error_msg,
+                updated_at= excluded.updated_at
+            """,
+            (profile_id, status, error, now),
+        )
+        conn.commit()
+        conn.close()

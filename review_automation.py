@@ -459,17 +459,23 @@ def register(app) -> None:  # noqa: ANN001
         settings = _effective_settings(pub_id)
 
         import launch_emails  # reuse the MailerLite client + settings helpers
+        # Which publisher (company) owns this book → which MailerLite account.
+        # An explicit account_id in the request (from the launch dialog's company
+        # dropdown) wins; otherwise resolve from the publication's pinned company.
+        req_body = request.get_json(silent=True) or {}
+        account_id = (str(req_body.get("account_id") or "").strip()
+                      or launch_emails._account_for_pub(pub))
         try:
-            client = launch_emails._ml_get_client()  # 400s if MailerLite unconfigured
+            client = launch_emails._ml_get_client(account_id)  # 400s if MailerLite unconfigured
         except HTTPException as exc:
             msg = exc.description or "MailerLite is not configured."
             return jsonify({"error": msg}), exc.code or 400
 
         from_email = (settings.get("from_email")
-                      or bookdb.get_setting(launch_emails._ML_KEYS["from_email"])
+                      or launch_emails._ml_setting("from_email", account_id)
                       or "").strip()
         from_name = (settings.get("from_name")
-                     or bookdb.get_setting(launch_emails._ML_KEYS["from_name"])
+                     or launch_emails._ml_setting("from_name", account_id)
                      or "").strip()
         if not from_email or not from_name:
             return jsonify({
@@ -480,7 +486,7 @@ def register(app) -> None:  # noqa: ANN001
         synced = 0
         sync_errors: list[str] = []
         try:
-            gid = (bookdb.get_setting(launch_emails._ML_KEYS["default_group_id"]) or "").strip()
+            gid = (launch_emails._ml_setting("default_group_id", account_id) or "").strip()
             if not gid:
                 gid = client.ensure_group(f"{pub.get('title') or 'Book'} — Review requests")
         except Exception as exc:
