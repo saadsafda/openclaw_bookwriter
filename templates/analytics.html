@@ -1,0 +1,1346 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full antialiased">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Analytics — OpenClaw</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <style>
+        html, body {
+            font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+            background: radial-gradient(1100px 520px at 10% -10%, rgba(99,102,241,.10), transparent 60%),
+                        radial-gradient(950px 480px at 96% -8%, rgba(236,72,153,.08), transparent 60%),
+                        #f4f5fb;
+            background-attachment: fixed;
+            color: #1f2937;
+        }
+        .font-mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+        .card {
+            background: #fff;
+            border: 1px solid rgba(15,23,42,0.06);
+            border-radius: 16px;
+            box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 12px 32px -14px rgba(15,23,42,.12);
+        }
+        .btn-ghost { background:#fff; border:1px solid #e5e7eb; color:#374151; font-weight:500; padding:6px 12px; border-radius:8px; transition:background .15s,border-color .15s,color .15s; cursor:pointer; }
+        .btn-ghost:hover { background:#f9fafb; border-color:#d1d5db; color:#111827; }
+        .btn-orange { background:linear-gradient(135deg,#f97316 0%,#ea580c 100%); color:#fff; font-weight:600; padding:7px 14px; border-radius:9px; box-shadow:0 5px 14px -5px rgba(234,88,12,.45); transition:transform .15s,box-shadow .15s,filter .15s; cursor:pointer; border:none; }
+        .btn-orange:hover { filter:brightness(1.05); transform:translateY(-1px); }
+        .btn-orange:disabled { opacity:.5; cursor:not-allowed; transform:none; }
+        /* Stat cards */
+        .stat-card { background:#fff; border:1px solid rgba(15,23,42,.06); border-radius:14px; padding:18px 20px; box-shadow:0 1px 2px rgba(15,23,42,.04),0 8px 20px -10px rgba(15,23,42,.10); }
+        .stat-lbl { font-size:11px; font-weight:700; color:#9ca3af; text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px; }
+        .stat-val { font-size:24px; font-weight:800; line-height:1.1; }
+        .stat-sub { font-size:11px; color:#9ca3af; margin-top:3px; }
+        /* Tabs */
+        .tab-nav { display:flex; gap:2px; border-bottom:2px solid #e5e7eb; margin-bottom:24px; overflow-x:auto; padding-bottom:0; }
+        .tab-btn { padding:11px 16px; font-size:13px; font-weight:600; color:#6b7280; border:none; background:none; border-bottom:2px solid transparent; margin-bottom:-2px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; transition:color .12s,border-color .12s; }
+        .tab-btn:hover { color:#374151; }
+        .tab-btn.active { color:#f97316; border-bottom-color:#f97316; }
+        .tab-panel { display:none; }
+        .tab-panel.active { display:block; }
+        /* Tables */
+        .atable { width:100%; border-collapse:collapse; font-size:12.5px; }
+        .atable thead th { padding:10px 12px; font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:.04em; border-bottom:2px solid #eef2f7; background:#fbfbfe; white-space:nowrap; position:sticky; top:0; cursor:pointer; user-select:none; }
+        .atable thead th:hover { color:#374151; }
+        .atable thead th .sort-icon { opacity:.4; margin-left:4px; font-size:9px; }
+        .atable thead th.sorted .sort-icon { opacity:1; color:#f97316; }
+        .atable tbody td { padding:9px 12px; border-bottom:1px solid #f1f5f9; }
+        .atable tbody tr:hover td { background:#fff7ed; }
+        .atable tbody tr:last-child td { border-bottom:none; }
+        /* ACoS color coding */
+        .acos-green { color:#059669; font-weight:700; }
+        .acos-amber { color:#d97706; font-weight:700; }
+        .acos-red   { color:#dc2626; font-weight:700; }
+        /* Action badges */
+        .badge { display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:700; padding:2px 8px; border-radius:999px; border:1px solid; white-space:nowrap; }
+        .badge-reduce  { background:#fef2f2; color:#b91c1c; border-color:#fecaca; }
+        .badge-increase{ background:#ecfdf5; color:#047857; border-color:#a7f3d0; }
+        .badge-pause   { background:#fefce8; color:#854d0e; border-color:#fde68a; }
+        /* Window selector */
+        .win-btn { padding:6px 12px; font-size:12px; font-weight:600; border:1px solid #e5e7eb; background:#fff; color:#6b7280; cursor:pointer; transition:all .15s; }
+        .win-btn:first-child { border-radius:8px 0 0 8px; border-right:none; }
+        .win-btn:last-child  { border-radius:0 8px 8px 0; border-left:none; }
+        .win-btn.active { background:#f97316; color:#fff; border-color:#f97316; }
+        /* Loading spinner */
+        .spinner { display:inline-block; width:14px; height:14px; border:2px solid #e5e7eb; border-top-color:#f97316; border-radius:50%; animation:spin .6s linear infinite; vertical-align:middle; }
+        @keyframes spin { to { transform:rotate(360deg); } }
+        /* Scrollable table container */
+        .table-scroll { overflow-x:auto; max-height:480px; overflow-y:auto; }
+        .table-scroll::-webkit-scrollbar { width:6px; height:6px; }
+        .table-scroll::-webkit-scrollbar-thumb { background:rgba(15,23,42,.14); border-radius:999px; }
+        /* Trend chart */
+        .chart-wrap { position:relative; height:280px; }
+        /* Marketplace bar */
+        .mp-bar-wrap { display:flex; align-items:center; gap:8px; font-size:12px; }
+        .mp-bar-bg { flex:1; height:8px; background:#f1f5f9; border-radius:999px; overflow:hidden; }
+        .mp-bar-fill { height:100%; border-radius:999px; background:linear-gradient(90deg,#f97316,#fb923c); }
+        /* Empty state */
+        .empty-state { text-align:center; padding:60px 24px; color:#9ca3af; }
+        .empty-state i { font-size:40px; color:#e5e7eb; display:block; margin-bottom:12px; }
+        /* Nav */
+        .top-nav { background:rgba(255,255,255,.85); backdrop-filter:blur(10px); border-bottom:1px solid rgba(15,23,42,.07); position:sticky; top:0; z-index:50; }
+    </style>
+</head>
+<body class="min-h-screen pb-16">
+
+<!-- ======================== Top Nav ======================== -->
+<nav class="top-nav">
+    <div class="max-w-screen-2xl mx-auto px-6 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-4">
+            <a href="/launch" class="btn-ghost text-xs flex items-center gap-1.5">
+                <i class="fas fa-arrow-left text-gray-400"></i> Launch
+            </a>
+            <div class="flex items-center gap-2">
+                <i class="fab fa-amazon text-orange-500 text-lg"></i>
+                <span class="font-bold text-gray-900 text-base">OpenClaw Analytics</span>
+                <span class="text-[10px] font-semibold bg-orange-50 text-orange-600 border border-orange-100 rounded-full px-2 py-0.5">Amazon Ads</span>
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            <!-- Window selector -->
+            <div class="flex" id="win-selector">
+                <button data-win="7"  class="win-btn">7d</button>
+                <button data-win="14" class="win-btn active">14d</button>
+                <button data-win="30" class="win-btn">30d</button>
+            </div>
+            <!-- Target ACoS -->
+            <div class="flex items-center gap-1.5 text-xs font-semibold text-gray-500">
+                <label for="target-acos-input">Target ACoS:</label>
+                <div class="flex items-center border border-gray-200 rounded-lg overflow-hidden bg-white">
+                    <input type="number" id="target-acos-input" value="30" min="1" max="200" step="1"
+                           class="w-14 text-center text-sm font-bold text-gray-800 border-none outline-none px-2 py-1.5" />
+                    <span class="pr-2 text-gray-400">%</span>
+                </div>
+            </div>
+            <button id="btn-pull" class="btn-orange flex items-center gap-1.5 text-sm">
+                <i class="fas fa-sync-alt"></i> Pull data
+            </button>
+        </div>
+    </div>
+</nav>
+
+<!-- ======================== Main Content ======================== -->
+<div class="max-w-screen-2xl mx-auto px-6 pt-8">
+
+    <!-- Status bar -->
+    <div id="status-bar" class="mb-5 flex items-center gap-2 text-sm text-gray-400">
+        <span class="spinner hidden" id="global-spinner"></span>
+        <span id="global-status">Loading data…</span>
+        <span id="fetched-at" class="text-xs text-gray-300"></span>
+    </div>
+
+    <!-- 5 Summary Stat Cards -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
+        <div class="stat-card">
+            <div class="stat-lbl">Total Spend</div>
+            <div id="stat-spend" class="stat-val text-gray-900">—</div>
+            <div class="stat-sub">Ad cost</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-lbl">Total Sales</div>
+            <div id="stat-sales" class="stat-val acos-green">—</div>
+            <div class="stat-sub">Ad-attributed</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-lbl">Orders</div>
+            <div id="stat-orders" class="stat-val text-gray-900">—</div>
+            <div class="stat-sub">Conversions</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-lbl">ACoS</div>
+            <div id="stat-acos" class="stat-val">—</div>
+            <div class="stat-sub">Spend ÷ Sales</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-lbl">ROAS</div>
+            <div id="stat-roas" class="stat-val text-indigo-600">—</div>
+            <div class="stat-sub">Sales ÷ Spend</div>
+        </div>
+    </div>
+
+    <!-- Tab Navigation -->
+    <div class="tab-nav">
+        <button class="tab-btn active" data-tab="overview">
+            <i class="fas fa-chart-bar"></i> Overview
+        </button>
+        <button class="tab-btn" data-tab="keywords">
+            <i class="fas fa-key"></i> Keywords
+            <span id="kw-badge" class="text-[10px] font-bold bg-gray-100 text-gray-500 rounded-full px-2 py-0.5 hidden"></span>
+        </button>
+        <button class="tab-btn" data-tab="searchterms">
+            <i class="fas fa-search"></i> Search Terms
+            <span id="st-badge" class="text-[10px] font-bold bg-gray-100 text-gray-500 rounded-full px-2 py-0.5 hidden"></span>
+        </button>
+        <button class="tab-btn" data-tab="trends">
+            <i class="fas fa-chart-line"></i> Trends
+        </button>
+        <button class="tab-btn" data-tab="bidoptimizer">
+            <i class="fas fa-magic"></i> Bid Optimizer
+            <span id="bid-badge" class="text-[10px] font-bold bg-orange-100 text-orange-600 rounded-full px-2 py-0.5 hidden"></span>
+        </button>
+        <button class="tab-btn" data-tab="negatives">
+            <i class="fas fa-ban"></i> Neg. Keywords
+            <span id="neg-badge" class="text-[10px] font-bold bg-red-100 text-red-600 rounded-full px-2 py-0.5 hidden"></span>
+        </button>
+    </div>
+
+    <!-- ============ OVERVIEW TAB ============ -->
+    <div class="tab-panel active" id="panel-overview">
+        <div class="grid grid-cols-1 xl:grid-cols-5 gap-5 mb-5">
+            <!-- Spend vs Sales bar chart -->
+            <div class="card p-5 xl:col-span-3">
+                <div class="flex items-center justify-between mb-1">
+                    <h3 class="text-sm font-bold text-gray-800 flex items-center gap-2">
+                        <i class="fas fa-globe-americas text-indigo-400"></i> Spend vs Sales by Marketplace
+                    </h3>
+                    <div class="flex items-center gap-3 text-[11px] font-semibold">
+                        <span class="inline-flex items-center gap-1.5 text-gray-500"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#f97316"></span> Spend</span>
+                        <span class="inline-flex items-center gap-1.5 text-gray-500"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#10b981"></span> Sales</span>
+                    </div>
+                </div>
+                <p class="text-[11px] text-gray-400 mb-3">Taller green than orange = profitable marketplace.</p>
+                <div class="chart-wrap"><canvas id="mp-chart"></canvas></div>
+            </div>
+            <!-- ACoS by campaign -->
+            <div class="card p-5 xl:col-span-2">
+                <div class="flex items-center justify-between mb-1">
+                    <h3 class="text-sm font-bold text-gray-800 flex items-center gap-2">
+                        <i class="fas fa-bullseye text-orange-400"></i> ACoS by Campaign
+                    </h3>
+                    <span class="text-[10px] text-gray-400">best first</span>
+                </div>
+                <p class="text-[11px] text-gray-400 mb-3">Lower is better.</p>
+                <div id="overview-acos-bars" class="space-y-3 text-xs"></div>
+                <div class="flex items-center gap-3 mt-3 pt-3 border-t border-gray-100 text-[10px] font-semibold text-gray-400">
+                    <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full inline-block" style="background:#059669"></span> ≤30%</span>
+                    <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full inline-block" style="background:#d97706"></span> 30–60%</span>
+                    <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full inline-block" style="background:#dc2626"></span> &gt;60%</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- All campaigns table -->
+        <div class="card overflow-hidden">
+            <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+                <h3 class="text-sm font-bold text-gray-700"><i class="fas fa-table mr-1 text-gray-400"></i> All Campaigns</h3>
+                <input type="text" id="campaign-filter" placeholder="Filter campaigns…" class="text-xs border border-gray-200 rounded-lg px-3 py-1.5 outline-none focus:border-orange-400 w-52" />
+            </div>
+            <div class="table-scroll">
+                <table class="atable" id="campaigns-table">
+                    <thead>
+                        <tr>
+                            <th class="text-left" data-col="name">Campaign <span class="sort-icon">▲</span></th>
+                            <th data-col="marketplace">MP <span class="sort-icon">▲</span></th>
+                            <th data-col="campaign_type">Type <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="ads_spend">Spend <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="ads_sales">Sales <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="ads_acos">ACoS <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="ads_roas">ROAS <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="ads_clicks">Clicks <span class="sort-icon">▲</span></th>
+                            <th data-col="state">State <span class="sort-icon">▲</span></th>
+                        </tr>
+                    </thead>
+                    <tbody id="campaigns-tbody">
+                        <tr><td colspan="9" class="text-center text-gray-400 py-10">No data — click <strong>Pull data</strong></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ KEYWORDS TAB ============ -->
+    <div class="tab-panel" id="panel-keywords">
+        <div class="card overflow-hidden">
+            <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
+                <h3 class="text-sm font-bold text-gray-700"><i class="fas fa-key mr-1 text-gray-400"></i> Keyword Performance</h3>
+                <div class="flex items-center gap-2 ml-auto">
+                    <select id="kw-match-filter" class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:border-orange-400">
+                        <option value="">All match types</option>
+                        <option value="EXACT">Exact</option>
+                        <option value="PHRASE">Phrase</option>
+                        <option value="BROAD">Broad</option>
+                        <option value="AUTO">Auto</option>
+                    </select>
+                    <input type="text" id="kw-filter" placeholder="Filter keywords…" class="text-xs border border-gray-200 rounded-lg px-3 py-1.5 outline-none focus:border-orange-400 w-52" />
+                </div>
+            </div>
+            <div id="kw-loading" class="empty-state hidden"><span class="spinner"></span><p class="mt-3 text-sm">Fetching keyword data…</p></div>
+            <div class="table-scroll" id="kw-table-wrap">
+                <table class="atable" id="kw-table">
+                    <thead>
+                        <tr>
+                            <th class="text-left" data-col="keywordText">Keyword <span class="sort-icon">▲</span></th>
+                            <th data-col="matchType">Match <span class="sort-icon">▲</span></th>
+                            <th class="text-left" data-col="campaignName">Campaign <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="impressions">Impr. <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="clicks">Clicks <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="_ctr">CTR <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="_spend">Spend <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="_sales">Sales <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="_acos">ACoS <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="_roas">ROAS <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="_orders">Orders <span class="sort-icon">▲</span></th>
+                        </tr>
+                    </thead>
+                    <tbody id="kw-tbody">
+                        <tr><td colspan="11" class="text-center text-gray-400 py-10">No keyword data yet — click <strong>Pull data</strong></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ SEARCH TERMS TAB ============ -->
+    <div class="tab-panel" id="panel-searchterms">
+        <div class="card overflow-hidden">
+            <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
+                <div>
+                    <h3 class="text-sm font-bold text-gray-700"><i class="fas fa-search mr-1 text-gray-400"></i> Search Term Report</h3>
+                    <p class="text-[11px] text-gray-400 mt-0.5">What customers actually typed to find your ads.</p>
+                </div>
+                <input type="text" id="st-filter" placeholder="Filter search terms…" class="text-xs border border-gray-200 rounded-lg px-3 py-1.5 outline-none focus:border-orange-400 w-56 ml-auto" />
+            </div>
+            <div id="st-loading" class="empty-state hidden"><span class="spinner"></span><p class="mt-3 text-sm">Fetching search term data…</p></div>
+            <div class="table-scroll" id="st-table-wrap">
+                <table class="atable" id="st-table">
+                    <thead>
+                        <tr>
+                            <th class="text-left" data-col="searchTerm">Search Term <span class="sort-icon">▲</span></th>
+                            <th class="text-left" data-col="keywordText">Matched Keyword <span class="sort-icon">▲</span></th>
+                            <th data-col="matchType">Match <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="impressions">Impr. <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="clicks">Clicks <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="_ctr">CTR <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="_spend">Spend <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="_sales">Sales <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="_acos">ACoS <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="_orders">Orders <span class="sort-icon">▲</span></th>
+                        </tr>
+                    </thead>
+                    <tbody id="st-tbody">
+                        <tr><td colspan="10" class="text-center text-gray-400 py-10">No search term data yet — click <strong>Pull data</strong></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ TRENDS TAB ============ -->
+    <div class="tab-panel" id="panel-trends">
+        <div class="grid grid-cols-1 gap-5">
+            <!-- Spend & Sales line chart -->
+            <div class="card p-5">
+                <div class="flex items-center justify-between mb-1">
+                    <h3 class="text-sm font-bold text-gray-800 flex items-center gap-2">
+                        <i class="fas fa-chart-line text-indigo-400"></i> Daily Spend &amp; Sales (last 30 days)
+                    </h3>
+                    <div class="flex items-center gap-3 text-[11px] font-semibold">
+                        <span class="inline-flex items-center gap-1.5 text-gray-500"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#f97316"></span> Spend</span>
+                        <span class="inline-flex items-center gap-1.5 text-gray-500"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#10b981"></span> Sales</span>
+                    </div>
+                </div>
+                <p class="text-[11px] text-gray-400 mb-4">All marketplaces combined. Sales use the selected attribution window.</p>
+                <div id="trends-loading" class="empty-state hidden"><span class="spinner"></span><p class="mt-3 text-sm">Fetching trend data…</p></div>
+                <div class="chart-wrap" id="trends-chart-wrap"><canvas id="trends-chart"></canvas></div>
+            </div>
+            <!-- ACoS trend line chart -->
+            <div class="card p-5">
+                <div class="flex items-center justify-between mb-1">
+                    <h3 class="text-sm font-bold text-gray-800 flex items-center gap-2">
+                        <i class="fas fa-percentage text-orange-400"></i> Daily ACoS Trend
+                    </h3>
+                    <span class="text-[11px] text-gray-400">Rolling ACoS per day</span>
+                </div>
+                <p class="text-[11px] text-gray-400 mb-4">Days with no spend are skipped.</p>
+                <div class="chart-wrap"><canvas id="acos-trend-chart"></canvas></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ BID OPTIMIZER TAB ============ -->
+    <div class="tab-panel" id="panel-bidoptimizer">
+        <div class="card overflow-hidden">
+            <div class="px-5 py-4 border-b border-gray-100">
+                <div class="flex items-center justify-between gap-4">
+                    <div>
+                        <h3 class="text-sm font-bold text-gray-700 flex items-center gap-2">
+                            <i class="fas fa-magic text-orange-400"></i> Bid Optimization Suggestions
+                        </h3>
+                        <p class="text-[11px] text-gray-400 mt-0.5">Rule-based recommendations: reduce wasted spend, scale what works.</p>
+                    </div>
+                    <div class="flex items-center gap-3 text-xs font-semibold text-gray-500 flex-shrink-0">
+                        <span>Target ACoS:</span>
+                        <strong id="bid-target-display" class="text-gray-800">30%</strong>
+                        <span class="text-gray-300">|</span>
+                        <span id="bid-count" class="text-gray-500"></span>
+                        <button id="apply-all-btn" onclick="applyAllBids()" class="hidden ml-1 inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg px-3 py-1.5 transition">
+                            <i class="fas fa-bolt text-[10px]"></i> Apply all
+                        </button>
+                    </div>
+                </div>
+                <!-- Legend + auto-apply -->
+                <div class="flex items-center justify-between mt-3">
+                    <div class="flex items-center gap-4 text-[11px] font-semibold text-gray-400">
+                        <span class="badge badge-reduce"><i class="fas fa-arrow-down text-[9px]"></i> Reduce bid</span>
+                        <span class="badge badge-increase"><i class="fas fa-arrow-up text-[9px]"></i> Increase bid</span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div id="apply-summary" class="hidden text-[11px] font-semibold"></div>
+                        <label class="flex items-center gap-2 cursor-pointer select-none" title="When ON, all suggestions are applied to Amazon automatically as soon as data loads. Changes larger than 50% are skipped for safety.">
+                            <span class="text-[11px] font-bold text-gray-600">Auto-optimize</span>
+                            <span class="relative inline-block">
+                                <input type="checkbox" id="auto-apply-toggle" class="sr-only peer">
+                                <span class="block w-9 h-5 bg-gray-300 rounded-full peer-checked:bg-indigo-600 transition"></span>
+                                <span class="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow transition peer-checked:translate-x-4"></span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+                <div id="auto-apply-note" class="hidden mt-2 text-[11px] text-indigo-600 bg-indigo-50 rounded-lg px-3 py-1.5">
+                    <i class="fas fa-bolt text-[10px]"></i> Auto-optimize is ON — suggestions are applied automatically when data loads. Changes over 50% are skipped.
+                </div>
+            </div>
+            <div id="bid-loading" class="empty-state hidden"><span class="spinner"></span><p class="mt-3 text-sm">Analyzing keywords…</p></div>
+            <div class="table-scroll" id="bid-table-wrap">
+                <table class="atable" id="bid-table">
+                    <thead>
+                        <tr>
+                            <th class="text-left" data-col="keyword">Keyword <span class="sort-icon">▲</span></th>
+                            <th data-col="match_type">Match <span class="sort-icon">▲</span></th>
+                            <th class="text-left" data-col="campaign">Campaign <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="spend">Spend <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="sales">Sales <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="acos">ACoS <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="clicks">Clicks <span class="sort-icon">▲</span></th>
+                            <th>Action <span class="sort-icon">▲</span></th>
+                            <th class="text-left">Reason</th>
+                            <th class="text-center">Apply</th>
+                        </tr>
+                    </thead>
+                    <tbody id="bid-tbody">
+                        <tr><td colspan="10" class="text-center text-gray-400 py-10">No suggestions yet — click <strong>Pull data</strong> first</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ NEGATIVE KEYWORDS TAB ============ -->
+    <div class="tab-panel" id="panel-negatives">
+        <div class="card overflow-hidden">
+            <div class="px-5 py-4 border-b border-gray-100">
+                <div class="flex items-center justify-between gap-4">
+                    <div>
+                        <h3 class="text-sm font-bold text-gray-700 flex items-center gap-2">
+                            <i class="fas fa-ban text-red-400"></i> Negative Keyword Suggestions
+                        </h3>
+                        <p class="text-[11px] text-gray-400 mt-0.5">Customer search terms that burned clicks with zero sales. Add them as negative exact to stop wasting spend.</p>
+                    </div>
+                    <div class="flex items-center gap-3 text-xs font-semibold text-gray-500 flex-shrink-0">
+                        <span id="neg-count" class="text-gray-500"></span>
+                        <button id="neg-apply-all-btn" onclick="applyAllNegatives()" class="hidden ml-1 inline-flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg px-3 py-1.5 transition">
+                            <i class="fas fa-ban text-[10px]"></i> Add all as negative
+                        </button>
+                    </div>
+                </div>
+                <div class="flex items-center justify-end mt-3">
+                    <div id="neg-apply-summary" class="hidden text-[11px] font-semibold"></div>
+                </div>
+            </div>
+            <div id="neg-loading" class="empty-state hidden"><span class="spinner"></span><p class="mt-3 text-sm">Analyzing search terms…</p></div>
+            <div class="table-scroll" id="neg-table-wrap">
+                <table class="atable" id="neg-table">
+                    <thead>
+                        <tr>
+                            <th class="text-left" data-col="search_term">Search term <span class="sort-icon">▲</span></th>
+                            <th class="text-left" data-col="matched_keyword">Matched keyword <span class="sort-icon">▲</span></th>
+                            <th class="text-left" data-col="campaign">Campaign <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="clicks">Clicks <span class="sort-icon">▲</span></th>
+                            <th class="text-right" data-col="spend">Spend <span class="sort-icon">▲</span></th>
+                            <th class="text-left">Reason</th>
+                            <th class="text-center">Add negative</th>
+                        </tr>
+                    </thead>
+                    <tbody id="neg-tbody">
+                        <tr><td colspan="7" class="text-center text-gray-400 py-10">No suggestions yet — click <strong>Pull data</strong> first</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div><!-- /main content -->
+
+<script>
+// ==================== State ====================
+let state = {
+    window: 14,
+    targetAcos: 30,
+    overview: null,
+    keywords: null,
+    searchTerms: null,
+    trends: null,
+    bidSuggestions: null,
+    activeTab: 'overview',
+    pollTimer: null,
+};
+
+// Chart instances
+let mpChart = null, trendsChart = null, acosTrendChart = null;
+
+// Sort state per table
+const sortState = {};
+
+// ==================== Helpers ====================
+const $ = id => document.getElementById(id);
+const fmt$ = v => v == null ? '—' : `$${Number(v).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}`;
+const fmtN = v => v == null ? '—' : Number(v).toLocaleString('en-US');
+const fmtPct = v => v == null ? '—' : `${v}%`;
+const fmtX = v => v == null ? '—' : `${v}×`;
+const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+function acosClass(v) {
+    if (v == null) return '';
+    if (v <= 30) return 'acos-green';
+    if (v <= 60) return 'acos-amber';
+    return 'acos-red';
+}
+
+function stateChip(s) {
+    const map = {ENABLED:'bg-emerald-50 text-emerald-700 border-emerald-200', PAUSED:'bg-gray-100 text-gray-500 border-gray-200', ARCHIVED:'bg-red-50 text-red-400 border-red-100'};
+    const cls = map[(s||'').toUpperCase()] || 'bg-gray-100 text-gray-500 border-gray-200';
+    return `<span class="text-[10px] font-bold border rounded-full px-2 py-0.5 ${cls}">${esc(s)}</span>`;
+}
+
+function matchChip(m) {
+    const map = {EXACT:'bg-indigo-50 text-indigo-700', PHRASE:'bg-purple-50 text-purple-700', BROAD:'bg-sky-50 text-sky-700', AUTO:'bg-orange-50 text-orange-700'};
+    const cls = map[(m||'').toUpperCase()] || 'bg-gray-100 text-gray-500';
+    return `<span class="text-[10px] font-bold rounded px-1.5 py-0.5 ${cls}">${esc(m||'—')}</span>`;
+}
+
+// ==================== Tab switching ====================
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        const tab = btn.dataset.tab;
+        $(`panel-${tab}`).classList.add('active');
+        state.activeTab = tab;
+        if (tab === 'keywords') loadKeywords();
+        if (tab === 'searchterms') loadSearchTerms();
+        if (tab === 'trends') loadTrends();
+        if (tab === 'bidoptimizer') loadBidSuggestions();
+        if (tab === 'negatives') loadNegativeSuggestions();
+    });
+});
+
+// ==================== Window selector ====================
+document.querySelectorAll('.win-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.win-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        state.window = parseInt(btn.dataset.win);
+        refreshAll();
+    });
+});
+
+// ==================== Target ACoS ====================
+$('target-acos-input').addEventListener('change', () => {
+    state.targetAcos = parseFloat($('target-acos-input').value) || 30;
+    $('bid-target-display').textContent = `${state.targetAcos}%`;
+    if (state.activeTab === 'bidoptimizer') loadBidSuggestions();
+});
+
+// ==================== Pull data button ====================
+$('btn-pull').addEventListener('click', async () => {
+    $('btn-pull').disabled = true;
+    $('btn-pull').innerHTML = '<span class="spinner"></span> Pulling…';
+    await fetch('/api/analytics/refresh', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({})});
+    await sleep(2000);
+    refreshAll();
+    setTimeout(() => {
+        $('btn-pull').disabled = false;
+        $('btn-pull').innerHTML = '<i class="fas fa-sync-alt"></i> Pull data';
+    }, 3000);
+});
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ==================== Overview ====================
+async function loadOverview() {
+    try {
+        const r = await fetch(`/api/analytics/overview?window=${state.window}`);
+        const data = await r.json();
+        state.overview = data;
+        renderOverview(data);
+        updateGlobalStatus(data.status, data.fetched_at);
+        if (data.status === 'fetching') schedulePoll('overview');
+    } catch(e) { console.error('overview', e); }
+}
+
+function renderOverview(data) {
+    const s = data.summary || {};
+    $('stat-spend').textContent  = fmt$(s.total_spend);
+    $('stat-sales').textContent  = fmt$(s.total_sales);
+    $('stat-orders').textContent = fmtN(s.total_orders);
+    const acosEl = $('stat-acos');
+    acosEl.textContent = fmtPct(s.acos);
+    acosEl.className = `stat-val ${acosClass(s.acos)}`;
+    $('stat-roas').textContent = fmtX(s.roas);
+
+    renderMpChart(data.by_marketplace || {});
+    renderAcosBar(data.campaigns || []);
+    renderCampaignsTable(data.campaigns || []);
+}
+
+function renderMpChart(byMp) {
+    const labels = Object.keys(byMp);
+    const spends = labels.map(mp => byMp[mp].spend);
+    const sales  = labels.map(mp => byMp[mp].sales);
+
+    if (mpChart) mpChart.destroy();
+    const ctx = document.getElementById('mp-chart').getContext('2d');
+    mpChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [
+                { label:'Spend', data:spends, backgroundColor:'rgba(249,115,22,.75)', borderRadius:6 },
+                { label:'Sales', data:sales,  backgroundColor:'rgba(16,185,129,.75)', borderRadius:6 },
+            ]
+        },
+        options: {
+            responsive:true, maintainAspectRatio:false,
+            plugins:{ legend:{display:false}, tooltip:{callbacks:{label:ctx=>`$${ctx.parsed.y.toFixed(2)}`}} },
+            scales:{
+                x:{ grid:{display:false} },
+                y:{ ticks:{callback:v=>`$${v.toLocaleString()}`}, grid:{color:'#f1f5f9'} }
+            }
+        }
+    });
+}
+
+function renderAcosBar(campaigns) {
+    const wrap = $('overview-acos-bars');
+    const withAcos = campaigns.filter(c => c.ads_acos != null).sort((a,b)=>a.ads_acos-b.ads_acos).slice(0,10);
+    if (!withAcos.length) { wrap.innerHTML = '<p class="text-gray-400 text-xs py-4 text-center">No ACoS data yet</p>'; return; }
+    const max = Math.max(...withAcos.map(c=>c.ads_acos));
+    wrap.innerHTML = withAcos.map(c => {
+        const pct = max > 0 ? Math.min(100, c.ads_acos / max * 100) : 0;
+        const col = c.ads_acos <= 30 ? '#059669' : c.ads_acos <= 60 ? '#d97706' : '#dc2626';
+        const name = (c.name || c.campaign_id || '').substring(0,32);
+        return `<div>
+            <div class="flex justify-between mb-1"><span class="text-gray-600 truncate max-w-[160px]" title="${esc(c.name)}">${esc(name)}</span>
+            <span class="font-bold" style="color:${col}">${c.ads_acos}%</span></div>
+            <div class="mp-bar-bg"><div class="mp-bar-fill" style="width:${pct}%;background:${col}"></div></div>
+        </div>`;
+    }).join('');
+}
+
+// ==================== Campaigns table ====================
+let campaignsData = [];
+let campaignsSortCol = 'ads_spend', campaignsSortDir = -1;
+
+function renderCampaignsTable(campaigns) {
+    campaignsData = campaigns;
+    filterAndSortCampaigns();
+}
+
+function filterAndSortCampaigns() {
+    const q = ($('campaign-filter').value||'').toLowerCase();
+    let rows = campaignsData.filter(c =>
+        !q || (c.name||'').toLowerCase().includes(q) || (c.marketplace||'').toLowerCase().includes(q)
+    );
+    rows = sortRows(rows, campaignsSortCol, campaignsSortDir);
+    const tbody = $('campaigns-tbody');
+    if (!rows.length) { tbody.innerHTML = `<tr><td colspan="9" class="text-center text-gray-400 py-10">No campaigns match</td></tr>`; return; }
+    tbody.innerHTML = rows.map(c => `
+        <tr>
+            <td class="text-left font-medium text-gray-800 max-w-[220px] truncate" title="${esc(c.name)}">${esc((c.name||c.campaign_id||'').substring(0,40))}</td>
+            <td class="text-center"><span class="font-semibold text-xs text-gray-600">${esc(c.marketplace||'')}</span></td>
+            <td class="text-center text-xs text-gray-500">${esc(c.campaign_type||'SP')}</td>
+            <td class="text-right font-mono text-xs">${fmt$(c.ads_spend)}</td>
+            <td class="text-right font-mono text-xs acos-green">${fmt$(c.ads_sales)}</td>
+            <td class="text-right text-xs ${acosClass(c.ads_acos)}">${fmtPct(c.ads_acos)}</td>
+            <td class="text-right font-mono text-xs text-indigo-600">${fmtX(c.ads_roas)}</td>
+            <td class="text-right text-xs text-gray-600">${fmtN(c.ads_clicks)}</td>
+            <td>${stateChip(c.state)}</td>
+        </tr>`).join('');
+    updateSortIcons('campaigns-table', campaignsSortCol, campaignsSortDir);
+}
+
+$('campaign-filter').addEventListener('input', filterAndSortCampaigns);
+
+makeTableSortable('campaigns-table', (col, dir) => {
+    campaignsSortCol = col; campaignsSortDir = dir;
+    filterAndSortCampaigns();
+});
+
+// ==================== Keywords tab ====================
+let kwData = [];
+let kwSortCol = '_spend', kwSortDir = -1;
+
+async function loadKeywords() {
+    if (state.keywords && state.keywords.status === 'ready') { renderKeywords(state.keywords); return; }
+    $('kw-loading').classList.remove('hidden');
+    $('kw-table-wrap').classList.add('hidden');
+    try {
+        const r = await fetch(`/api/analytics/keywords?window=${state.window}`);
+        const data = await r.json();
+        state.keywords = data;
+        $('kw-loading').classList.add('hidden');
+        $('kw-table-wrap').classList.remove('hidden');
+        renderKeywords(data);
+        if (data.status === 'fetching') setTimeout(loadKeywords, 6000);
+    } catch(e) { $('kw-loading').classList.add('hidden'); $('kw-table-wrap').classList.remove('hidden'); }
+}
+
+function renderKeywords(data) {
+    kwData = (data.keywords || []).map(r => ({
+        ...r,
+        _ctr: (r.clicks && r.impressions) ? +(r.clicks / r.impressions * 100).toFixed(2) : null,
+        _sales: r[`_sales${state.window}`],
+        _acos: r[`_acos${state.window}`],
+        _roas: r[`_roas${state.window}`],
+        _orders: r[`_purchases${state.window}`],
+    }));
+    const badge = $('kw-badge');
+    badge.textContent = kwData.length;
+    badge.classList.toggle('hidden', kwData.length === 0);
+    filterAndSortKeywords();
+}
+
+function filterAndSortKeywords() {
+    const q = ($('kw-filter').value||'').toLowerCase();
+    const mt = $('kw-match-filter').value;
+    let rows = kwData.filter(r =>
+        (!q || (r.keywordText||r.targetingText||'').toLowerCase().includes(q)) &&
+        (!mt || (r.matchType||'').toUpperCase() === mt)
+    );
+    rows = sortRows(rows, kwSortCol, kwSortDir);
+    const tbody = $('kw-tbody');
+    if (!rows.length) { tbody.innerHTML = `<tr><td colspan="11" class="text-center text-gray-400 py-10">No keywords match</td></tr>`; return; }
+    tbody.innerHTML = rows.map(r => {
+        const kw = r.keywordText || r.targetingText || r.targetingExpression || '—';
+        return `<tr>
+            <td class="text-left font-medium text-gray-800">${esc(kw)}</td>
+            <td class="text-center">${matchChip(r.matchType)}</td>
+            <td class="text-left text-xs text-gray-500 max-w-[180px] truncate" title="${esc(r.campaignName)}">${esc((r.campaignName||'').substring(0,30))}</td>
+            <td class="text-right text-xs text-gray-600">${fmtN(r.impressions)}</td>
+            <td class="text-right text-xs text-gray-600">${fmtN(r.clicks)}</td>
+            <td class="text-right text-xs text-gray-500">${r._ctr != null ? r._ctr+'%' : '—'}</td>
+            <td class="text-right font-mono text-xs">${fmt$(r._spend)}</td>
+            <td class="text-right font-mono text-xs acos-green">${fmt$(r._sales)}</td>
+            <td class="text-right text-xs ${acosClass(r._acos)}">${fmtPct(r._acos)}</td>
+            <td class="text-right font-mono text-xs text-indigo-600">${fmtX(r._roas)}</td>
+            <td class="text-right text-xs text-gray-600">${fmtN(r._orders)}</td>
+        </tr>`;
+    }).join('');
+    updateSortIcons('kw-table', kwSortCol, kwSortDir);
+}
+
+$('kw-filter').addEventListener('input', filterAndSortKeywords);
+$('kw-match-filter').addEventListener('change', filterAndSortKeywords);
+makeTableSortable('kw-table', (col, dir) => { kwSortCol = col; kwSortDir = dir; filterAndSortKeywords(); });
+
+// ==================== Search Terms tab ====================
+let stData = [];
+let stSortCol = '_spend', stSortDir = -1;
+
+async function loadSearchTerms() {
+    if (state.searchTerms && state.searchTerms.status === 'ready') { renderSearchTerms(state.searchTerms); return; }
+    $('st-loading').classList.remove('hidden');
+    $('st-table-wrap').classList.add('hidden');
+    try {
+        const r = await fetch(`/api/analytics/search-terms?window=${state.window}`);
+        const data = await r.json();
+        state.searchTerms = data;
+        $('st-loading').classList.add('hidden');
+        $('st-table-wrap').classList.remove('hidden');
+        renderSearchTerms(data);
+        if (data.status === 'fetching') setTimeout(loadSearchTerms, 6000);
+    } catch(e) { $('st-loading').classList.add('hidden'); $('st-table-wrap').classList.remove('hidden'); }
+}
+
+function renderSearchTerms(data) {
+    stData = (data.search_terms || []).map(r => ({
+        ...r,
+        _ctr: (r.clicks && r.impressions) ? +(r.clicks / r.impressions * 100).toFixed(2) : null,
+        _sales: r[`_sales${state.window}`],
+        _acos: r[`_acos${state.window}`],
+        _orders: r[`_purchases${state.window}`],
+    }));
+    const badge = $('st-badge');
+    badge.textContent = stData.length;
+    badge.classList.toggle('hidden', stData.length === 0);
+    filterAndSortSearchTerms();
+}
+
+function filterAndSortSearchTerms() {
+    const q = ($('st-filter').value||'').toLowerCase();
+    let rows = stData.filter(r => !q || (r.searchTerm||'').toLowerCase().includes(q) || (r.keywordText||'').toLowerCase().includes(q));
+    rows = sortRows(rows, stSortCol, stSortDir);
+    const tbody = $('st-tbody');
+    if (!rows.length) { tbody.innerHTML = `<tr><td colspan="10" class="text-center text-gray-400 py-10">No search terms match</td></tr>`; return; }
+    tbody.innerHTML = rows.map(r => `
+        <tr>
+            <td class="text-left font-medium text-gray-800">${esc(r.searchTerm || '—')}</td>
+            <td class="text-left text-xs text-gray-500">${esc(r.keywordText || r.targetingText || '—')}</td>
+            <td class="text-center">${matchChip(r.matchType)}</td>
+            <td class="text-right text-xs text-gray-600">${fmtN(r.impressions)}</td>
+            <td class="text-right text-xs text-gray-600">${fmtN(r.clicks)}</td>
+            <td class="text-right text-xs text-gray-500">${r._ctr != null ? r._ctr+'%' : '—'}</td>
+            <td class="text-right font-mono text-xs">${fmt$(r._spend)}</td>
+            <td class="text-right font-mono text-xs acos-green">${fmt$(r._sales)}</td>
+            <td class="text-right text-xs ${acosClass(r._acos)}">${fmtPct(r._acos)}</td>
+            <td class="text-right text-xs text-gray-600">${fmtN(r._orders)}</td>
+        </tr>`).join('');
+    updateSortIcons('st-table', stSortCol, stSortDir);
+}
+
+$('st-filter').addEventListener('input', filterAndSortSearchTerms);
+makeTableSortable('st-table', (col, dir) => { stSortCol = col; stSortDir = dir; filterAndSortSearchTerms(); });
+
+// ==================== Trends tab ====================
+async function loadTrends() {
+    if (state.trends && state.trends.status === 'ready') { renderTrends(state.trends); return; }
+    $('trends-loading').classList.remove('hidden');
+    $('trends-chart-wrap').style.visibility = 'hidden';
+    try {
+        const r = await fetch('/api/analytics/trends');
+        const data = await r.json();
+        state.trends = data;
+        $('trends-loading').classList.add('hidden');
+        $('trends-chart-wrap').style.visibility = 'visible';
+        renderTrends(data);
+        if (data.status === 'fetching') setTimeout(loadTrends, 8000);
+    } catch(e) { $('trends-loading').classList.add('hidden'); $('trends-chart-wrap').style.visibility = 'visible'; }
+}
+
+function renderTrends(data) {
+    const rows = data.trends || [];
+    if (!rows.length) {
+        if (trendsChart) trendsChart.destroy();
+        if (acosTrendChart) acosTrendChart.destroy();
+        return;
+    }
+    const salesKey = `sales${state.window}d`;
+    const labels = rows.map(r => r.date);
+    const spends = rows.map(r => r.spend || 0);
+    const sales  = rows.map(r => r[salesKey] || r.sales14d || 0);
+    const acosVals = rows.map((r,i) => sales[i] > 0 ? +(spends[i] / sales[i] * 100).toFixed(1) : null);
+
+    if (trendsChart) trendsChart.destroy();
+    const ctx1 = document.getElementById('trends-chart').getContext('2d');
+    trendsChart = new Chart(ctx1, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                { label:'Spend', data:spends, borderColor:'#f97316', backgroundColor:'rgba(249,115,22,.08)', fill:true, tension:.3, pointRadius:3 },
+                { label:'Sales', data:sales,  borderColor:'#10b981', backgroundColor:'rgba(16,185,129,.08)', fill:true, tension:.3, pointRadius:3 },
+            ]
+        },
+        options: {
+            responsive:true, maintainAspectRatio:false,
+            interaction:{ mode:'index', intersect:false },
+            plugins:{ legend:{position:'top',labels:{usePointStyle:true,font:{size:11}}}, tooltip:{callbacks:{label:ctx=>`$${ctx.parsed.y.toFixed(2)}`}} },
+            scales:{
+                x:{ grid:{display:false}, ticks:{maxTicksLimit:10,font:{size:10}} },
+                y:{ ticks:{callback:v=>`$${v}`,font:{size:10}}, grid:{color:'#f1f5f9'} }
+            }
+        }
+    });
+
+    if (acosTrendChart) acosTrendChart.destroy();
+    const ctx2 = document.getElementById('acos-trend-chart').getContext('2d');
+    const targetLine = rows.map(() => state.targetAcos);
+    acosTrendChart = new Chart(ctx2, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                { label:'ACoS %', data:acosVals, borderColor:'#6366f1', backgroundColor:'rgba(99,102,241,.08)', fill:true, tension:.3, pointRadius:3, spanGaps:true },
+                { label:'Target', data:targetLine, borderColor:'#f97316', borderDash:[5,3], pointRadius:0, fill:false },
+            ]
+        },
+        options: {
+            responsive:true, maintainAspectRatio:false,
+            interaction:{ mode:'index', intersect:false },
+            plugins:{ legend:{position:'top',labels:{usePointStyle:true,font:{size:11}}}, tooltip:{callbacks:{label:ctx=>ctx.parsed.y != null ? `${ctx.parsed.y}%` : 'No data'}} },
+            scales:{
+                x:{ grid:{display:false}, ticks:{maxTicksLimit:10,font:{size:10}} },
+                y:{ ticks:{callback:v=>`${v}%`,font:{size:10}}, grid:{color:'#f1f5f9'} }
+            }
+        }
+    });
+}
+
+// ==================== Bid Optimizer tab ====================
+let bidData = [];
+let bidSortCol = 'spend', bidSortDir = -1;
+
+async function loadBidSuggestions() {
+    $('bid-loading').classList.remove('hidden');
+    $('bid-table-wrap').classList.add('hidden');
+    $('bid-target-display').textContent = `${state.targetAcos}%`;
+    try {
+        const r = await fetch(`/api/analytics/bid-suggestions?window=${state.window}&target_acos=${state.targetAcos}`);
+        const data = await r.json();
+        state.bidSuggestions = data;
+        $('bid-loading').classList.add('hidden');
+        $('bid-table-wrap').classList.remove('hidden');
+        renderBidSuggestions(data);
+        if (data.status === 'fetching') setTimeout(loadBidSuggestions, 6000);
+    } catch(e) { $('bid-loading').classList.add('hidden'); $('bid-table-wrap').classList.remove('hidden'); }
+}
+
+// Auto-apply: skip any single change larger than this, as a safety rail.
+const AUTO_APPLY_MAX_PCT = 50;
+let autoApplyRunning = false;
+
+function isAutoApplyOn() { return localStorage.getItem('bidAutoApply') === '1'; }
+
+function renderBidSuggestions(data) {
+    bidData = data.suggestions || [];
+    // Give each suggestion a stable index so the Apply buttons can find it
+    // again after sorting.
+    bidData.forEach((s, i) => { s._idx = i; });
+    const badge = $('bid-badge');
+    $('bid-count').textContent = `${bidData.length} suggestion${bidData.length !== 1 ? 's' : ''}`;
+    badge.textContent = bidData.length;
+    badge.classList.toggle('hidden', bidData.length === 0);
+    // Show "Apply all" only when at least one suggestion is actually applyable.
+    const applyable = bidData.filter(s => s.can_apply).length;
+    $('apply-all-btn').classList.toggle('hidden', applyable === 0);
+    filterAndSortBid();
+
+    // Auto-optimize: once data is ready (not still fetching) and the toggle is
+    // on, apply everything automatically — once per fresh data load.
+    if (isAutoApplyOn() && data.status === 'ready' && applyable > 0 && !autoApplyRunning) {
+        const pending = bidData.filter(s => s.can_apply && !s._applied);
+        if (pending.length) autoApplyAll();
+    }
+}
+
+function filterAndSortBid() {
+    let rows = sortRows([...bidData], bidSortCol, bidSortDir);
+    const tbody = $('bid-tbody');
+    if (!rows.length) {
+        tbody.innerHTML = `<tr><td colspan="10" class="text-center text-gray-400 py-10">
+            ${state.bidSuggestions?.status === 'fetching' ? '<span class="spinner"></span> Analyzing keywords…' :
+              state.bidSuggestions?.status === 'no_campaigns' ? 'No campaigns configured yet' :
+              'No suggestions — all keywords look healthy!'}
+        </td></tr>`;
+        return;
+    }
+    tbody.innerHTML = rows.map(s => {
+        const actionBadge = s.action === 'increase_bid'
+            ? `<span class="badge badge-increase"><i class="fas fa-arrow-up text-[9px]"></i> +${s.bid_change_pct}%</span>`
+            : `<span class="badge badge-reduce"><i class="fas fa-arrow-down text-[9px]"></i> ${s.bid_change_pct}%</span>`;
+        const applyCell = s.can_apply
+            ? `<button id="apply-btn-${s._idx}" onclick="applyOneBid(${s._idx})"
+                   class="apply-btn inline-flex items-center gap-1 bg-indigo-50 hover:bg-indigo-600 hover:text-white text-indigo-600 text-[11px] font-bold rounded-md px-2.5 py-1 transition whitespace-nowrap">
+                   <i class="fas fa-check text-[9px]"></i> Apply</button>`
+            : `<span class="text-[10px] text-gray-300" title="No keyword/target id available to apply automatically">—</span>`;
+        return `<tr id="bid-row-${s._idx}">
+            <td class="text-left font-medium text-gray-800 max-w-[200px] truncate" title="${esc(s.keyword)}">${esc(s.keyword)}</td>
+            <td class="text-center">${matchChip(s.match_type)}</td>
+            <td class="text-left text-xs text-gray-500 max-w-[160px] truncate" title="${esc(s.campaign)}">${esc((s.campaign||'').substring(0,28))}</td>
+            <td class="text-right font-mono text-xs">${fmt$(s.spend)}</td>
+            <td class="text-right font-mono text-xs acos-green">${fmt$(s.sales)}</td>
+            <td class="text-right text-xs ${acosClass(s.acos)}">${s.acos != null ? s.acos+'%' : '<span class="text-red-500 font-bold">No sales</span>'}</td>
+            <td class="text-right text-xs text-gray-600">${fmtN(s.clicks)}</td>
+            <td>${actionBadge}</td>
+            <td class="text-left text-xs text-gray-500">${esc(s.reason)}</td>
+            <td class="text-center" id="apply-cell-${s._idx}">${applyCell}</td>
+        </tr>`;
+    }).join('');
+    updateSortIcons('bid-table', bidSortCol, bidSortDir);
+}
+
+makeTableSortable('bid-table', (col, dir) => { bidSortCol = col; bidSortDir = dir; filterAndSortBid(); });
+
+// ==================== Bid Optimizer — one-click apply ====================
+function _bidPayload(s) {
+    return {
+        entity_id: s.entity_id,
+        profile_id: s.profile_id,
+        account_id: s.account_id,
+        marketplace: s.marketplace,
+        is_keyword: s.is_keyword,
+        bid_change_pct: s.bid_change_pct,
+        keyword: s.keyword,
+    };
+}
+
+function _setApplyCell(idx, html) {
+    const cell = $(`apply-cell-${idx}`);
+    if (cell) cell.innerHTML = html;
+}
+
+async function applyOneBid(idx) {
+    const s = bidData.find(x => x._idx === idx);
+    if (!s || s._applied) return;
+    _setApplyCell(idx, '<span class="spinner" style="width:14px;height:14px;"></span>');
+    try {
+        const r = await fetch('/api/analytics/apply-bid', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(_bidPayload(s)),
+        });
+        const d = await r.json();
+        if (!r.ok || !d.ok) throw new Error(d.error || 'Failed');
+        s._applied = true;
+        const oldB = d.old_bid != null ? fmt$(d.old_bid) : '?';
+        const newB = fmt$(d.new_bid);
+        _setApplyCell(idx, `<span class="text-emerald-600 text-[11px] font-bold whitespace-nowrap" title="Bid updated on Amazon">
+            <i class="fas fa-check-circle"></i> ${oldB}→${newB}</span>`);
+    } catch (e) {
+        _setApplyCell(idx, `<span class="text-red-500 text-[10px] font-semibold cursor-pointer" title="${esc(e.message||'')}" onclick="applyOneBid(${idx})">
+            <i class="fas fa-exclamation-circle"></i> Retry</span>`);
+    }
+}
+
+// Core bulk-apply. `cap` skips any change whose magnitude exceeds the % limit
+// (used by auto-optimize for safety). Returns {applied, failed, skipped}.
+async function _applyBidBatch(pending, { cap = null } = {}) {
+    let toApply = pending, skipped = 0;
+    if (cap != null) {
+        toApply = pending.filter(s => Math.abs(s.bid_change_pct) <= cap);
+        skipped = pending.length - toApply.length;
+        pending.filter(s => Math.abs(s.bid_change_pct) > cap).forEach(s =>
+            _setApplyCell(s._idx, `<span class="text-amber-500 text-[10px] font-semibold" title="Change exceeds ${cap}% safety cap — apply manually">
+                <i class="fas fa-shield-halved"></i> skipped</span>`));
+    }
+    if (!toApply.length) return { applied: 0, failed: 0, skipped };
+
+    toApply.forEach(s => _setApplyCell(s._idx, '<span class="spinner" style="width:14px;height:14px;"></span>'));
+    let applied = 0, failed = 0;
+    try {
+        const r = await fetch('/api/analytics/apply-bids', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ suggestions: toApply.map(_bidPayload) }),
+        });
+        const d = await r.json();
+        const byKey = {};
+        (d.results || []).forEach(res => { byKey[res.entity_id] = res; });
+        toApply.forEach(s => {
+            const res = byKey[s.entity_id];
+            if (res && res.ok) {
+                s._applied = true; applied++;
+                const oldB = res.old_bid != null ? fmt$(res.old_bid) : '?';
+                _setApplyCell(s._idx, `<span class="text-emerald-600 text-[11px] font-bold whitespace-nowrap">
+                    <i class="fas fa-check-circle"></i> ${oldB}→${fmt$(res.new_bid)}</span>`);
+            } else {
+                failed++;
+                _setApplyCell(s._idx, `<span class="text-red-500 text-[10px] font-semibold cursor-pointer" title="${esc(res?.error||'')}" onclick="applyOneBid(${s._idx})">
+                    <i class="fas fa-exclamation-circle"></i> Retry</span>`);
+            }
+        });
+    } catch (e) {
+        toApply.forEach(s => _setApplyCell(s._idx,
+            `<span class="text-red-500 text-[10px] cursor-pointer" onclick="applyOneBid(${s._idx})"><i class="fas fa-exclamation-circle"></i> Retry</span>`));
+        failed = toApply.length;
+    }
+    return { applied, failed, skipped };
+}
+
+function _showApplySummary(applied, failed, skipped, { auto = false } = {}) {
+    const summary = $('apply-summary');
+    summary.classList.remove('hidden');
+    const parts = [`<span class="text-emerald-600">${auto ? '⚡ auto-applied ' : ''}${applied} applied</span>`];
+    if (failed) parts.push(`<span class="text-red-500">${failed} failed</span>`);
+    if (skipped) parts.push(`<span class="text-amber-500">${skipped} skipped</span>`);
+    summary.innerHTML = parts.join(' · ');
+    if (bidData.filter(s => s.can_apply && !s._applied).length === 0) $('apply-all-btn').classList.add('hidden');
+}
+
+async function applyAllBids() {
+    const pending = bidData.filter(s => s.can_apply && !s._applied);
+    if (!pending.length) return;
+    const btn = $('apply-all-btn');
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width:12px;height:12px;"></span> Applying…';
+    const { applied, failed, skipped } = await _applyBidBatch(pending);
+    _showApplySummary(applied, failed, skipped);
+    btn.disabled = false;
+    btn.innerHTML = orig;
+}
+
+// Auto-optimize: apply everything within the safety cap, no clicks.
+async function autoApplyAll() {
+    const pending = bidData.filter(s => s.can_apply && !s._applied);
+    if (!pending.length || autoApplyRunning) return;
+    autoApplyRunning = true;
+    const btn = $('apply-all-btn');
+    btn.classList.add('hidden');
+    const { applied, failed, skipped } = await _applyBidBatch(pending, { cap: AUTO_APPLY_MAX_PCT });
+    _showApplySummary(applied, failed, skipped, { auto: true });
+    autoApplyRunning = false;
+}
+
+// Toggle wiring + persistence.
+(function initAutoApply() {
+    const toggle = $('auto-apply-toggle');
+    if (!toggle) return;
+    const on = isAutoApplyOn();
+    toggle.checked = on;
+    $('auto-apply-note').classList.toggle('hidden', !on);
+    toggle.addEventListener('change', () => {
+        localStorage.setItem('bidAutoApply', toggle.checked ? '1' : '0');
+        $('auto-apply-note').classList.toggle('hidden', !toggle.checked);
+        // Turning it on with suggestions already on screen → apply now.
+        if (toggle.checked && bidData.some(s => s.can_apply && !s._applied)) autoApplyAll();
+    });
+})();
+
+// ==================== Negative Keywords tab ====================
+let negData = [];
+let negSortCol = 'spend', negSortDir = -1;
+let negStatus = null;
+
+async function loadNegativeSuggestions() {
+    $('neg-loading').classList.remove('hidden');
+    $('neg-table-wrap').classList.add('hidden');
+    try {
+        const r = await fetch(`/api/analytics/negative-suggestions?window=${state.window}&target_acos=${state.targetAcos}`);
+        const data = await r.json();
+        negStatus = data.status;
+        $('neg-loading').classList.add('hidden');
+        $('neg-table-wrap').classList.remove('hidden');
+        renderNegativeSuggestions(data);
+        if (data.status === 'fetching') setTimeout(loadNegativeSuggestions, 6000);
+    } catch(e) { $('neg-loading').classList.add('hidden'); $('neg-table-wrap').classList.remove('hidden'); }
+}
+
+function renderNegativeSuggestions(data) {
+    negData = data.suggestions || [];
+    negData.forEach((s, i) => { s._idx = i; });
+    const badge = $('neg-badge');
+    $('neg-count').textContent = `${negData.length} wasteful term${negData.length !== 1 ? 's' : ''}`;
+    badge.textContent = negData.length;
+    badge.classList.toggle('hidden', negData.length === 0);
+    const applyable = negData.filter(s => s.can_apply).length;
+    $('neg-apply-all-btn').classList.toggle('hidden', applyable === 0);
+    filterAndSortNeg();
+}
+
+function filterAndSortNeg() {
+    let rows = sortRows([...negData], negSortCol, negSortDir);
+    const tbody = $('neg-tbody');
+    if (!rows.length) {
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-gray-400 py-10">
+            ${negStatus === 'fetching' ? '<span class="spinner"></span> Analyzing search terms…' :
+              negStatus === 'no_campaigns' ? 'No campaigns configured yet' :
+              'No wasteful search terms found — nothing to negate!'}
+        </td></tr>`;
+        return;
+    }
+    tbody.innerHTML = rows.map(s => {
+        const applyCell = s.can_apply
+            ? `<button id="neg-btn-${s._idx}" onclick="applyOneNegative(${s._idx})"
+                   class="inline-flex items-center gap-1 bg-red-50 hover:bg-red-600 hover:text-white text-red-600 text-[11px] font-bold rounded-md px-2.5 py-1 transition whitespace-nowrap">
+                   <i class="fas fa-ban text-[9px]"></i> Add negative</button>`
+            : `<span class="text-[10px] text-gray-300" title="No campaign/ad-group id available">—</span>`;
+        return `<tr id="neg-row-${s._idx}">
+            <td class="text-left font-medium text-gray-800 max-w-[220px] truncate" title="${esc(s.search_term)}">${esc(s.search_term)}</td>
+            <td class="text-left text-xs text-gray-500 max-w-[160px] truncate" title="${esc(s.matched_keyword)}">${esc(s.matched_keyword)}</td>
+            <td class="text-left text-xs text-gray-500 max-w-[160px] truncate" title="${esc(s.campaign)}">${esc((s.campaign||'').substring(0,28))}</td>
+            <td class="text-right text-xs text-gray-600">${fmtN(s.clicks)}</td>
+            <td class="text-right font-mono text-xs">${fmt$(s.spend)}</td>
+            <td class="text-left text-xs text-gray-500">${esc(s.reason)}</td>
+            <td class="text-center" id="neg-cell-${s._idx}">${applyCell}</td>
+        </tr>`;
+    }).join('');
+    updateSortIcons('neg-table', negSortCol, negSortDir);
+}
+
+makeTableSortable('neg-table', (col, dir) => { negSortCol = col; negSortDir = dir; filterAndSortNeg(); });
+
+function _negPayload(s) {
+    return {
+        search_term: s.search_term,
+        campaign_id: s.campaign_id,
+        ad_group_id: s.ad_group_id,
+        negative_match_type: s.negative_match_type,
+        profile_id: s.profile_id,
+        account_id: s.account_id,
+        marketplace: s.marketplace,
+    };
+}
+
+function _setNegCell(idx, html) {
+    const cell = $(`neg-cell-${idx}`);
+    if (cell) cell.innerHTML = html;
+}
+
+async function applyOneNegative(idx) {
+    const s = negData.find(x => x._idx === idx);
+    if (!s || s._applied) return;
+    _setNegCell(idx, '<span class="spinner" style="width:14px;height:14px;"></span>');
+    try {
+        const r = await fetch('/api/analytics/apply-negative', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(_negPayload(s)),
+        });
+        const d = await r.json();
+        if (!r.ok || !d.ok) throw new Error(d.error || 'Failed');
+        s._applied = true;
+        _setNegCell(idx, `<span class="text-emerald-600 text-[11px] font-bold whitespace-nowrap" title="Added as negative exact">
+            <i class="fas fa-check-circle"></i> Negated</span>`);
+    } catch (e) {
+        _setNegCell(idx, `<span class="text-red-500 text-[10px] font-semibold cursor-pointer" title="${esc(e.message||'')}" onclick="applyOneNegative(${idx})">
+            <i class="fas fa-exclamation-circle"></i> Retry</span>`);
+    }
+}
+
+async function applyAllNegatives() {
+    const pending = negData.filter(s => s.can_apply && !s._applied);
+    if (!pending.length) return;
+    const btn = $('neg-apply-all-btn');
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width:12px;height:12px;"></span> Adding…';
+    pending.forEach(s => _setNegCell(s._idx, '<span class="spinner" style="width:14px;height:14px;"></span>'));
+
+    let applied = 0, failed = 0;
+    try {
+        const r = await fetch('/api/analytics/apply-negatives', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ suggestions: pending.map(_negPayload) }),
+        });
+        const d = await r.json();
+        // Match results back by (ad_group_id, search_term).
+        const byKey = {};
+        (d.results || []).forEach(res => { byKey[`${res.ad_group_id}|${res.search_term}`] = res; });
+        pending.forEach(s => {
+            const res = byKey[`${s.ad_group_id}|${s.search_term}`];
+            if (res && res.ok) {
+                s._applied = true; applied++;
+                _setNegCell(s._idx, `<span class="text-emerald-600 text-[11px] font-bold"><i class="fas fa-check-circle"></i> Negated</span>`);
+            } else {
+                failed++;
+                _setNegCell(s._idx, `<span class="text-red-500 text-[10px] font-semibold cursor-pointer" title="${esc(res?.error||'')}" onclick="applyOneNegative(${s._idx})">
+                    <i class="fas fa-exclamation-circle"></i> Retry</span>`);
+            }
+        });
+    } catch (e) {
+        pending.forEach(s => _setNegCell(s._idx,
+            `<span class="text-red-500 text-[10px] cursor-pointer" onclick="applyOneNegative(${s._idx})"><i class="fas fa-exclamation-circle"></i> Retry</span>`));
+        failed = pending.length;
+    }
+
+    const summary = $('neg-apply-summary');
+    summary.classList.remove('hidden');
+    summary.innerHTML = `<span class="text-emerald-600">${applied} negated</span>${failed ? ` · <span class="text-red-500">${failed} failed</span>` : ''}`;
+    btn.disabled = false;
+    btn.innerHTML = orig;
+    if (negData.filter(s => s.can_apply && !s._applied).length === 0) btn.classList.add('hidden');
+}
+
+// ==================== Sort utilities ====================
+function sortRows(rows, col, dir) {
+    return rows.slice().sort((a, b) => {
+        let av = a[col], bv = b[col];
+        if (av == null) av = dir === 1 ? Infinity : -Infinity;
+        if (bv == null) bv = dir === 1 ? Infinity : -Infinity;
+        if (typeof av === 'string') return dir * av.localeCompare(bv);
+        return dir * (av - bv);
+    });
+}
+
+function makeTableSortable(tableId, onChange) {
+    const table = document.getElementById(tableId);
+    if (!table) return;
+    sortState[tableId] = { col: null, dir: -1 };
+    table.querySelectorAll('thead th[data-col]').forEach(th => {
+        th.addEventListener('click', () => {
+            const col = th.dataset.col;
+            if (sortState[tableId].col === col) {
+                sortState[tableId].dir *= -1;
+            } else {
+                sortState[tableId].col = col;
+                sortState[tableId].dir = -1;
+            }
+            onChange(sortState[tableId].col, sortState[tableId].dir);
+        });
+    });
+}
+
+function updateSortIcons(tableId, activeCol, dir) {
+    const table = document.getElementById(tableId);
+    if (!table) return;
+    table.querySelectorAll('thead th[data-col]').forEach(th => {
+        const icon = th.querySelector('.sort-icon');
+        if (!icon) return;
+        if (th.dataset.col === activeCol) {
+            th.classList.add('sorted');
+            icon.textContent = dir === -1 ? '▼' : '▲';
+        } else {
+            th.classList.remove('sorted');
+            icon.textContent = '▲';
+        }
+    });
+}
+
+// ==================== Status / polling ====================
+function updateGlobalStatus(status, fetchedAt) {
+    const spinner = $('global-spinner');
+    const statusEl = $('global-status');
+    const fetchedEl = $('fetched-at');
+    if (status === 'fetching') {
+        spinner.classList.remove('hidden');
+        statusEl.textContent = 'Fetching from Amazon…';
+    } else if (status === 'ready') {
+        spinner.classList.add('hidden');
+        statusEl.textContent = 'Data up to date';
+    } else if (status === 'no_campaigns') {
+        spinner.classList.add('hidden');
+        statusEl.textContent = 'No campaigns configured yet';
+    } else if (status === 'error') {
+        spinner.classList.add('hidden');
+        statusEl.textContent = 'Error fetching data';
+    } else {
+        spinner.classList.remove('hidden');
+        statusEl.textContent = 'Loading…';
+    }
+    if (fetchedAt) {
+        const d = new Date(fetchedAt * 1000);
+        fetchedEl.textContent = `Last updated: ${d.toLocaleString()}`;
+    }
+}
+
+function schedulePoll(kind) {
+    clearTimeout(state.pollTimer);
+    state.pollTimer = setTimeout(() => {
+        if (kind === 'overview') loadOverview();
+    }, 6000);
+}
+
+// ==================== Refresh all ====================
+function refreshAll() {
+    state.overview = null;
+    state.keywords = null;
+    state.searchTerms = null;
+    state.trends = null;
+    state.bidSuggestions = null;
+    loadOverview();
+    if (state.activeTab === 'keywords') loadKeywords();
+    if (state.activeTab === 'searchterms') loadSearchTerms();
+    if (state.activeTab === 'trends') loadTrends();
+    if (state.activeTab === 'bidoptimizer') loadBidSuggestions();
+    if (state.activeTab === 'negatives') loadNegativeSuggestions();
+}
+
+// ==================== Boot ====================
+loadOverview();
+</script>
+</body>
+</html>

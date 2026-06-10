@@ -110,12 +110,19 @@ def init_db() -> None:
                 lwa_refresh_token TEXT NOT NULL,
                 env TEXT NOT NULL DEFAULT 'production',
                 client_id TEXT NOT NULL DEFAULT '',
+                lwa_client_secret TEXT NOT NULL DEFAULT '',
                 notes TEXT NOT NULL DEFAULT '',
                 created_at REAL NOT NULL,
                 updated_at REAL NOT NULL
             )
         """)
         conn.commit()
+        # Migration: add lwa_client_secret column to existing installs.
+        acct_cols = {row[1] for row in conn.execute("PRAGMA table_info(amazon_ads_accounts)").fetchall()}
+        if "lwa_client_secret" not in acct_cols:
+            conn.execute("ALTER TABLE amazon_ads_accounts ADD COLUMN lwa_client_secret TEXT NOT NULL DEFAULT ''")
+            conn.commit()
+
         # Seed the .env token as the "default" account on first run so the
         # existing single-account install keeps working without manual steps.
         existing_acct = conn.execute(
@@ -127,15 +134,16 @@ def init_db() -> None:
                 now = time.time()
                 conn.execute(
                     "INSERT INTO amazon_ads_accounts "
-                    "(id, label, lwa_refresh_token, env, client_id, "
+                    "(id, label, lwa_refresh_token, env, client_id, lwa_client_secret, "
                     " notes, created_at, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         "default",
                         "Default",
                         env_token,
                         os.getenv("AMAZON_ADS_ENV", "production").strip().lower() or "production",
                         os.getenv("LWA_CLIENT_ID", "").strip(),
+                        os.getenv("LWA_CLIENT_SECRET", "").strip(),
                         "Seeded from .env on first startup.",
                         now, now,
                     ),
@@ -356,6 +364,27 @@ def init_db() -> None:
                 updated_at REAL NOT NULL DEFAULT 0
             )
         """)
+        conn.commit()
+
+        # Analytics caches — keyword, trend, search-term data per profile.
+        # Same pattern as acos_cache: background fetch, stale-while-revalidate.
+        for tbl, col in (
+            ("analytics_keyword_cache", "keywords_json"),
+            ("analytics_trend_cache",   "trends_json"),
+            ("analytics_searchterm_cache", "terms_json"),
+        ):
+            conn.execute(f"""
+                CREATE TABLE IF NOT EXISTS {tbl} (
+                    profile_id   TEXT PRIMARY KEY,
+                    account_id   TEXT NOT NULL DEFAULT '',
+                    marketplace  TEXT NOT NULL DEFAULT '',
+                    status       TEXT NOT NULL DEFAULT 'idle',
+                    {col}        TEXT NOT NULL DEFAULT '[]',
+                    error_msg    TEXT NOT NULL DEFAULT '',
+                    fetched_at   REAL NOT NULL DEFAULT 0,
+                    updated_at   REAL NOT NULL DEFAULT 0
+                )
+            """)
         conn.commit()
         conn.close()
 
@@ -652,7 +681,7 @@ def save_amazon_campaign(
 
 
 def list_amazon_ads_accounts(*, include_token: bool = False) -> list[dict[str, Any]]:
-    """List configured Amazon Ads accounts (companies). Tokens stripped by default."""
+    """List configured Amazon Ads accounts (companies). Secrets stripped by default."""
     conn = _connect()
     try:
         rows = conn.execute(
@@ -663,8 +692,12 @@ def list_amazon_ads_accounts(*, include_token: bool = False) -> list[dict[str, A
     out: list[dict[str, Any]] = []
     for r in rows:
         d = dict(r)
+        # Record whether per-account credentials are set BEFORE stripping
+        d["has_own_client_id"] = bool(d.get("client_id", "").strip())
+        d["has_own_client_secret"] = bool(d.get("lwa_client_secret", "").strip())
         if not include_token:
             d.pop("lwa_refresh_token", None)
+            d.pop("lwa_client_secret", None)
         out.append(d)
     return out
 
@@ -696,6 +729,7 @@ def save_amazon_ads_account(
     lwa_refresh_token: str,
     env: str = "production",
     client_id: str = "",
+    lwa_client_secret: str = "",
     notes: str = "",
     account_id: str | None = None,
 ) -> str:
@@ -711,21 +745,23 @@ def save_amazon_ads_account(
         conn.execute(
             """
             INSERT INTO amazon_ads_accounts
-                (id, label, lwa_refresh_token, env, client_id, notes,
-                 created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (id, label, lwa_refresh_token, env, client_id, lwa_client_secret,
+                 notes, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 label=excluded.label,
                 lwa_refresh_token=excluded.lwa_refresh_token,
                 env=excluded.env,
                 client_id=excluded.client_id,
+                lwa_client_secret=excluded.lwa_client_secret,
                 notes=excluded.notes,
                 updated_at=excluded.updated_at
             """,
             (
                 acct_id, label.strip(), lwa_refresh_token.strip(),
                 (env or "production").strip().lower() or "production",
-                client_id.strip(), notes.strip(), now, now,
+                client_id.strip(), lwa_client_secret.strip(),
+                notes.strip(), now, now,
             ),
         )
         conn.commit()
@@ -1699,4 +1735,101 @@ def set_acos_cache_status(
             (profile_id, status, error, now),
         )
         conn.commit()
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Analytics caches — keyword / trend / search-term
+# ---------------------------------------------------------------------------
+
+_ANALYTICS_TABLES = {
+    "keywords":    ("analytics_keyword_cache",    "keywords_json"),
+    "trends":      ("analytics_trend_cache",      "trends_json"),
+    "searchterms": ("analytics_searchterm_cache", "terms_json"),
+}
+
+
+def get_analytics_cache(profile_id: str, kind: str) -> Optional[dict[str, Any]]:
+    """Return the cached analytics row for a profile, or None."""
+    tbl, col = _ANALYTICS_TABLES[kind]
+    conn = _connect()
+    try:
+        row = conn.execute(
+            f"SELECT * FROM {tbl} WHERE profile_id = ?", (profile_id,)
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def set_analytics_cache(
+    profile_id: str,
+    kind: str,
+    *,
+    account_id: str = "",
+    marketplace: str = "",
+    rows: list,
+    status: str = "ready",
+    error: str = "",
+) -> None:
+    tbl, col = _ANALYTICS_TABLES[kind]
+    now = time.time()
+    with _lock:
+        conn = _connect()
+        conn.execute(
+            f"""
+            INSERT INTO {tbl}
+                (profile_id, account_id, marketplace, status,
+                 {col}, error_msg, fetched_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(profile_id) DO UPDATE SET
+                account_id  = excluded.account_id,
+                marketplace = excluded.marketplace,
+                status      = excluded.status,
+                {col}       = excluded.{col},
+                error_msg   = excluded.error_msg,
+                fetched_at  = excluded.fetched_at,
+                updated_at  = excluded.updated_at
+            """,
+            (profile_id, account_id, marketplace, status,
+             json.dumps(rows), error, now, now),
+        )
+        conn.commit()
+        conn.close()
+
+
+def set_analytics_cache_status(
+    profile_id: str,
+    kind: str,
+    status: str,
+    *,
+    error: str = "",
+) -> None:
+    tbl, col = _ANALYTICS_TABLES[kind]
+    now = time.time()
+    with _lock:
+        conn = _connect()
+        conn.execute(
+            f"""
+            INSERT INTO {tbl}
+                (profile_id, status, error_msg, fetched_at, updated_at)
+            VALUES (?, ?, ?, 0, ?)
+            ON CONFLICT(profile_id) DO UPDATE SET
+                status    = excluded.status,
+                error_msg = excluded.error_msg,
+                updated_at= excluded.updated_at
+            """,
+            (profile_id, status, error, now),
+        )
+        conn.commit()
+        conn.close()
+
+
+def list_analytics_cache_profiles(kind: str) -> list[dict[str, Any]]:
+    tbl, _ = _ANALYTICS_TABLES[kind]
+    conn = _connect()
+    try:
+        rows = conn.execute(f"SELECT * FROM {tbl}").fetchall()
+        return [dict(r) for r in rows]
+    finally:
         conn.close()

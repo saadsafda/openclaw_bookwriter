@@ -94,29 +94,26 @@ class AmazonAdsConfig:
 def load_config(account_id: str | None = None) -> AmazonAdsConfig:
     """Load Amazon Ads config for one account.
 
-    LWA client_id/secret and the OAuth redirect_uri are *shared* across all
-    accounts (one LWA security profile services every company), so they're
-    always read from ``.env``. The per-account refresh_token and "sandbox"
-    vs "production" flag are read from the ``amazon_ads_accounts`` DB row
-    when ``account_id`` is provided.
+    Per-account credentials take priority over .env globals, so each account
+    can use its own LWA Developer App.  Fall-back chain:
 
-    Backward compat: if no account_id is given, falls back to the legacy
-    ``LWA_REFRESH_TOKEN`` env var so existing CLI scripts keep working.
+        client_id     : account DB row → LWA_CLIENT_ID env var
+        client_secret : account DB row → LWA_CLIENT_SECRET env var
+        refresh_token : account DB row → LWA_REFRESH_TOKEN env var (legacy)
+        env           : account DB row → AMAZON_ADS_ENV env var
     """
-    client_id = os.getenv("LWA_CLIENT_ID", "").strip()
-    client_secret = os.getenv("LWA_CLIENT_SECRET", "").strip()
+    # Global defaults from .env
+    global_client_id = os.getenv("LWA_CLIENT_ID", "").strip()
+    global_client_secret = os.getenv("LWA_CLIENT_SECRET", "").strip()
     redirect_uri = os.getenv(
-        "AMAZON_ADS_OAUTH_REDIRECT_URI", "http://localhost:8000/callback"
+        "AMAZON_ADS_OAUTH_REDIRECT_URI", "http://localhost:8080/callback"
     ).strip()
     env_fallback = os.getenv("AMAZON_ADS_ENV", "sandbox").strip().lower()
 
-    if not client_id or not client_secret:
-        raise RuntimeError(
-            "LWA_CLIENT_ID and LWA_CLIENT_SECRET must be set in .env"
-        )
-
     refresh_token: str | None = None
     env = env_fallback
+    client_id = global_client_id
+    client_secret = global_client_secret
 
     if account_id:
         # Lazy import to avoid a hard module-load cycle with db.py.
@@ -128,12 +125,26 @@ def load_config(account_id: str | None = None) -> AmazonAdsConfig:
         if acct is None:
             raise RuntimeError(
                 f"Amazon Ads account '{account_id}' not found in database. "
-                "Add it via the Add Company flow first."
+                "Add it via Settings → Amazon Ads first."
             )
         refresh_token = (acct.get("lwa_refresh_token") or "").strip() or None
         env = (acct.get("env") or env_fallback).strip().lower() or env_fallback
+        # Per-account credentials override the global .env values
+        per_cid = (acct.get("client_id") or "").strip()
+        per_secret = (acct.get("lwa_client_secret") or "").strip()
+        if per_cid:
+            client_id = per_cid
+        if per_secret:
+            client_secret = per_secret
     else:
         refresh_token = os.getenv("LWA_REFRESH_TOKEN", "").strip() or None
+
+    if not client_id or not client_secret:
+        raise RuntimeError(
+            "LWA_CLIENT_ID and LWA_CLIENT_SECRET are not set. "
+            "Either add them to your .env file (shared default) or set them "
+            "per-account in Settings → Amazon Ads."
+        )
 
     return AmazonAdsConfig(
         client_id=client_id,
