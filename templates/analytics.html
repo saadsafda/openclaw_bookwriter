@@ -274,7 +274,7 @@
                 <table class="atable" id="kw-table">
                     <thead>
                         <tr>
-                            <th class="text-left" data-col="keywordText">Keyword <span class="sort-icon">▲</span></th>
+                            <th class="text-left" data-col="keyword">Keyword <span class="sort-icon">▲</span></th>
                             <th data-col="matchType">Match <span class="sort-icon">▲</span></th>
                             <th class="text-left" data-col="campaignName">Campaign <span class="sort-icon">▲</span></th>
                             <th class="text-right" data-col="impressions">Impr. <span class="sort-icon">▲</span></th>
@@ -311,7 +311,7 @@
                     <thead>
                         <tr>
                             <th class="text-left" data-col="searchTerm">Search Term <span class="sort-icon">▲</span></th>
-                            <th class="text-left" data-col="keywordText">Matched Keyword <span class="sort-icon">▲</span></th>
+                            <th class="text-left" data-col="keyword">Matched Keyword <span class="sort-icon">▲</span></th>
                             <th data-col="matchType">Match <span class="sort-icon">▲</span></th>
                             <th class="text-right" data-col="impressions">Impr. <span class="sort-icon">▲</span></th>
                             <th class="text-right" data-col="clicks">Clicks <span class="sort-icon">▲</span></th>
@@ -720,14 +720,14 @@ function filterAndSortKeywords() {
     const q = ($('kw-filter').value||'').toLowerCase();
     const mt = $('kw-match-filter').value;
     let rows = kwData.filter(r =>
-        (!q || (r.keywordText||r.targetingText||'').toLowerCase().includes(q)) &&
+        (!q || (r.keyword||r.targeting||'').toLowerCase().includes(q)) &&
         (!mt || (r.matchType||'').toUpperCase() === mt)
     );
     rows = sortRows(rows, kwSortCol, kwSortDir);
     const tbody = $('kw-tbody');
     if (!rows.length) { tbody.innerHTML = `<tr><td colspan="11" class="text-center text-gray-400 py-10">No keywords match</td></tr>`; return; }
     tbody.innerHTML = rows.map(r => {
-        const kw = r.keywordText || r.targetingText || r.targetingExpression || '—';
+        const kw = r.keyword || r.targeting || '—';
         return `<tr>
             <td class="text-left font-medium text-gray-800">${esc(kw)}</td>
             <td class="text-center">${matchChip(r.matchType)}</td>
@@ -784,14 +784,14 @@ function renderSearchTerms(data) {
 
 function filterAndSortSearchTerms() {
     const q = ($('st-filter').value||'').toLowerCase();
-    let rows = stData.filter(r => !q || (r.searchTerm||'').toLowerCase().includes(q) || (r.keywordText||'').toLowerCase().includes(q));
+    let rows = stData.filter(r => !q || (r.searchTerm||'').toLowerCase().includes(q) || (r.keyword||'').toLowerCase().includes(q));
     rows = sortRows(rows, stSortCol, stSortDir);
     const tbody = $('st-tbody');
     if (!rows.length) { tbody.innerHTML = `<tr><td colspan="10" class="text-center text-gray-400 py-10">No search terms match</td></tr>`; return; }
     tbody.innerHTML = rows.map(r => `
         <tr>
             <td class="text-left font-medium text-gray-800">${esc(r.searchTerm || '—')}</td>
-            <td class="text-left text-xs text-gray-500">${esc(r.keywordText || r.targetingText || '—')}</td>
+            <td class="text-left text-xs text-gray-500">${esc(r.keyword || r.targeting || '—')}</td>
             <td class="text-center">${matchChip(r.matchType)}</td>
             <td class="text-right text-xs text-gray-600">${fmtN(r.impressions)}</td>
             <td class="text-right text-xs text-gray-600">${fmtN(r.clicks)}</td>
@@ -976,6 +976,7 @@ function _bidPayload(s) {
         marketplace: s.marketplace,
         is_keyword: s.is_keyword,
         bid_change_pct: s.bid_change_pct,
+        current_bid: s.current_bid,   // from the report — saves a lookup
         keyword: s.keyword,
     };
 }

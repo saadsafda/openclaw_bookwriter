@@ -359,6 +359,7 @@ def _run_generation(job_id: str) -> None:
         str(input_doc),
         "--agent",
         str(cfg["agent"]),
+        "--no-cache",
         "--images",
         "--image-model",
         str(cfg["image_model"]),

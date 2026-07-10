@@ -84,7 +84,7 @@ def _create_report(client: AmazonAdsClient) -> str:
     return _create_report_with_payload(client, payload)
 
 
-def _poll_report(client: AmazonAdsClient, report_id: str, *, timeout: int = 240) -> str:
+def _poll_report(client: AmazonAdsClient, report_id: str, *, timeout: int = 540) -> str:
     """Poll GET /reporting/reports/{reportId} until COMPLETED → return download URL."""
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -190,10 +190,11 @@ def fetch_keyword_performance(
                 "adGroupId",
                 "adGroupName",
                 "keywordId",
-                "keywordText",
+                "keyword",
+                "keywordType",
                 "matchType",
-                "targetingExpression",
-                "targetingText",
+                "targeting",
+                "keywordBid",
                 "impressions",
                 "clicks",
                 "cost",
@@ -298,7 +299,7 @@ def fetch_search_terms(
                 "adGroupId",
                 "adGroupName",
                 "keywordId",
-                "keywordText",
+                "keyword",
                 "matchType",
                 "searchTerm",
                 "impressions",
@@ -338,9 +339,8 @@ def compute_bid_suggestions(
     suggestions = []
     for row in keyword_rows:
         kw_text = (
-            row.get("keywordText")
-            or row.get("targetingText")
-            or row.get("targetingExpression")
+            row.get("keyword")
+            or row.get("targeting")
             or "Unknown"
         )
         match_type = row.get("matchType") or "AUTO"
@@ -360,6 +360,12 @@ def compute_bid_suggestions(
         entity_id = str(row.get("keywordId") or "")
         mt_upper = (match_type or "").upper()
         is_keyword = mt_upper in ("EXACT", "PHRASE", "BROAD")
+        # keywordBid comes straight from the report — pass it through so the
+        # apply flow can skip the extra lookup and the UI can show the real bid.
+        try:
+            cur_bid = float(row.get("keywordBid")) if row.get("keywordBid") not in (None, "") else None
+        except (TypeError, ValueError):
+            cur_bid = None
 
         def _make(action, severity, reason, pct, *, sales_val=sales, acos_val=acos):
             return {
@@ -379,6 +385,7 @@ def compute_bid_suggestions(
                 "entity_id": entity_id,
                 "is_keyword": is_keyword,
                 "can_apply": bool(entity_id),
+                "current_bid": cur_bid,
                 "profile_id": str(row.get("_profile_id") or ""),
                 "account_id": row.get("_account_id") or "",
                 "marketplace": row.get("_marketplace") or "",
@@ -456,7 +463,7 @@ def compute_negative_suggestions(
         can_apply = bool(campaign_id and ad_group_id)
         suggestions.append({
             "search_term": term,
-            "matched_keyword": row.get("keywordText") or "—",
+            "matched_keyword": row.get("keyword") or "—",
             "match_type": row.get("matchType") or "",
             "campaign": row.get("campaignName") or "",
             "spend": spend,

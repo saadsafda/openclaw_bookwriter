@@ -5,7 +5,7 @@ Reads a .docx, sends each heading to OpenClaw, and inserts the generated paragra
 right after that heading.
 
 Usage:
-  python openclaw_docx_writer.py input.docx output.docx --agent main
+  python openclaw_docx_writer.py input.docx output.docx --agent writer-agent-1
 
 Notes:
 - Requires OpenClaw CLI installed and configured.
@@ -468,21 +468,23 @@ _BANNED_SET = "\n".join(f"  • {p}" for p in BANNED_PHRASES[:30])  # first 30 i
 
 def build_prompt(heading: str, words_min: int, words_max: int, tone: str) -> str:
     return (
-        f"You are ghostwriting a non-fiction book for someone who writes the way they talk. "
-        f"The writing must sound like a real person typed it on a laptop at a coffee shop, not like a language model.\n\n"
+        f"You are a professional non-fiction ghostwriter. Write prose that reads like a seasoned author's "
+        f"work in a well-edited published book: natural, warm, and human, but polished and never gimmicky.\n\n"
         f"Section topic: {heading}\n\n"
         f"Write ONE paragraph, {words_min}–{words_max} words.\n\n"
         f"VOICE & STYLE (critical):\n"
-        f"- Use contractions freely (don't, isn't, won't, there's, we've, etc.).\n"
-        f"- Mix sentence lengths A LOT: some very short (3–6 words), some medium, a few long and winding. "
-        f"This variation is the single most important thing.\n"
-        f"- Start some sentences with 'And', 'But', 'So', 'Still', 'Thing is', 'Look', or 'Honestly'.\n"
-        f"- Occasionally use a sentence fragment on purpose. Not every sentence needs a subject and verb.\n"
+        f"- Write complete, well-formed sentences that flow into each other. The paragraph must read as "
+        f"one connected line of thought, not a series of punchy statements.\n"
+        f"- Vary sentence length naturally: mostly medium sentences with some longer, flowing "
+        f"ones. An occasional shorter sentence for emphasis is fine, but NO sentence under six words, and "
+        f"NEVER verbless fragments.\n"
+        f"- Vary how sentences begin. Never open two sentences the same way, and avoid formulaic "
+        f"conversational openers like 'Honestly', 'Look', or 'Thing is'.\n"
+        f"- Use contractions where they sound natural (don't, isn't, you'll, there's).\n"
         f"- Prefer simple, everyday words. Say 'big' not 'substantial', 'use' not 'utilize', 'help' not 'facilitate'.\n"
-        f"- Throw in a short rhetorical question once in a while.\n"
-        f"- Vary paragraph rhythm: don't follow topic-sentence → evidence → conclusion. Jump around a bit.\n"
+        f"- Ground the writing in concrete, specific detail rather than vague generalities.\n"
         f"- Use 'you' or 'we' naturally when it fits the context.\n"
-        f"- Write in a {tone} tone, but keep it grounded and unpretentious.\n\n"
+        f"- Write in a {tone} tone: confident, grounded, and unpretentious.\n\n"
         f"HARD BANS:\n"
         f"- NEVER start the paragraph with the topic/heading words.\n"
         f"- NO dashes (em dash, en dash, hyphen-as-punctuation). Use periods, commas, or 'and' instead.\n"
@@ -501,19 +503,23 @@ def build_subheading_prompt(subheading: str, words_min: int, words_max: int, ton
     # Strip leading numbered list prefix: "1. ", "12. ", etc.
     clean = re.sub(r"^\d+\.\s+", "", clean).strip()
     return (
-        f"You are ghostwriting a non-fiction book for someone who writes the way they talk. "
-        f"The writing must sound like a real person typed it on a laptop at a coffee shop, not like a language model.\n\n"
+        f"You are a professional non-fiction ghostwriter. Write prose that reads like a seasoned author's "
+        f"work in a well-edited published book: natural, warm, and human, but polished and never gimmicky.\n\n"
         f"Specific point to cover: {clean}\n\n"
         f"Write ONE paragraph, {words_min}–{words_max} words, on this specific point.\n\n"
         f"VOICE & STYLE (critical):\n"
-        f"- Use contractions freely (don't, isn't, won't, there's, we've, etc.).\n"
-        f"- Mix sentence lengths A LOT: some very short (3–6 words), some medium, a few long and winding. "
-        f"This variation is the single most important thing.\n"
-        f"- Start some sentences with 'And', 'But', 'So', 'Still', 'Thing is', or 'Honestly'.\n"
-        f"- Occasionally use a sentence fragment on purpose.\n"
+        f"- Write complete, well-formed sentences that flow into each other. The paragraph must read as "
+        f"one connected line of thought, not a series of punchy statements.\n"
+        f"- Vary sentence length naturally: mostly medium sentences with some longer, flowing "
+        f"ones. An occasional shorter sentence for emphasis is fine, but NO sentence under six words, and "
+        f"NEVER verbless fragments.\n"
+        f"- Vary how sentences begin. Never open two sentences the same way, and avoid formulaic "
+        f"conversational openers like 'Honestly', 'Look', or 'Thing is'.\n"
+        f"- Use contractions where they sound natural (don't, isn't, you'll, there's).\n"
         f"- Prefer simple, everyday words. Say 'big' not 'substantial', 'use' not 'utilize'.\n"
+        f"- Ground the advice in concrete, specific detail rather than vague generalities.\n"
         f"- Use 'you' or 'we' naturally when it fits the context.\n"
-        f"- Write in a {tone} tone, but keep it grounded and unpretentious.\n\n"
+        f"- Write in a {tone} tone: confident, grounded, and unpretentious.\n\n"
         f"HARD BANS:\n"
         f"- NEVER start the paragraph with the topic/heading words.\n"
         f"- NO dashes (em dash, en dash, hyphen-as-punctuation). Use periods, commas, or 'and' instead.\n"
@@ -529,6 +535,33 @@ def build_subheading_prompt(subheading: str, words_min: int, words_max: int, ton
 # build_image_prompt, extract_heading_keywords, infer_theme_guidance are now in openclaw_image_maker.py.
 
 
+def _strip_banned_phrases(text: str) -> str:
+    """Remove banned phrases sentence-by-sentence. If stripping would gut a
+    sentence to under five words (leaving a fragment like 'To change plans.'),
+    keep the original sentence — a rare cliché reads better than broken grammar."""
+    out_lines = []
+    for line in text.split("\n"):
+        sentences = re.split(r"(?<=[.!?])\s+", line)
+        kept = []
+        for sentence in sentences:
+            result = sentence
+            for phrase in BANNED_PHRASES:
+                pattern = re.compile(re.escape(phrase) + r"(\s+that\b)?", re.IGNORECASE)
+                result = pattern.sub("", result)
+            if result == sentence:
+                kept.append(sentence)
+                continue
+            result = re.sub(r"^[\s,;:]+", "", result).strip()
+            if len(re.findall(r"[A-Za-z']+", result)) < 5:
+                kept.append(sentence)
+                continue
+            if result[0].islower():
+                result = result[0].upper() + result[1:]
+            kept.append(result)
+        out_lines.append(" ".join(s for s in kept if s))
+    return "\n".join(out_lines)
+
+
 def humanize_text(text: str) -> str:
     """
     Post-process generated text to strip residual AI-isms and
@@ -537,10 +570,8 @@ def humanize_text(text: str) -> str:
     if not text:
         return text
 
-    # 1) Remove any banned phrases (case-insensitive)
-    for phrase in BANNED_PHRASES:
-        pattern = re.compile(re.escape(phrase), re.IGNORECASE)
-        text = pattern.sub("", text)
+    # 1) Remove any banned phrases (case-insensitive) without leaving fragments
+    text = _strip_banned_phrases(text)
 
     # 2) Replace common non-contraction forms with contractions
     contraction_map = [
@@ -645,8 +676,9 @@ def humanize_text(text: str) -> str:
     for pat, repl in simplify_map:
         text = re.sub(pat, repl, text)
 
-    # 4) Remove dashes that may have slipped through
-    text = text.replace("\u2014", ". ")   # em dash → period
+    # 4) Remove dashes that may have slipped through.
+    # A comma keeps the clause attached; a period would split it into a fragment.
+    text = text.replace("\u2014", ", ")   # em dash → comma
     text = text.replace("\u2013", ", ")   # en dash → comma
 
     # 5) Collapse double-spaces and fix spacing after substitutions
@@ -1032,6 +1064,8 @@ def main() -> int:
     ap.add_argument("--timeout", type=int, default=180, help="OpenClaw timeout seconds")
     ap.add_argument("--sleep", type=float, default=0.0, help="Sleep seconds between headings")
     ap.add_argument("--force", action="store_true", help="Re-generate all content even if already present in the document")
+    ap.add_argument("--no-cache", action="store_true",
+                    help="Skip reading cached text; always generate fresh (results are still saved to the cache)")
     ap.add_argument("--images", action="store_true", help="Generate and insert one image for each main heading")
     ap.add_argument("--image-width", type=float, default=5.5, help="Inserted image width in inches")
     ap.add_argument(
@@ -1264,7 +1298,7 @@ def main() -> int:
             prompt = build_subheading_prompt(subheading=heading, words_min=subwords_min, words_max=subwords_max, tone=args.tone)
         cache_key = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
-        cached = cache.get(cache_key)
+        cached = None if (args.no_cache or args.force) else cache.get(cache_key)
         if cached is not None:
             generated = cached
             print("  text from cache", flush=True)
