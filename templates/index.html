@@ -444,6 +444,26 @@
             </div>
         </div>
 
+        <!-- Hemingway login required modal -->
+        <div id="hwLoginModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+                <div class="p-5 border-b border-gray-100 flex items-start gap-3">
+                    <span class="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center flex-shrink-0"><i class="fas fa-triangle-exclamation"></i></span>
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-900">Hemingway login required</h3>
+                        <p class="text-xs text-gray-500 mt-1">The clarity scrub couldn't use Hemingway's "Simplify" feature because the browser session isn't logged in. Your book was still generated, but sentences weren't simplified.</p>
+                    </div>
+                </div>
+                <div class="p-5">
+                    <p id="hwLoginHint" class="text-sm text-gray-600 mb-4">Click below to open a browser window on this computer. Log in to hemingwayapp.com there, then close that window. The session is saved for all future books.</p>
+                    <div class="flex gap-2 justify-end">
+                        <button id="hwLoginDismiss" type="button" class="px-4 py-2 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition">Dismiss</button>
+                        <button id="hwLoginBtn" type="button" class="px-4 py-2 text-sm rounded-lg bg-amber-500 text-white font-semibold hover:bg-amber-600 transition"><i class="fas fa-right-to-bracket mr-1"></i> Login to Hemingway</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- QR attach modal -->
         <div id="qrModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
             <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden">
@@ -1424,6 +1444,12 @@
                     if (statusRes.ok) {
                         const status = await statusRes.json();
                         setStatusBadge(status.current_action || status.status, status.status);
+
+                        // Hemingway session logged out → prompt once per job
+                        if (status.hemingway_login_required && state.hwLoginPromptedFor !== state.jobId) {
+                            state.hwLoginPromptedFor = state.jobId;
+                            document.getElementById("hwLoginModal").classList.remove("hidden");
+                        }
                         
                         if(status.status === 'success' || status.status === 'error') {
                             if(currentLogBox) {
@@ -1978,6 +2004,31 @@
                 rawTextClose.addEventListener("click", closeRawTextModal);
                 rawTextModal.addEventListener("click", (e) => { if (e.target === rawTextModal) closeRawTextModal(); });
                 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeRawTextModal(); });
+            }
+
+            // ----- Hemingway login modal -----
+            const hwLoginModal = document.getElementById("hwLoginModal");
+            const hwLoginBtn = document.getElementById("hwLoginBtn");
+            const hwLoginDismiss = document.getElementById("hwLoginDismiss");
+            const hwLoginHint = document.getElementById("hwLoginHint");
+            if (hwLoginModal) {
+                hwLoginDismiss.addEventListener("click", () => hwLoginModal.classList.add("hidden"));
+                hwLoginModal.addEventListener("click", (e) => { if (e.target === hwLoginModal) hwLoginModal.classList.add("hidden"); });
+                hwLoginBtn.addEventListener("click", async () => {
+                    hwLoginBtn.disabled = true;
+                    try {
+                        const res = await fetch("/api/hemingway/login", { method: "POST" });
+                        const data = await res.json();
+                        if (!data.ok) throw new Error(data.error || "unknown error");
+                        hwLoginHint.textContent = data.already_running
+                            ? "A login browser window is already open on this computer. Log in there, then close it."
+                            : "A browser window is opening on this computer. Log in to hemingwayapp.com, then close that window. Future books will be simplified automatically.";
+                        hwLoginBtn.innerHTML = '<i class="fas fa-check mr-1"></i> Browser opened';
+                    } catch (err) {
+                        hwLoginHint.textContent = "Could not start the login browser: " + err.message;
+                        hwLoginBtn.disabled = false;
+                    }
+                });
             }
 
             btnAttachQr.addEventListener("click", openQrModal);

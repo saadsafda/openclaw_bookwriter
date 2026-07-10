@@ -95,6 +95,7 @@ class Job:
     config: dict[str, Any] = field(default_factory=dict)
     pre_written: bool = False
     custom_title: str = ""
+    hemingway_login_required: bool = False
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -167,10 +168,22 @@ def _get_job(job_id: str) -> Job:
     return job
 
 
+# Log markers emitted by clarity_agent.py when Hemingway's "Simplify" button
+# never appears (headless browser session not logged in).
+_HEMINGWAY_LOGIN_MARKERS = (
+    "hemingway is not logged in",
+    "simplify feature unavailable",
+    "button is not appearing",
+)
+
+
 def _append_log(job: Job, text: str) -> None:
     line = f"[{_timestamp()}] {text}"
+    low = text.lower()
     with job.lock:
         job.logs.append(line)
+        if any(marker in low for marker in _HEMINGWAY_LOGIN_MARKERS):
+            job.hemingway_login_required = True
         job.updated_at = time.time()
 
 
@@ -1215,6 +1228,7 @@ def job_status(job_id: str) -> Any:
                 "headings": list(job.headings),
                 "listing": dict(job.listing) if job.listing else {},
                 "pre_written": bool(job.pre_written),
+                "hemingway_login_required": bool(job.hemingway_login_required),
                 "created_at": job.created_at,
                 "updated_at": job.updated_at,
             }
@@ -1230,6 +1244,29 @@ def job_logs(job_id: str) -> Any:
         lines = job.logs[start:]
         next_cursor = len(job.logs)
     return jsonify({"logs": lines, "next": next_cursor})
+
+
+HEMINGWAY_LOGIN_PROC: subprocess.Popen | None = None
+HEMINGWAY_LOGIN_LOCK = threading.Lock()
+
+
+@app.post("/api/hemingway/login")
+def hemingway_login() -> Any:
+    """Open a visible browser on this machine so the user can log in to
+    hemingwayapp.com. clarity_agent.py --login saves the session in the
+    persistent Playwright profile, which the headless clarity scrub reuses."""
+    global HEMINGWAY_LOGIN_PROC
+    with HEMINGWAY_LOGIN_LOCK:
+        if HEMINGWAY_LOGIN_PROC is not None and HEMINGWAY_LOGIN_PROC.poll() is None:
+            return jsonify({"ok": True, "already_running": True})
+        try:
+            HEMINGWAY_LOGIN_PROC = subprocess.Popen(
+                [str(PYTHON_BIN), str(ROOT_DIR / "clarity_agent.py"), "--login"],
+                cwd=str(ROOT_DIR),
+            )
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 500
+    return jsonify({"ok": True, "already_running": False})
 
 
 @app.post("/api/jobs/<job_id>/replace-images")
