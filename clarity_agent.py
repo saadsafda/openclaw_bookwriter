@@ -143,20 +143,27 @@ def fix_highlighted_sentences(
     label: str,
     max_fixes: int = 200,
     max_retries: int = 3,
+    max_consecutive_failures: int = 3,
 ) -> int:
     """
     Find all spans matching `selector`, click each one, click "Simplify",
     then click "Use suggestion". Returns how many were fixed.
+
+    Failed spans are skipped past (not retried forever), and after
+    `max_consecutive_failures` failures in a row we assume the Simplify
+    feature is unavailable (e.g. not logged in) and stop.
     """
     fixed = 0
+    skipped = 0  # failed spans stay in the list; work past them by index
+    consecutive_failures = 0
     for _ in range(max_fixes):
         spans = page.locator(selector)
         count = spans.count()
-        if count == 0:
+        if count == 0 or skipped >= count:
             break
 
-        # Always work on the first one (list shifts after each fix)
-        span = spans.first
+        # Successful fixes shift the list; failed spans remain at the front.
+        span = spans.nth(skipped)
         sentence_preview = (span.text_content() or "")[:60]
         print(f"    [{label}] Fixing: \"{sentence_preview}...\"", flush=True)
 
@@ -194,6 +201,7 @@ def fix_highlighted_sentences(
                 time.sleep(1.0)
 
                 fixed += 1
+                consecutive_failures = 0
                 break
             except UpgradePlanRequired:
                 raise  # propagate immediately — do not retry
@@ -205,11 +213,23 @@ def fix_highlighted_sentences(
                     page.locator("[contenteditable='true']").first.click()
                     time.sleep(0.5)
                 else:
-                    print(f"      Skipping after {max_retries} retries.", flush=True)
-                    # Click elsewhere to dismiss and move on
+                    print(f"      Skipping this sentence after {max_retries} retries.", flush=True)
+                    # Click elsewhere to dismiss and move to the NEXT span
                     page.locator("[contenteditable='true']").first.click()
                     time.sleep(0.3)
+                    skipped += 1
+                    consecutive_failures += 1
                     break
+
+        if consecutive_failures >= max_consecutive_failures:
+            print(
+                f"    [{label}] {consecutive_failures} sentences failed in a row — "
+                "the 'Simplify it for me' button is not appearing. "
+                "This usually means Hemingway is not logged in on this machine "
+                "(run: python3 clarity_agent.py --login). Stopping fixes.",
+                flush=True,
+            )
+            break
 
     return fixed
 
@@ -256,6 +276,13 @@ def process_document(
             if red_count > 0:
                 fixed = fix_highlighted_sentences(page, RED_SELECTOR, "RED")
                 print(f"    Fixed {fixed} red sentences.", flush=True)
+                if fixed == 0:
+                    print(
+                        "  No sentences could be fixed this pass — Simplify feature "
+                        "unavailable (check Hemingway login/plan). Saving text as-is.",
+                        flush=True,
+                    )
+                    break
 
             # yellow_count = page.locator(YELLOW_SELECTOR).count()
             # if yellow_count > 0:
