@@ -475,9 +475,13 @@ def build_prompt(heading: str, words_min: int, words_max: int, tone: str) -> str
         f"VOICE & STYLE (critical):\n"
         f"- Write complete, well-formed sentences that flow into each other. The paragraph must read as "
         f"one connected line of thought, not a series of punchy statements.\n"
-        f"- Vary sentence length naturally: mostly medium sentences with some longer, flowing "
-        f"ones. An occasional shorter sentence for emphasis is fine, but NO sentence under six words, and "
-        f"NEVER verbless fragments.\n"
+        f"- Use plain American English: everyday words a fifth grader knows, mostly one or two "
+        f"syllables. Simple wording matters more than sentence length.\n"
+        f"- One idea per sentence, easy to read aloud in one breath. A longer sentence is fine "
+        f"when its words are simple and it flows.\n"
+        f"- Aim for about a grade 6 reading level, the target the Hemingway editor recommends. "
+        f"Sentences must flow into each other with natural transitions, the way a human writer "
+        f"connects thoughts, never chopped or robotic.\n"
         f"- Vary how sentences begin. Never open two sentences the same way, and avoid formulaic "
         f"conversational openers like 'Honestly', 'Look', or 'Thing is'.\n"
         f"- Use contractions where they sound natural (don't, isn't, you'll, there's).\n"
@@ -486,6 +490,10 @@ def build_prompt(heading: str, words_min: int, words_max: int, tone: str) -> str
         f"- Use 'you' or 'we' naturally when it fits the context.\n"
         f"- Write in a {tone} tone: confident, grounded, and unpretentious.\n\n"
         f"HARD BANS:\n"
+        f"- NO tiny fragment sentences of two or three words. Give every thought a full, "
+        f"natural sentence.\n"
+        f"- NO dense sentences full of long words; they score 'very hard to read'. Keep the "
+        f"wording simple and split heavy sentences.\n"
         f"- NEVER start the paragraph with the topic/heading words.\n"
         f"- NO dashes (em dash, en dash, hyphen-as-punctuation). Use periods, commas, or 'and' instead.\n"
         f"- NO bullet points or numbered lists.\n"
@@ -510,9 +518,13 @@ def build_subheading_prompt(subheading: str, words_min: int, words_max: int, ton
         f"VOICE & STYLE (critical):\n"
         f"- Write complete, well-formed sentences that flow into each other. The paragraph must read as "
         f"one connected line of thought, not a series of punchy statements.\n"
-        f"- Vary sentence length naturally: mostly medium sentences with some longer, flowing "
-        f"ones. An occasional shorter sentence for emphasis is fine, but NO sentence under six words, and "
-        f"NEVER verbless fragments.\n"
+        f"- Use plain American English: everyday words a fifth grader knows, mostly one or two "
+        f"syllables. Simple wording matters more than sentence length.\n"
+        f"- One idea per sentence, easy to read aloud in one breath. A longer sentence is fine "
+        f"when its words are simple and it flows.\n"
+        f"- Aim for about a grade 6 reading level, the target the Hemingway editor recommends. "
+        f"Sentences must flow into each other with natural transitions, the way a human writer "
+        f"connects thoughts, never chopped or robotic.\n"
         f"- Vary how sentences begin. Never open two sentences the same way, and avoid formulaic "
         f"conversational openers like 'Honestly', 'Look', or 'Thing is'.\n"
         f"- Use contractions where they sound natural (don't, isn't, you'll, there's).\n"
@@ -521,6 +533,10 @@ def build_subheading_prompt(subheading: str, words_min: int, words_max: int, ton
         f"- Use 'you' or 'we' naturally when it fits the context.\n"
         f"- Write in a {tone} tone: confident, grounded, and unpretentious.\n\n"
         f"HARD BANS:\n"
+        f"- NO tiny fragment sentences of two or three words. Give every thought a full, "
+        f"natural sentence.\n"
+        f"- NO dense sentences full of long words; they score 'very hard to read'. Keep the "
+        f"wording simple and split heavy sentences.\n"
         f"- NEVER start the paragraph with the topic/heading words.\n"
         f"- NO dashes (em dash, en dash, hyphen-as-punctuation). Use periods, commas, or 'and' instead.\n"
         f"- NO bullet points or numbered lists.\n"
@@ -730,6 +746,105 @@ def call_openclaw(agent_id: str, message: str, local: bool, thinking: str, timeo
     )
     reply = parse_openclaw_reply(stdout)
     return humanize_text(reply.strip())
+
+
+# Only true fragments (1-3 words) count as too short; anything 4+ words is a
+# real sentence. Long sentences are judged by readability grade, not word count,
+# so a long sentence made of simple words passes.
+MIN_SENTENCE_WORDS = 4
+
+
+def _sentence_grade(words: list[str]) -> float:
+    """Per-sentence readability grade using the same formula the Hemingway
+    app uses (Automated Readability Index). Hemingway flags a sentence of
+    14+ words as 'hard to read' at grade >= 10 and 'very hard' at >= 14."""
+    letters = sum(len(re.sub(r"[^A-Za-z]", "", w)) for w in words)
+    return 4.71 * (letters / len(words)) + 0.5 * len(words) - 21.43
+
+
+def find_problem_sentences(text: str) -> tuple[list[str], list[str]]:
+    """Return (too_short, too_hard) sentences. too_hard mirrors Hemingway's
+    red 'very hard to read' flag so generated text passes its check."""
+    short: list[str] = []
+    hard: list[str] = []
+    for line in text.split("\n"):
+        for sentence in re.split(r"(?<=[.!?])\s+", line):
+            s = sentence.strip()
+            if not s:
+                continue
+            words = re.findall(r"[A-Za-z'’]+", s)
+            if not words:
+                continue
+            if len(words) < MIN_SENTENCE_WORDS:
+                short.append(s)
+            elif len(words) >= 14 and _sentence_grade(words) >= 14:
+                hard.append(s)
+    return short, hard
+
+
+def build_smooth_prompt(paragraph: str, short: list[str], hard: list[str]) -> str:
+    issues = []
+    if hard:
+        listed = "\n".join(f'  - "{s[:140]}"' for s in hard[:8])
+        issues.append(
+            "These sentences are too dense (the Hemingway app scores them 'very hard to "
+            "read'). Split each one into shorter, complete sentences and swap heavy words "
+            "for plain everyday American English:\n" + listed
+        )
+    if short:
+        listed = "\n".join(f'  - "{s}"' for s in short[:8])
+        issues.append(
+            "These fragments are too short and choppy. Merge each one smoothly into the "
+            "sentence before or after it:\n" + listed
+        )
+    issues_block = "\n\n".join(issues)
+    return (
+        "Edit the paragraph below. Keep the meaning, tone, and overall length the same, "
+        "and keep the writing natural and human. Fix ONLY these problems:\n\n"
+        f"{issues_block}\n\n"
+        "Keep every sentence natural and easy to read, one clear idea per sentence, with "
+        "plain American English words. Do not add new ideas and do not use dashes.\n\n"
+        f"Paragraph:\n{paragraph}\n\n"
+        "Output ONLY the rewritten paragraph. No preamble, no notes."
+    )
+
+
+def generate_clean_paragraph(
+    agent_id: str,
+    message: str,
+    local: bool,
+    thinking: str,
+    timeout_s: int,
+    session_id: str = "",
+    max_smooth_retries: int = 2,
+) -> str:
+    """Generate a paragraph, then verify it has no choppy short sentences and
+    no Hemingway-red 'very hard to read' sentences. If it does, ask the model
+    to rewrite naturally (split long ones, merge short ones). Keeps the best
+    version and never merges mechanically."""
+    generated = call_openclaw(agent_id, message, local, thinking, timeout_s, session_id)
+
+    for _ in range(max_smooth_retries):
+        short, hard = find_problem_sentences(generated)
+        problems = len(short) + len(hard)
+        if problems == 0:
+            break
+        preview = "; ".join(f'"{s[:60]}"' for s in (hard + short)[:2])
+        print(f"  {len(hard)} very-hard + {len(short)} too-short sentence(s) "
+              f"({preview}) — rewriting", flush=True)
+        fixed = call_openclaw(
+            agent_id, build_smooth_prompt(generated, short, hard),
+            local, thinking, timeout_s, session_id,
+        )
+        # Accept the rewrite only if it actually improved and isn't degenerate.
+        f_short, f_hard = find_problem_sentences(fixed)
+        long_enough = len(fixed.split()) >= 0.6 * len(generated.split())
+        if long_enough and (len(f_short) + len(f_hard)) < problems:
+            generated = fixed
+        else:
+            break
+
+    return generated
 
 
 def call_openclaw_for_image(message: str, local: bool, thinking: str, timeout_s: int, session_id: str = "") -> str:
@@ -1206,7 +1321,7 @@ def main() -> int:
             if args.rewrite_guidance.strip():
                 prompt += f"\n\nAdditional guidance from the author: {args.rewrite_guidance.strip()}"
 
-            generated = call_openclaw(
+            generated = generate_clean_paragraph(
                 agent_id=args.agent,
                 message=prompt,
                 local=args.local,
@@ -1304,7 +1419,7 @@ def main() -> int:
             print("  text from cache", flush=True)
         else:
             call_start = time.time()
-            generated = call_openclaw(
+            generated = generate_clean_paragraph(
                 agent_id=args.agent,
                 message=prompt,
                 local=args.local,
