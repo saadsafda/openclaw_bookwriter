@@ -1506,6 +1506,31 @@ def download_file(job_id: str, kind: str) -> Any:
     return send_file(target, as_attachment=True)
 
 
+@app.get("/api/jobs/<job_id>/raw-text")
+def get_raw_text(job_id: str) -> Any:
+    """Return the raw AI-generated text, before formatting and the Hemingway
+    clarity scrub. Generation writes into the uploaded docx itself; the
+    Hemingway output is saved separately as *_formatted_clear.docx."""
+    raw_path: Path | None = None
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+    if job:
+        with job.lock:
+            raw_path = Path(job.input_docx) if job.input_docx else None
+    else:
+        book = bookdb.get_book(job_id)
+        if book is None:
+            abort(404, description="Job not found")
+        raw_path = Path(book["input_docx"]) if book.get("input_docx") else None
+
+    if raw_path is None or not raw_path.exists() or not raw_path.is_file():
+        abort(404, description="Raw document not found")
+
+    doc = Document(str(raw_path))
+    paragraphs = [(p.text or "").strip() for p in doc.paragraphs if (p.text or "").strip()]
+    return jsonify({"file": raw_path.name, "paragraphs": paragraphs})
+
+
 # ----------------------------
 # Book history
 # ----------------------------

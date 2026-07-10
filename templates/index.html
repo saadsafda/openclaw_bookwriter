@@ -411,10 +411,14 @@
                         <span class="w-8 h-8 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center flex-shrink-0"><i class="fas fa-book"></i></span>
                         <span><span class="font-semibold block leading-tight">Paperback DOCX</span><span class="text-[11px] text-gray-400">Print interior</span></span>
                     </a>
-                    <a id="downloadInput" href="#" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition" title="Original layout file">
+                    <a id="downloadInput" href="#" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition" title="Raw generated draft (pre-Hemingway)">
                         <span class="w-8 h-8 rounded-lg bg-gray-100 text-gray-500 flex items-center justify-center flex-shrink-0"><i class="fas fa-file-word"></i></span>
-                        <span><span class="font-semibold block leading-tight">Original input</span><span class="text-[11px] text-gray-400">The layout you uploaded</span></span>
+                        <span><span class="font-semibold block leading-tight">Raw AI draft</span><span class="text-[11px] text-gray-400">Generated text before Hemingway</span></span>
                     </a>
+                    <button id="viewRawBtn" type="button" class="w-full text-left flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-violet-50 transition" title="View the raw AI text before Hemingway editing">
+                        <span class="w-8 h-8 rounded-lg bg-violet-100 text-violet-600 flex items-center justify-center flex-shrink-0"><i class="fas fa-robot"></i></span>
+                        <span><span class="font-semibold block leading-tight">View core AI text</span><span class="text-[11px] text-gray-400">Read the raw draft in the browser</span></span>
+                    </button>
                     <div class="border-t border-gray-100 my-1"></div>
                     <button id="btnAttachQr" type="button" class="w-full text-left flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-pink-50 transition" title="Attach a saved QR code to the last page">
                         <span class="w-8 h-8 rounded-lg bg-pink-100 text-pink-600 flex items-center justify-center flex-shrink-0"><i class="fas fa-qrcode"></i></span>
@@ -423,6 +427,22 @@
                 </div>
             </div>
         </header>
+
+        <!-- Raw AI text modal (pre-Hemingway draft) -->
+        <div id="rawTextModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden">
+                <div class="flex items-start justify-between p-5 border-b border-gray-100">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                            <i class="fas fa-robot text-violet-500"></i> Core AI text
+                        </h3>
+                        <p class="text-xs text-gray-400 mt-1">Raw generated draft, before formatting and the Hemingway clarity scrub.</p>
+                    </div>
+                    <button id="rawTextClose" type="button" class="text-gray-400 hover:text-gray-600 transition p-1"><i class="fas fa-xmark text-lg"></i></button>
+                </div>
+                <div id="rawTextBody" class="p-5 overflow-y-auto text-sm text-gray-700 whitespace-pre-wrap leading-relaxed"></div>
+            </div>
+        </div>
 
         <!-- QR attach modal -->
         <div id="qrModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -1930,6 +1950,34 @@
                     if (!downloadMenu.classList.contains("hidden") && !e.target.closest("#downloadLinks")) closeDownloadMenu();
                 });
                 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDownloadMenu(); });
+            }
+
+            // ----- Core AI text viewer (raw draft, pre-Hemingway) -----
+            const viewRawBtn = document.getElementById("viewRawBtn");
+            const rawTextModal = document.getElementById("rawTextModal");
+            const rawTextBody = document.getElementById("rawTextBody");
+            const rawTextClose = document.getElementById("rawTextClose");
+            function closeRawTextModal() { rawTextModal.classList.add("hidden"); }
+            if (viewRawBtn) {
+                viewRawBtn.addEventListener("click", async () => {
+                    // Reuse the job id already baked into the raw-draft download link
+                    const href = document.getElementById("downloadInput").getAttribute("href") || "";
+                    const m = href.match(/\/api\/jobs\/([^/]+)\/download\//);
+                    if (!m) return;
+                    rawTextBody.textContent = "Loading…";
+                    rawTextModal.classList.remove("hidden");
+                    try {
+                        const res = await fetch(`/api/jobs/${m[1]}/raw-text`);
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                        const data = await res.json();
+                        rawTextBody.textContent = (data.paragraphs || []).join("\n\n") || "No text found in the raw draft.";
+                    } catch (err) {
+                        rawTextBody.textContent = "Could not load the raw text: " + err;
+                    }
+                });
+                rawTextClose.addEventListener("click", closeRawTextModal);
+                rawTextModal.addEventListener("click", (e) => { if (e.target === rawTextModal) closeRawTextModal(); });
+                document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeRawTextModal(); });
             }
 
             btnAttachQr.addEventListener("click", openQrModal);
