@@ -490,8 +490,10 @@ def build_prompt(heading: str, words_min: int, words_max: int, tone: str) -> str
         f"- Use 'you' or 'we' naturally when it fits the context.\n"
         f"- Write in a {tone} tone: confident, grounded, and unpretentious.\n\n"
         f"HARD BANS:\n"
-        f"- NO tiny fragment sentences of two or three words. Give every thought a full, "
-        f"natural sentence.\n"
+        f"- NEVER write short standalone sentences. When a thought is short, join it to the "
+        f"sentence before or after it with a comma instead of giving it its own sentence "
+        f"(write 'A good planner buys you breathing room, not magic.' not "
+        f"'...breathing room. Not magic.').\n"
         f"- NO dense sentences full of long words; they score 'very hard to read'. Keep the "
         f"wording simple and split heavy sentences.\n"
         f"- NEVER start the paragraph with the topic/heading words.\n"
@@ -533,8 +535,10 @@ def build_subheading_prompt(subheading: str, words_min: int, words_max: int, ton
         f"- Use 'you' or 'we' naturally when it fits the context.\n"
         f"- Write in a {tone} tone: confident, grounded, and unpretentious.\n\n"
         f"HARD BANS:\n"
-        f"- NO tiny fragment sentences of two or three words. Give every thought a full, "
-        f"natural sentence.\n"
+        f"- NEVER write short standalone sentences. When a thought is short, join it to the "
+        f"sentence before or after it with a comma instead of giving it its own sentence "
+        f"(write 'A good planner buys you breathing room, not magic.' not "
+        f"'...breathing room. Not magic.').\n"
         f"- NO dense sentences full of long words; they score 'very hard to read'. Keep the "
         f"wording simple and split heavy sentences.\n"
         f"- NEVER start the paragraph with the topic/heading words.\n"
@@ -748,10 +752,12 @@ def call_openclaw(agent_id: str, message: str, local: bool, thinking: str, timeo
     return humanize_text(reply.strip())
 
 
-# Only true fragments (1-3 words) count as too short; anything 4+ words is a
-# real sentence. Long sentences are judged by readability grade, not word count,
-# so a long sentence made of simple words passes.
-MIN_SENTENCE_WORDS = 4
+# Sentences under 6 words read as choppy on their own. Two short-ish sentences
+# back to back read as robotic AI rhythm even when each is fine alone. Long
+# sentences are judged by readability grade, not word count, so a long sentence
+# made of simple words passes.
+MIN_SENTENCE_WORDS = 6
+CHOPPY_RUN_WORDS = 9
 
 
 def _sentence_grade(words: list[str]) -> float:
@@ -764,10 +770,13 @@ def _sentence_grade(words: list[str]) -> float:
 
 def find_problem_sentences(text: str) -> tuple[list[str], list[str]]:
     """Return (too_short, too_hard) sentences. too_hard mirrors Hemingway's
-    red 'very hard to read' flag so generated text passes its check."""
+    red 'very hard to read' flag. too_short covers sentences under
+    MIN_SENTENCE_WORDS plus runs of consecutive short-ish sentences, which
+    read as choppy AI rhythm even when each sentence is fine on its own."""
     short: list[str] = []
     hard: list[str] = []
     for line in text.split("\n"):
+        entries: list[tuple[str, int]] = []
         for sentence in re.split(r"(?<=[.!?])\s+", line):
             s = sentence.strip()
             if not s:
@@ -775,10 +784,22 @@ def find_problem_sentences(text: str) -> tuple[list[str], list[str]]:
             words = re.findall(r"[A-Za-z'’]+", s)
             if not words:
                 continue
+            entries.append((s, len(words)))
             if len(words) < MIN_SENTENCE_WORDS:
                 short.append(s)
-            elif len(words) >= 14 and _sentence_grade(words) >= 14:
+            # Hemingway rounds the grade before comparing, so 13.5+ is red.
+            elif len(words) >= 14 and int(_sentence_grade(words) + 0.5) >= 14:
                 hard.append(s)
+
+        # Two or more short-ish sentences in a row = choppy run.
+        run: list[str] = []
+        for s, n in entries + [("", CHOPPY_RUN_WORDS)]:  # sentinel flushes last run
+            if n < CHOPPY_RUN_WORDS:
+                run.append(s)
+                continue
+            if len(run) >= 2:
+                short.extend(x for x in run if x not in short)
+            run = []
     return short, hard
 
 
@@ -794,8 +815,9 @@ def build_smooth_prompt(paragraph: str, short: list[str], hard: list[str]) -> st
     if short:
         listed = "\n".join(f'  - "{s}"' for s in short[:8])
         issues.append(
-            "These fragments are too short and choppy. Merge each one smoothly into the "
-            "sentence before or after it:\n" + listed
+            "These sentences are too short, or several short ones sit in a row, which makes "
+            "the rhythm choppy. Join each one to the sentence before or after it with a "
+            "comma. Never leave a short sentence standing alone:\n" + listed
         )
     issues_block = "\n\n".join(issues)
     return (

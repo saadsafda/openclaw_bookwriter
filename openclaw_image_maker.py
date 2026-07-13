@@ -15,21 +15,26 @@ IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".ti
 
 PROMPT_VARIANTS: dict[str, str] = {
     "three-gray": (
-        "Create a standalone book illustration for '{heading}'. "
+        "A completely wordless, text-free standalone book illustration about the topic of {heading}. "
         "Subject and composition should reflect this context: {paragraph}. "
+        "Express the topic through drawn objects and actions only, never as written words. "
         "Use monochrome only: black and exactly 3 shades of gray. "
         "No color at all. "
         "Keep the full subject fully visible and centered; do not crop or cut off any edge. "
         "Use a plain white background with generous white space around the subject so it floats on the page. "
-        "Clean, simple, high-contrast shapes. No text, labels, frames, or borders."
+        "Clean, simple, high-contrast shapes. "
+        "Absolutely no text, letters, numbers, labels, captions, frames, or borders; "
+        "any books, signs, or papers in the scene must be blank."
     ),
     "black-gray": (
-        "Create a standalone book illustration for '{heading}'. "
+        "A completely wordless, text-free standalone book illustration about the topic of {heading}. "
         "Subject and composition should reflect this context: {paragraph}. "
+        "Express the topic through drawn objects and actions only, never as written words. "
         "Use only pure black plus shades of gray on white. No color. "
         "Keep the full subject fully visible and centered; do not crop or cut off any edge. "
         "Use a plain white background with extra white margin around the subject so it floats on the page. "
-        "No text, labels, frames, or borders."
+        "Absolutely no text, letters, numbers, labels, captions, frames, or borders; "
+        "any books, signs, or papers in the scene must be blank."
     ),
     "chapter-page-gray": (
         "Create one single flat 2D chapter-opener page, portrait orientation, with a plain white background. "
@@ -66,9 +71,12 @@ PROMPT_VARIANTS: dict[str, str] = {
         "No open book, no two-page spread, no frame, no border, no watermark, no mockup."
     ),
     "rich-scene-no-text": (
-        "Create one single flat 2D storybook-quality western cartoon illustration on a **stark, pure white background (#FFFFFF)**. "
+        "A completely wordless, text-free picture: one single flat 2D storybook-quality western cartoon "
+        "illustration on a **stark, pure white background (#FFFFFF)**. "
+        "This image contains absolutely no writing of any kind — no words, letters, numbers, captions, "
+        "titles, labels, or typography anywhere. It communicates through imagery alone, like a wordless picture book. "
         "**Strictly neutral grayscale: use only deep black and exactly 3 distinct shades of cool gray. Absolutely no yellow, sepia, cream, or warm tones.** "
-        "Semantic match is critical. Use these heading keywords as mandatory visual cues: {heading_keywords}. "
+        "Semantic match is critical. Express these concepts through drawn objects and actions only, never as written words: {heading_keywords}. "
         "Use this theme guidance: {theme_guidance}. "
         "Create an attractive central scene related to: {heading}. Context: {paragraph}. "
         "Include multiple supportive elements that match the heading meaning, not just one simple icon. "
@@ -77,7 +85,8 @@ PROMPT_VARIANTS: dict[str, str] = {
         "If people appear, they must be clearly adults age 25+ and fully clothed. "
         "Keep all illustration elements fully visible and centered; do not crop or cut off any part. "
         "Use generous white space around the subject so it floats on the page. "
-        "**Zero text, no letters, no symbols, no numbers, no labels, no frame, no border, no watermark.**"
+        "If the scene includes books, papers, signs, screens, chalkboards, or banners, their surfaces must be completely blank. "
+        "**Zero text, no letters, no symbols, no numbers, no labels, no frame, no border, no watermark.** "
         "Must be white-background, or transparent."
     ),
 }
