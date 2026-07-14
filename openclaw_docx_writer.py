@@ -92,12 +92,25 @@ SUBHEADING_RE = re.compile(
 LIST_BULLET_STYLE_RE = re.compile(r"^List Bullet(?: \d+)?$", re.IGNORECASE)
 CHAPTER_LABEL_ONLY_RE = re.compile(r"^CHAPTER\s+\d+$", re.IGNORECASE)
 
+def _outline_level(p) -> Optional[int]:
+    """Outline level from paragraph XML (w:outlineLvl). Some generators mark
+    headings this way instead of using named 'Heading N' styles."""
+    try:
+        vals = p._p.xpath("./w:pPr/w:outlineLvl/@w:val")
+        return int(vals[0]) if vals else None
+    except Exception:
+        return None
+
+
 def is_heading_paragraph(p) -> bool:
     try:
         name = (p.style.name or "").strip()
     except Exception:
         return False
     if bool(HEADING_RE.match(name)) or name.lower() in {"title"}:
+        return True
+    # Top outline level = chapter-level heading in style-less documents.
+    if _outline_level(p) == 0:
         return True
     # Also treat plain-style paragraphs that look like chapter/section headings
     text = (p.text or "").strip()
@@ -112,6 +125,10 @@ def is_subheading_paragraph(p) -> bool:
         if HEADING_RE.match(name):
             return False
         if LIST_BULLET_STYLE_RE.match(name):
+            return True
+        # Nested outline levels are section subheadings in style-less docs.
+        level = _outline_level(p)
+        if level is not None and level >= 1:
             return True
     except Exception:
         return False
@@ -148,14 +165,19 @@ def paragraph_looks_like_body(p: Paragraph) -> bool:
 def insert_paragraph_after(paragraph, text: str, style: str = "Normal") -> Paragraph:
     """
     Insert a new paragraph right after `paragraph`.
+
+    The style is applied only when the document actually defines it. Outlines
+    made by other tools (Google Docs exports, outline generators) often have
+    no style named "Normal"; assigning the name anyway raises KeyError, so in
+    that case the paragraph keeps the document's default style instead.
     """
     new_p = OxmlElement("w:p")
     paragraph._p.addnext(new_p)
     new_para = Paragraph(new_p, paragraph._parent)
     try:
         new_para.style = paragraph._parent.part.document.styles[style]
-    except (KeyError, Exception):
-        new_para.style = style
+    except Exception:
+        pass  # style not defined in this document; document default applies
     new_para.add_run(text)
     return new_para
 
@@ -1128,6 +1150,79 @@ def is_chapter_title_heading(heading: str) -> bool:
     return bool(_CHAPTER_TITLE_RE.match(heading or ""))
 
 
+def _normalize_outline_text(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip()).lower()
+
+
+def classify_outline_with_ai(
+    agent_id: str,
+    lines: list[str],
+    local: bool,
+    thinking: str,
+    timeout_s: int,
+) -> Optional[dict[str, str]]:
+    """Ask the model to label every outline line as CHAPTER, SECTION, or
+    OTHER so any outline format works, instead of relying on docx styles
+    and text patterns. Returns {normalized line text: 'chapter'|'section'}
+    or None when the reply is unusable (caller falls back to heuristics).
+
+    Keyed by text rather than paragraph index on purpose: the generation
+    loop inserts new paragraphs as it goes, so indexes shift, while the
+    outline lines' text stays stable."""
+    if not lines:
+        return None
+    numbered = "\n".join(f"{i + 1}. {l.strip()[:200]}" for i, l in enumerate(lines))
+    prompt = (
+        "TASK: classify outline lines. Do NOT write any book content.\n\n"
+        "Below are the lines of a book outline document, numbered. Classify every line:\n"
+        "- CHAPTER: a chapter-level title. Examples: 'Chapter 3: Stage Fright', 'Part Two', "
+        "or a top-level topic that groups the lines under it. 'Introduction' and "
+        "'Conclusion' count as CHAPTER when they are top-level parts of the book.\n"
+        "- SECTION: a topic, tip, or subheading that should get its own written paragraph. "
+        "Examples: bullet points, numbered tips, short topic phrases under a chapter.\n"
+        "- OTHER: everything else. Examples: the book's title, author name, notes or "
+        "instructions to the writer, table-of-contents lines, and any line that is "
+        "already finished prose (full sentences forming a written paragraph).\n\n"
+        f"LINES:\n{numbered}\n\n"
+        "Reply with exactly one line per input line, in the form '<number>: CHAPTER' or "
+        "'<number>: SECTION' or '<number>: OTHER'. Output nothing else: no explanations, "
+        "no headings, no book text."
+    )
+    stdout = run_openclaw_call(
+        agent_id=agent_id,
+        message=prompt,
+        local=local,
+        thinking=thinking,
+        timeout_s=timeout_s,
+        # Fresh session: keeps the classification exchange out of the
+        # writing session's context and vice versa.
+        session_id=str(uuid.uuid4()),
+    )
+    reply = parse_openclaw_reply(stdout)
+    labels: dict[int, str] = {}
+    for m in re.finditer(
+        r"^\s*(\d+)\s*[:.\-\)]\s*(CHAPTER|SECTION|OTHER)\b",
+        reply, re.IGNORECASE | re.MULTILINE,
+    ):
+        idx = int(m.group(1))
+        if 1 <= idx <= len(lines):
+            labels[idx] = m.group(2).lower()
+    # Require nearly every line labeled; a partial reply means the model
+    # drifted off-task and the heuristics are safer.
+    if len(labels) < max(1, int(0.9 * len(lines))):
+        return None
+    roles: dict[str, str] = {}
+    for i, line in enumerate(lines):
+        role = labels.get(i + 1)
+        if role not in ("chapter", "section"):
+            continue
+        key = _normalize_outline_text(line)
+        # If duplicate lines disagree, 'chapter' wins.
+        if key and roles.get(key) != "chapter":
+            roles[key] = role
+    return roles
+
+
 def build_smooth_prompt(
     paragraph: str,
     short: list[str],
@@ -1620,6 +1715,9 @@ def main() -> int:
                     help="Also write intro text for chapter-title headings ('Chapter 3: ...'). "
                          "Default: skip them so only subheadings get content; a chapter intro "
                          "written in isolation half-repeats what the sections below it say.")
+    ap.add_argument("--no-ai-outline", action="store_true",
+                    help="Skip the AI outline analysis and use only the built-in style/pattern "
+                         "detection for headings and subheadings.")
     args = ap.parse_args()
 
     # Load .env from project cwd and script directory (without overriding shell env vars).
@@ -1781,12 +1879,48 @@ def main() -> int:
 
     doc = Document(str(in_path))
 
+    # AI outline analysis: one model call labels every line as chapter,
+    # section, or other, so any outline format works. Style/pattern
+    # heuristics remain the fallback when the analysis is unavailable.
+    ai_roles: Optional[dict] = None
+    if args.agent and not args.no_ai_outline:
+        outline_lines = [(_p.text or "").strip() for _p in doc.paragraphs if (_p.text or "").strip()]
+        try:
+            print("Analyzing outline structure with AI...", flush=True)
+            ai_roles = classify_outline_with_ai(
+                agent_id=args.agent,
+                lines=outline_lines,
+                local=args.local,
+                thinking=args.thinking,
+                timeout_s=args.timeout,
+            )
+        except Exception as e:
+            print(f"WARNING: AI outline analysis failed ({e}); using built-in detection.",
+                  file=sys.stderr)
+            ai_roles = None
+        if ai_roles is None:
+            print("AI outline analysis unusable — using built-in detection.", flush=True)
+        else:
+            n_ch = sum(1 for v in ai_roles.values() if v == "chapter")
+            n_se = sum(1 for v in ai_roles.values() if v == "section")
+            print(f"AI outline analysis: {n_ch} chapter heading(s), {n_se} section(s).", flush=True)
+
+    def outline_role(paragraph) -> Optional[str]:
+        """'chapter' | 'section' | None for a paragraph, from the AI map."""
+        if ai_roles is None:
+            return None
+        return ai_roles.get(_normalize_outline_text(paragraph.text))
+
     # Pre-scan to count total work items for progress reporting.
     total_items = 0
     for _p in doc.paragraphs:
-        if is_heading_paragraph(_p) or is_subheading_paragraph(_p):
-            if (_p.text or "").strip():
+        if not (_p.text or "").strip():
+            continue
+        if ai_roles is not None:
+            if outline_role(_p) in ("chapter", "section"):
                 total_items += 1
+        elif is_heading_paragraph(_p) or is_subheading_paragraph(_p):
+            total_items += 1
     print(f"Found {total_items} headings/subheadings to process.")
     processed_items = 0
     run_start = time.time()
@@ -1795,8 +1929,13 @@ def main() -> int:
     i = 0
     while i < len(doc.paragraphs):
         p = doc.paragraphs[i]
-        is_h = is_heading_paragraph(p)
-        is_sub = (not is_h) and is_subheading_paragraph(p)
+        if ai_roles is not None:
+            role = outline_role(p)
+            is_h = role == "chapter"
+            is_sub = role == "section"
+        else:
+            is_h = is_heading_paragraph(p)
+            is_sub = (not is_h) and is_subheading_paragraph(p)
 
         if not is_h and not is_sub:
             i += 1
@@ -1814,10 +1953,12 @@ def main() -> int:
         print(f"[{processed_items}/{total_items}] [{elapsed_str}] Processing {tag}: {heading[:80]}", flush=True)
 
         # If next paragraph is non-empty normal content, text is already present.
+        # A line the AI labeled as part of the outline is never "content".
         next_check: Optional[Any] = doc.paragraphs[i + 1] if (i + 1) < len(doc.paragraphs) else None
         has_existing_content = (
             next_check is not None
             and paragraph_looks_like_body(next_check)
+            and outline_role(next_check) is None
         )
         skip_text_generation = (not args.force) and has_existing_content
 
@@ -1875,7 +2016,8 @@ def main() -> int:
                 remaining = total_items - processed_items
                 eta_s = call_dur * remaining
                 eta_str = time.strftime("%H:%M:%S", time.gmtime(eta_s))
-                print(f"  generated ({call_dur:.0f}s) — ~{remaining} left, ETA ~{eta_str}", flush=True)
+                print(f"  generated ({call_dur:.0f}s, {len(generated.split())} words) — "
+                      f"~{remaining} left, ETA ~{eta_str}", flush=True)
                 if args.sleep > 0:
                     time.sleep(args.sleep)
 
@@ -1884,6 +2026,7 @@ def main() -> int:
             next_is_content = (
                 next_para is not None
                 and paragraph_looks_like_body(next_para)
+                and outline_role(next_para) is None
             )
 
             if next_is_content and (args.force or (next_para.text or "").strip() == ""):

@@ -101,6 +101,27 @@
             50%      { box-shadow: 0 0 0 7px rgba(59,130,246,.06); }
         }
 
+        /* ---- Generation progress panel ---- */
+        .gp-bar-track { height: 6px; border-radius: 999px; background: rgba(99,102,241,.10); overflow: hidden; }
+        .gp-bar-fill  { height: 100%; border-radius: 999px; background: var(--grad-accent);
+                        transition: width .7s cubic-bezier(.22,1,.36,1); }
+        /* Indeterminate shimmer under the actively drafting section */
+        .gp-activebar { position: relative; height: 3px; border-radius: 999px;
+                        background: rgba(99,102,241,.12); overflow: hidden; margin-top: 6px; }
+        .gp-activebar::after {
+            content: ''; position: absolute; inset: 0; width: 38%; border-radius: 999px;
+            background: var(--grad-accent);
+            animation: gpSlide 1.5s ease-in-out infinite;
+        }
+        @keyframes gpSlide { from { transform: translateX(-110%); } to { transform: translateX(290%); } }
+        .gp-row { transition: background-color .2s ease; }
+        .gp-row.active { background: linear-gradient(90deg, rgba(99,102,241,.05), transparent 70%); }
+        @media (prefers-reduced-motion: reduce) {
+            .gp-activebar::after { animation: none; width: 100%; opacity: .45; }
+            .status-dot.running { animation: none; }
+            .gp-bar-fill { transition: none; }
+        }
+
         /* Button lift micro-interaction */
         .btn-lift { transition: transform .15s ease, box-shadow .15s ease, opacity .15s ease, background-color .15s ease; }
         .btn-lift:hover:not(:disabled)  { transform: translateY(-1px); }
@@ -942,6 +963,9 @@
 
                     // Clear chat and show book info
                     chatMessages.innerHTML = "";
+                    currentLogBox = null;
+                    genProgress.wrapper = null;
+                    genProgress.termWrapper = null;
                     const alreadyWritten = !!book.pre_written;
                     const flagBadge = alreadyWritten
                         ? `<div class="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-100 text-green-800 border border-green-300 text-xs font-semibold">
@@ -978,8 +1002,14 @@
                         // Remove the spinner since this is historical
                         const loader = logBox.parentElement.querySelector('.loader');
                         if (loader) loader.outerHTML = '<i class="fas fa-check-circle text-green-500"></i>';
+                        // Rebuild the progress panel from the saved logs. The chat
+                        // was cleared above, so start from a clean panel state.
+                        genProgress.wrapper = null;
+                        genProgress.finished = false;
+                        genProgress.termWrapper = logBox.closest('.flex.items-start');
                         const frag = document.createDocumentFragment();
                         savedLogs.forEach(line => {
+                            genProgress.ingest(line);
                             const div = document.createElement('div');
                             div.textContent = line;
                             let styled = div.innerHTML
@@ -990,6 +1020,12 @@
                             frag.appendChild(div);
                         });
                         logBox.appendChild(frag);
+                        if (book.status === 'success' || book.status === 'error') {
+                            genProgress.finalize(book.status);
+                        }
+                        // Resume live streaming from where the saved logs end,
+                        // instead of re-streaming the whole history.
+                        state.cursor = savedLogs.length;
                     }
 
                     // Restore headings
@@ -1358,6 +1394,235 @@
                 container.scrollTop = container.scrollHeight;
             }
 
+            /* ---- Generation progress panel ----------------------------------
+               Built entirely from the writer's log lines, so it also works for
+               jobs already running on the server when the page is (re)loaded. */
+            const genProgress = {
+                wrapper: null, itemsEl: null, stageEl: null, subEl: null,
+                pctEl: null, barEl: null, dotEl: null, pendingEl: null, toggleEl: null,
+                termWrapper: null,
+                total: 0, done: 0, activeRow: null, stagePct: 0, finished: false,
+
+                create() {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'flex items-start gap-4 animate-[fadeIn_0.3s_ease-out]';
+                    wrapper.innerHTML = `
+                        <div class="w-10 h-10 rounded-full logo-glow flex items-center justify-center flex-shrink-0"><i class="fas fa-feather-pointed text-white text-sm"></i></div>
+                        <div class="premium-card rounded-2xl rounded-tl-none w-full max-w-full overflow-hidden">
+                            <div class="px-5 pt-4 pb-3.5 border-b border-gray-100">
+                                <div class="flex items-center justify-between gap-4">
+                                    <div class="flex items-center gap-2.5 min-w-0">
+                                        <span class="status-dot running gp-dot"></span>
+                                        <div class="min-w-0">
+                                            <div class="gp-stage text-sm font-semibold text-gray-800 truncate">Starting up</div>
+                                            <div class="gp-sub text-xs text-gray-500 truncate">Preparing the writer…</div>
+                                        </div>
+                                    </div>
+                                    <div class="gp-pct text-2xl font-bold tabular-nums gradient-text flex-shrink-0">0%</div>
+                                </div>
+                                <div class="gp-bar-track mt-3"><div class="gp-bar-fill" style="width:0%"></div></div>
+                            </div>
+                            <div class="gp-items max-h-80 overflow-y-auto custom-scrollbar divide-y divide-gray-50"></div>
+                            <div class="px-5 py-2.5 bg-gray-50/70 border-t border-gray-100 flex items-center justify-between gap-3">
+                                <div class="gp-pending text-xs text-gray-500"></div>
+                                <button class="gp-toggle text-xs font-medium text-indigo-600 hover:text-indigo-700">View terminal log</button>
+                            </div>
+                        </div>`;
+                    this.wrapper = wrapper;
+                    this.itemsEl   = wrapper.querySelector('.gp-items');
+                    this.stageEl   = wrapper.querySelector('.gp-stage');
+                    this.subEl     = wrapper.querySelector('.gp-sub');
+                    this.pctEl     = wrapper.querySelector('.gp-pct');
+                    this.barEl     = wrapper.querySelector('.gp-bar-fill');
+                    this.dotEl     = wrapper.querySelector('.gp-dot');
+                    this.pendingEl = wrapper.querySelector('.gp-pending');
+                    this.toggleEl  = wrapper.querySelector('.gp-toggle');
+                    this.toggleEl.addEventListener('click', () => this.toggleTerminal());
+                    // Sit just above the terminal bubble when one already exists,
+                    // and tuck the raw terminal behind the toggle.
+                    if (this.termWrapper && this.termWrapper.parentElement === chatMessages) {
+                        chatMessages.insertBefore(wrapper, this.termWrapper);
+                        this.termWrapper.classList.add('hidden');
+                    } else {
+                        chatMessages.appendChild(wrapper);
+                    }
+                    scrollToBottom();
+                },
+
+                reset(total) {
+                    // A finished panel stays in the chat as a frozen record;
+                    // a new run gets its own fresh panel.
+                    if (this.wrapper && (this.finished || !document.body.contains(this.wrapper))) {
+                        this.wrapper = null;
+                        this.termWrapper = null;
+                    }
+                    if (!this.wrapper) this.create();
+                    this.total = total; this.done = 0; this.stagePct = 0;
+                    this.finished = false; this.errored = false;
+                    this.activeRow = null; this.eta = '';
+                    this.itemsEl.innerHTML = '';
+                    this.dotEl.className = 'status-dot running gp-dot';
+                    this.setStage('Writing sections', total ? `${total} sections to write` : '');
+                    this.renderPct();
+                },
+
+                setTerminal(wrapperEl) {
+                    this.termWrapper = wrapperEl;
+                    // Terminal stays available behind the toggle, hidden by default
+                    // once the progress panel is showing.
+                    if (this.wrapper && document.body.contains(this.wrapper)) {
+                        wrapperEl.classList.add('hidden');
+                    }
+                },
+
+                toggleTerminal() {
+                    if (!this.termWrapper) return;
+                    const hidden = this.termWrapper.classList.toggle('hidden');
+                    this.toggleEl.textContent = hidden ? 'View terminal log' : 'Hide terminal log';
+                    if (!hidden) this.termWrapper.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                },
+
+                setStage(stage, sub) {
+                    this.stageEl.textContent = stage;
+                    if (sub !== undefined) this.subEl.textContent = sub;
+                },
+
+                renderPct() {
+                    let pct = this.total ? (this.done / this.total) * 85 : 0;
+                    pct = Math.max(pct, this.stagePct);
+                    if (this.finished && !this.errored) pct = 100;
+                    pct = Math.min(100, Math.round(pct));
+                    this.pctEl.textContent = `${pct}%`;
+                    this.barEl.style.width = `${pct}%`;
+                    const remaining = Math.max(0, this.total - this.itemsEl.children.length);
+                    this.pendingEl.textContent = this.finished ? ''
+                        : this.total
+                            ? (remaining > 0 ? `${remaining} more section${remaining === 1 ? '' : 's'} queued` : 'All sections started')
+                            : '';
+                },
+
+                icon(kind) {
+                    return {
+                        done:    '<i class="fas fa-check-circle text-emerald-500"></i>',
+                        cache:   '<i class="fas fa-bolt text-amber-400" title="from cache"></i>',
+                        chapter: '<i class="fas fa-bookmark text-indigo-400" title="chapter title"></i>',
+                        warn:    '<i class="fas fa-triangle-exclamation text-amber-500"></i>',
+                        active:  '<div class="loader"></div>',
+                    }[kind] || '';
+                },
+
+                startItem(k, n, tag, title) {
+                    if (!this.wrapper || !document.body.contains(this.wrapper)) this.reset(n);
+                    if (n && n !== this.total) { this.total = n; }
+                    this.completeActive('done', '');
+                    const row = document.createElement('div');
+                    row.className = 'gp-row active px-5 py-2.5 flex items-center gap-3';
+                    row.innerHTML = `
+                        <span class="gp-ico w-4 flex-shrink-0 text-center">${this.icon('active')}</span>
+                        <div class="flex-1 min-w-0">
+                            <div class="text-[13px] font-medium text-gray-700 truncate">${escapeHtml(title)}</div>
+                            <div class="gp-substatus text-[11px] text-indigo-500">Drafting…</div>
+                            <div class="gp-activebar"></div>
+                        </div>
+                        <span class="gp-meta text-[11px] text-gray-400 tabular-nums flex-shrink-0"></span>`;
+                    this.itemsEl.appendChild(row);
+                    this.activeRow = row;
+                    this.itemsEl.scrollTop = this.itemsEl.scrollHeight;
+                    const eta = this.eta ? ` · ~${this.eta} left` : '';
+                    this.setStage('Writing sections', `Section ${k} of ${n}${eta}`);
+                    this.renderPct();
+                },
+
+                substatus(text) {
+                    const el = this.activeRow && this.activeRow.querySelector('.gp-substatus');
+                    if (el) el.textContent = text;
+                },
+
+                completeActive(kind, meta) {
+                    const row = this.activeRow;
+                    if (!row) return;
+                    this.activeRow = null;
+                    row.classList.remove('active');
+                    row.querySelector('.gp-ico').innerHTML = this.icon(kind);
+                    const sub = row.querySelector('.gp-substatus'); if (sub) sub.remove();
+                    const bar = row.querySelector('.gp-activebar'); if (bar) bar.remove();
+                    row.querySelector('.gp-meta').textContent = meta || '';
+                    this.done += 1;
+                    this.renderPct();
+                },
+
+                postStage(stage, sub, pct) {
+                    if (!this.wrapper || !document.body.contains(this.wrapper)) return;
+                    this.completeActive('done', '');
+                    this.stagePct = Math.max(this.stagePct, pct);
+                    this.setStage(stage, sub);
+                    this.renderPct();
+                },
+
+                finalize(status) {
+                    if (!this.wrapper || !document.body.contains(this.wrapper) || this.finished) return;
+                    this.finished = true;
+                    this.errored = status === 'error';
+                    this.completeActive(status === 'error' ? 'warn' : 'done', '');
+                    this.dotEl.className = `status-dot gp-dot ${status === 'error' ? 'error' : 'success'}`;
+                    if (status === 'error') {
+                        this.setStage('Stopped with an error', 'Open the terminal log for details');
+                        this.pctEl.classList.remove('gradient-text');
+                        this.pctEl.classList.add('text-red-500');
+                    } else {
+                        this.setStage('Book generated', 'All steps finished');
+                    }
+                    this.renderPct();
+                },
+
+                ingest(line) {
+                    let m;
+                    if ((m = line.match(/Found (\d+) headings\/subheadings to process/))) {
+                        this.reset(parseInt(m[1], 10)); return;
+                    }
+                    if (/Analyzing outline structure with AI/.test(line)) {
+                        if (!this.wrapper || !document.body.contains(this.wrapper)) this.reset(0);
+                        this.setStage('Analyzing outline', 'AI is reading the outline structure…');
+                        return;
+                    }
+                    if ((m = line.match(/AI outline analysis: (\d+) chapter heading\(s\), (\d+) section\(s\)/))) {
+                        this.setStage('Analyzing outline', `${m[1]} chapters · ${m[2]} sections detected`);
+                        return;
+                    }
+                    if ((m = line.match(/\[(\d+)\/(\d+)\]\s+\[[\d:]+\]\s+Processing (heading|subheading): (.*)$/))) {
+                        this.startItem(parseInt(m[1], 10), parseInt(m[2], 10), m[3], m[4].trim());
+                        return;
+                    }
+                    if ((m = line.match(/generated \((\d+)s(?:, (\d+) words)?\)(?:.*ETA ~([\d:]+))?/))) {
+                        const meta = `${m[1]}s${m[2] ? ` · ${m[2]} words` : ''}`;
+                        this.completeActive('done', meta);
+                        if (m[3]) {
+                            this.eta = m[3];
+                            this.subEl.textContent = `${this.subEl.textContent.split(' · ')[0]} · ~${m[3]} left`;
+                        }
+                        return;
+                    }
+                    if (/text from cache/.test(line)) { this.completeActive('cache', 'from cache'); return; }
+                    if (/chapter title — no intro text|chapter title - no intro text/.test(line)) {
+                        this.completeActive('chapter', 'chapter title'); return;
+                    }
+                    if (/Heading left empty/.test(line)) { this.completeActive('warn', 'skipped — re-run to fill'); return; }
+                    if (/template gate:/.test(line)) { this.substatus('Removing AI patterns…'); return; }
+                    if (/sentence\(s\).*rewriting|— rewriting/.test(line)) { this.substatus('Refining readability…'); return; }
+                    if (/generating image via openclaw_image_maker/.test(line)) { this.substatus('Creating image…'); return; }
+                    if (/cached text contains a banned pattern/.test(line)) { this.substatus('Regenerating (pattern found)…'); return; }
+                    if (/Formatting document/.test(line)) { this.postStage('Formatting document', 'Applying book layout…', 88); return; }
+                    if (/Clarity scrub/.test(line)) { this.postStage('Hemingway clarity pass', 'Simplifying hard sentences…', 92); return; }
+                    if (/Inserting images into final document/.test(line)) { this.postStage('Creating images', 'Generating and placing illustrations…', 96); return; }
+                    if (/Creating Kindle|Creating paperback|kdp/i.test(line) && /\.docx/.test(line)) {
+                        this.postStage('Building KDP files', 'Kindle and paperback versions…', 98); return;
+                    }
+                    if (/Image insertion complete|^\[\d{2}:\d{2}:\d{2}\] Done:/.test(line)) {
+                        this.postStage(this.stageEl.textContent, 'Wrapping up…', 99); return;
+                    }
+                }
+            };
+
             function syncHeadings(headings) {
                 if(!headings || headings.length === 0) {
                     btnShowReplace.classList.add('hidden');
@@ -1452,6 +1717,7 @@
                         }
                         
                         if(status.status === 'success' || status.status === 'error') {
+                            genProgress.finalize(status.status);
                             if(currentLogBox) {
                                 const loader = currentLogBox.parentElement.querySelector('.loader');
                                 if(loader) loader.outerHTML = '<i class="fas fa-check-circle text-green-500"></i>';
@@ -1479,10 +1745,12 @@
                         if(payload.logs && payload.logs.length > 0) {
                             if(!currentLogBox) {
                                 currentLogBox = addMessage('bot', '', true);
+                                genProgress.setTerminal(currentLogBox.closest('.flex.items-start'));
                             }
-                            
+
                             const frag = document.createDocumentFragment();
                             payload.logs.forEach(line => {
+                                genProgress.ingest(line);
                                 const div = document.createElement('div');
                                 div.textContent = line;
                                 let styleLine = div.innerHTML
