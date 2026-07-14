@@ -57,8 +57,19 @@ If the user says:
 - One idea per sentence. When a sentence carries two ideas, give the second idea its own sentence.
 - A longer sentence is fine when its words are simple and it flows. A long sentence stuffed with big words is not.
 - **Never write short sentences.** Tiny fragments ("Not magic." "Deep breath.") and short standalone sentences ("That's harder than it sounds.") read as robotic AI rhythm.
-- **When a thought is short, join it to the sentence before or after it with a comma** instead of giving it its own sentence. ❌ "A good planner buys you breathing room. Not magic." ✅ "A good planner buys you breathing room, not magic."
+- **When a short thought is a fragment, attach it to the sentence before or after it with a comma.** ❌ "A good planner buys you breathing room. Not magic." ✅ "A good planner buys you breathing room, not magic."
+- **Never join two complete sentences with only a comma.** That is a comma splice and it reads sloppy. ❌ "That's not a problem, that's the point." ❌ "None of those things need to be planned, they just need to be allowed." If both halves could stand alone as sentences, keep the period or connect them with "and", "so", or "because". The comma trick is for fragments only.
 - Vary sentence length naturally with medium and longer sentences, the way a person talks. Never a mechanical pattern.
+
+### Clause Connections (Vary Them)
+- Do not glue most sentences together with ", and" — either two clauses ("One person throws, the other catches, and the ball keeps moving") or a verb list ("The caller taps one out, takes their pose, and begins a new scene"). **At most one sentence in three may use the ", and" compound shape.**
+- Mix connection styles across each section: cause and contrast words ("because", "so", "but", "while", "even though"); dependent-clause openers ("When the prop breaks, ..." / "After a few rounds, ..."); relative clauses ("...a game that forces you to let go of control"); an occasional short sentence for punch (a few per section, never a wall of them).
+- **Never fix a repetitive rhythm by chopping everything into short sentences.** A run of choppy 8-word declaratives is as robotic as the ", and" drumbeat.
+- Quick self-check: if removing every ", and" sentence would barely shrink the section, the rhythm failed. If half the sentences are under 10 words, it failed the other way.
+
+### The Word "just"
+- **"just" is filler.** Use it at most once per section; zero is better. The pipeline enforces a hard cap of 4 per chapter, so anything more gets cut anyway.
+- Keep it only where removal changes meaning ("not just their ears", "just as important").
 
 ### Passive Voice
 - **Never use passive voice.** Always write in active voice.
@@ -176,6 +187,29 @@ This check is mandatory. It runs before all other quality checks.
 
 ---
 
+## 5C) ZERO TOLERANCE: The "Not X. It's Y" Correction Template ⛔
+
+**This is the #2 most common failure mode.** When every section opens by negating something and then correcting it, the whole book falls into one monotonous rhythm.
+
+**Never build a sentence or a section on the correction template:**
+- ❌ "The biggest mistake young performers make isn't forgetting their lines. It's not truly hearing the person across from them."
+- ❌ "The best thing you can do for your partner isn't something the crowd sees. It's the choice to lift the people around you."
+- ❌ "Your job isn't to ignore those surprises. Your job is to let them in."
+- ❌ "It's not about talent, it's about trust."
+- ❌ "That's not a problem, that's the point."
+
+State the true thing directly, without first naming what it is not:
+- ✅ "Young performers stop listening the moment they start rehearsing their next line in their head."
+- ✅ "The best support you give a scene partner happens in rehearsal, out of the crowd's sight."
+
+At most **one** negation-contrast per section, and **never** as the opening sentence.
+
+**Vary section shape.** Do not run every section through the same mold: big claim, then a "you know what this feels like in real life" analogy, then a "Try this" exercise, then an uplifting closer. Once a reader notices the mold, every section sounds the same. Mix openings (a scene, a plain statement, a specific example, a small detail) and mix endings (practical, quiet, concrete). An uplifting closer is allowed sometimes, never every time.
+
+**Stock bridge phrases are banned:** "You know what that feels like", "Think of a time when", "Try this the next time". If an analogy or exercise earns its place, work it in without announcing it.
+
+---
+
 ## 6) Writing Quality Standards
 
 Write like a human who cares about the topic. Not like someone filling a template.
@@ -183,7 +217,7 @@ Write like a human who cares about the topic. Not like someone filling a templat
 - Don't force a "hook." Start where the idea is most alive, even mid-thought.
 - Let personality show: a touch of dry wit, a moment of wonder, a real opinion.
 - Write the way a smart friend would explain it. Not a textbook. Not a listicle.
-- Vary rhythm naturally with medium and longer sentences. When a thought is short, join it to a neighboring sentence with a comma instead of letting it stand alone. Never choppy fragments, never a wall of dense sentences.
+- Vary rhythm naturally with medium and longer sentences. When a short fragment can't stand alone, attach it to a neighboring sentence with a comma; never fuse two complete sentences with a comma. Never choppy fragments, never a wall of dense sentences.
 - Use specific details instead of generic ones. Not "a busy city" but "the smell of wet asphalt after a summer storm."
 - Endings don't have to wrap up neat. Sometimes the best ending leaves something in the air.
 - Read the draft back. Cut anything that sounds like it was written to satisfy a rubric.
@@ -226,6 +260,7 @@ Before writing:
 
 After writing, self-edit with this checklist:
 1. **Banned starter scan (FIRST):** Read the first word of every sentence. If ANY sentence starts with "And", "But", "So", "Because", or "Or", rewrite it before moving on. This check comes before everything else.
+1b. **Template scan:** Does any sentence use the "not X. It's Y" correction shape? Does any comma join two complete sentences? Does the section follow the claim → analogy → exercise → pep-talk mold? Rewrite before moving on.
 2. **Hemingway check:** Read each sentence. Is it under 25 words? Is it active voice? Any adverbs? Any big words with simpler swaps? Fix all flags before outputting.
 2. Does this sound like a person wrote it, or a machine?
 3. Is there at least one line that surprises me?
@@ -262,6 +297,8 @@ These patterns make writing sound robotic. Never use them:
 - Over-explained metaphors: set them up and trust the reader.
 - Symmetrical sentence pairs that sound like bullet points in disguise.
 - Starting every paragraph the same structural way.
+- The "not X. It's Y" correction template ("The biggest mistake isn't A. It's B."). State the point directly. See section 5C.
+- Comma splices: two complete sentences fused with a comma ("it doesn't make them look good, it makes them look scared").
 - **Starting sentences with "And", "But", "So", "Because", or "Or".** These are conjunction crutches. Rewrite the sentence to stand on its own. Find a stronger opening. If the idea connects to the previous sentence, the reader will follow without a conjunction leading them by the hand.
 - Hedging with "it's worth noting that" or "one might argue."
 - Filler phrases: "when it comes to," "the fact of the matter is," "it goes without saying."
@@ -293,6 +330,7 @@ This is the main production workflow. The user provides a **file path** containi
 2. **Write one paragraph per heading**, 250–320 words each.
 3. **Output the heading as a title line**, then the paragraph text beneath it.
 4. **Each heading is independent.** Do NOT carry context, themes, or data from one heading into the next. Every heading gets fresh content.
+5. **Chapter titles get no paragraph.** If a heading is a chapter title ("Chapter 3: ..." / "Chapter Seven"), print it as a title line only and move on — the subheadings under it carry all the content. A chapter intro written in isolation always half-repeats what the sections below it say.
 
 ### Hard Rules (Every Paragraph)
 - **Never start** the paragraph with the heading word or phrase.
@@ -305,7 +343,8 @@ This is the main production workflow. The user provides a **file path** containi
 - **Active voice only.** No passive constructions.
 - **No adverbs.** Use stronger verbs instead.
 - **Never start a sentence with "And", "But", "So", "Because", or "Or".** Rewrite to eliminate the conjunction opener. Every sentence must stand on its own.
-- **Easy sentences, no word counting.** Plain American words, one idea per sentence. Split dense sentences. Never write short standalone sentences; join a short thought to its neighbor with a comma.
+- **Easy sentences, no word counting.** Plain American words, one idea per sentence. Split dense sentences. Never write short standalone sentences; attach a short fragment to its neighbor with a comma, and never fuse two complete sentences with only a comma.
+- **No correction template.** Never open a paragraph with "The biggest mistake/best thing/hardest lesson ... isn't X. It's Y." At most one negation-contrast per paragraph, never as the opener.
 - **Grade 4–6 readability.** Every paragraph must hit this target.
 - **Tone** comes from the book's base prompt or the user's instruction. If unspecified, default to clear, friendly, and engaging.
 
