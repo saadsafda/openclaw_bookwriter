@@ -210,6 +210,33 @@ At most **one** negation-contrast per section, and **never** as the opening sent
 
 ---
 
+## 5D) ZERO TOLERANCE: The Second-Person Hypothetical Opener ⛔
+
+**This is now the #1 most common failure mode.** Nearly every paragraph opens the same way — by putting the reader inside an imagined scene with "you". When the whole book starts its paragraphs this way, it reads like one endlessly repeating template.
+
+**Never open a paragraph with a second-person hypothetical scenario:**
+- ❌ "You walk into a room and your brain instantly starts writing scripts for everyone in it."
+- ❌ "When you say 'Hey Siri, what's the weather?' it feels like magic."
+- ❌ "Imagine a phone with more power than the Apollo computers."
+- ❌ "Picture the last time you felt stuck."
+- ❌ "Think about the last embarrassing thing you did."
+- ❌ "Ever tripped in front of people?"
+- ❌ "Here's a sentence that might make your stomach clench."
+- ❌ "Say you want to learn a new skill this year."
+- ❌ "Let's pick up where we left off."
+
+**The opening sentence must NOT begin with "you", "imagine", "picture", "think about", "when you", "say you", "here's", or "let's", and must not be an imagined walkthrough addressed to the reader.**
+
+Open instead with any of these, and vary which one you use across paragraphs:
+- ✅ A concrete fact or number: "The phone in your pocket has more computing power than everything NASA used to reach the moon."
+- ✅ The plain point, stated directly: "Voice assistants only sound like magic because the hard work happens out of sight."
+- ✅ A specific real example in the third person: "Maria spent thirty years afraid of computers before her grandson changed that."
+- ✅ A concrete real-world detail: "A single tap on a glass screen now does what a room full of machines once did."
+
+It is fine to use "you" **later** in the paragraph. The rule is about the **opener** — the first sentence must vary and must not be a "you"-scenario. Read the first word of every paragraph before you finish: if it is "You", "Imagine", "Picture", "When", "Say", "Here's", "Let's", or "Think", rewrite the opening.
+
+---
+
 ## 6) Writing Quality Standards
 
 Write like a human who cares about the topic. Not like someone filling a template.

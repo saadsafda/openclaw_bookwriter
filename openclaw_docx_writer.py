@@ -79,8 +79,24 @@ def load_env_file(env_path: Path) -> None:
 
 HEADING_RE = re.compile(r"^Heading\s+\d+$", re.IGNORECASE)
 # Matches lines like "Chapter 1: ...", "Introduction:", "Conclusion:", "Epilogue:"
+# Chapter number token: an integer (7), a Roman numeral (VII), or a spelled-out
+# number word (Seven / Twenty One). Kept as its own group so both PLAIN_HEADING_RE
+# and image-placement heading detection recognize the same set of chapter formats.
+_CHAPTER_NUM = (
+    r"(?:\d+"
+    r"|[IVXLCDM]+"
+    r"|(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+    r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
+    r"thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred)"
+    r"(?:[\s-]+(?:one|two|three|four|five|six|seven|eight|nine))?)"
+)
+# Front/back-matter words only count as a heading when the line is JUST that word
+# (optionally with a subtitle after a colon/dash). "Introduction to the concepts…"
+# is a body sentence, not a heading, so a following space+word must NOT match.
+_MATTER = r"(?:Introduction|Conclusion|Epilogue|Foreword|Preface|Prologue|Afterword)"
 PLAIN_HEADING_RE = re.compile(
-    r"^(Chapter\s+\d+(?:\s*[:–—-]\s*.*)?|Introduction:?\s*.*|Conclusion:?\s*.*|Epilogue:?\s*.*|Foreword:?\s*.*|Preface:?\s*)$",
+    r"^(Chapter\s+" + _CHAPTER_NUM + r"(?:\s*[:–—-]\s*.*)?"
+    r"|" + _MATTER + r"\s*(?:[:–—-]\s*.*)?)$",
     re.IGNORECASE,
 )
 # Matches bullet-point subheadings: "- Thing N: ...", "- Welcome...", "Focus: ..."
@@ -380,6 +396,81 @@ def parse_openclaw_media_urls(stdout: str) -> list[str]:
     return found
 
 
+# Real per-turn cost, priced from OpenClaw's own usage block (confirmed against a
+# live call): "input"/"output" are billed at normal rates, "cacheWrite" at 1.25x
+# input price, "cacheRead" at 0.1x input price. A single call's system-prompt
+# overhead alone was observed at ~23,750 tokens (AGENTS.md/SOUL.md/tool schemas),
+# so this must be tracked and enforced, not estimated.
+_CLAUDE_INPUT_RATE = 5.00 / 1_000_000
+_CLAUDE_OUTPUT_RATE = 25.00 / 1_000_000
+_CLAUDE_CACHE_WRITE_RATE = _CLAUDE_INPUT_RATE * 1.25
+_CLAUDE_CACHE_READ_RATE = _CLAUDE_INPUT_RATE * 0.1
+
+
+def parse_openclaw_usage_cost(stdout: str) -> float:
+    """Extract the dollar cost of one OpenClaw call from its --json output's
+    lastCallUsage block. Returns 0.0 if usage data isn't present (older
+    OpenClaw versions, or a malformed/empty response) rather than raising —
+    callers treat an unpriceable call as $0 and rely on the wall-clock/count
+    fallback in the budget guard instead."""
+    s = (stdout or "").strip()
+    if not s:
+        return 0.0
+    for obj in _iter_json_objects(s):
+        try:
+            usage = obj["result"]["meta"]["agentMeta"]["lastCallUsage"]
+        except (KeyError, TypeError):
+            continue
+        try:
+            return (
+                float(usage.get("input", 0)) * _CLAUDE_INPUT_RATE
+                + float(usage.get("output", 0)) * _CLAUDE_OUTPUT_RATE
+                + float(usage.get("cacheWrite", 0)) * _CLAUDE_CACHE_WRITE_RATE
+                + float(usage.get("cacheRead", 0)) * _CLAUDE_CACHE_READ_RATE
+            )
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+
+class SpendTracker:
+    """Process-wide running total of real dollars spent on OpenClaw calls this
+    run. The configured limit is a warning threshold: crossing it emits one
+    machine-readable notice for the UI, but generation keeps running unless
+    the user explicitly clicks Stop."""
+
+    def __init__(self, limit_usd: float | None):
+        self.limit_usd = limit_usd
+        self.spent_usd = 0.0
+        self.calls = 0
+        self.warned = False
+
+    def record(self, stdout: str) -> None:
+        cost = parse_openclaw_usage_cost(stdout)
+        self.spent_usd += cost
+        self.calls += 1
+        if (
+            self.limit_usd is not None
+            and not self.warned
+            and self.spent_usd >= self.limit_usd
+        ):
+            self.warned = True
+            # Machine-parseable line, separate from the prose message below,
+            # so a caller (e.g. the web UI) can pull the exact numbers out of
+            # the log without regex-matching human-readable text.
+            print(
+                f"BUDGET_CAP_HIT spent_usd={self.spent_usd:.4f} "
+                f"limit_usd={self.limit_usd:.4f} calls={self.calls}",
+                flush=True,
+            )
+            print(
+                f"Spending warning reached: ${self.spent_usd:.2f} spent "
+                f"(threshold ${self.limit_usd:.2f}) after {self.calls} OpenClaw call(s). "
+                "Generation is continuing; use Stop in the web UI to end it.",
+                flush=True,
+            )
+
+
 def parse_openclaw_reply(stdout: str) -> str:
     s = (stdout or "").strip()
     if not s:
@@ -493,14 +584,25 @@ _BANNED_SET = "\n".join(f"  • {p}" for p in BANNED_PHRASES[:30])  # first 30 i
 # opener, analogy, "Try this", uplifting closer) for every section. These
 # hints are rotated deterministically by heading so each section gets a
 # different shape while the same heading stays cache-stable across runs.
+# Deliberately varied registers. Each avoids the model's default "you [verb]…"
+# second-person hypothetical opener (see _STRUCTURE_BANS) — the tic that makes
+# every paragraph sound identical. The first word of the paragraph should differ
+# meaningfully between these.
 PARAGRAPH_OPENING_MOVES = [
-    "Open with a small concrete scene or moment the reader can picture.",
-    "Open by stating the main point in one plain, direct sentence.",
-    "Open with a specific example rather than a general claim.",
-    "Open with something the reader has likely done or felt themselves.",
-    "Open with a detail or observation that seems small but matters.",
-    "Open mid-thought, as if picking up a conversation already going.",
-    "Open with a short story beat: someone doing something, somewhere real.",
+    "Open with a concrete fact or number about the topic, stated flatly. "
+    "Do not address the reader as 'you' in the first sentence.",
+    "Open by stating the main point in one plain, declarative sentence. "
+    "No 'you', no 'imagine', no scenario — just the claim itself.",
+    "Open on a specific named example, person, place, thing, or moment in the "
+    "third person (he/she/they/it/a name), not the second person.",
+    "Open with a short, surprising observation about how the thing actually works. "
+    "Lead with the subject of the sentence, not with 'you'.",
+    "Open with a concrete detail from the real world (an object, a sound, a place) "
+    "described in the third person.",
+    "Open mid-thought on the idea itself, as if continuing an explanation already "
+    "underway. Do not start with a 'you'-address or an imagined scene.",
+    "Open with a brief third-person story beat: a specific someone doing a specific "
+    "thing, somewhere real. Name them; do not make it 'you'.",
 ]
 
 PARAGRAPH_CLOSING_MOVES = [
@@ -536,6 +638,14 @@ _STRUCTURE_BANS = (
     "- NO stock bridge phrases like 'You know what that feels like', 'Think of a time "
     "when', or 'Try this the next time'. If an analogy or exercise helps, work it in "
     "without announcing it.\n"
+    "- DO NOT open the paragraph with a second-person hypothetical scenario. Banned "
+    "opening shapes: 'You [verb] ... and [consequence]' (e.g. 'You walk into a room "
+    "and your brain...'), 'Imagine ...', 'Picture ...', 'Think about ...', 'When you "
+    "[verb] ...', 'Say you ...', 'Ever [verb]?', 'Here's a [thing that] ...', "
+    "'Let's [verb] ...'. These are the model's default opener and make every "
+    "paragraph read the same. The opening sentence must NOT be a 'you'-address "
+    "walkthrough of an imagined moment. Follow the PARAGRAPH SHAPE opening below "
+    "literally instead.\n"
 )
 
 
@@ -878,6 +988,13 @@ def humanize_text(text: str) -> str:
     return text.strip()
 
 
+# Single choke point every OpenClaw call passes through, so a module-level
+# tracker here covers every call site (main loop, smoothing retries, template
+# gate retries, outline classification, rewrite-heading) without threading a
+# parameter through each one. Set by main() before any generation starts.
+_SPEND_TRACKER: Optional["SpendTracker"] = None
+
+
 def run_openclaw_call(agent_id: str, message: str, local: bool, thinking: str, timeout_s: int, session_id: str = "") -> str:
     cmd = ["openclaw", "agent", "--agent", agent_id, "--message", message, "--json"]
     if local:
@@ -897,6 +1014,11 @@ def run_openclaw_call(agent_id: str, message: str, local: bool, thinking: str, t
             f"STDOUT:\n{p.stdout}\n\n"
             f"STDERR:\n{p.stderr}\n"
         )
+    # Record real spend after the call, which is the first point where actual
+    # billed usage is available. Crossing the threshold emits a UI warning;
+    # it does not interrupt generation.
+    if _SPEND_TRACKER is not None:
+        _SPEND_TRACKER.record(p.stdout)
     return p.stdout
 
 
@@ -1136,6 +1258,40 @@ def find_and_compound_monotony(text: str) -> list[str]:
     return flagged
 
 
+# The model's single most repeated opener: a second-person hypothetical scenario
+# ("You walk into a room and...", "Imagine...", "When you say 'Hey Siri'...").
+# When every paragraph starts this way the whole book reads as one template.
+# Only the FIRST sentence is checked — a "you" address later in the paragraph is
+# fine; it's the opener that must vary.
+_SECOND_PERSON_OPENER_RE = re.compile(
+    r"^\s*[\"'“‘(]*\s*"
+    r"(?:"
+    r"you\b"                                  # "You walk into a room..."
+    r"|imagine\b|picture\b|consider\b"        # "Imagine..." / "Picture..."
+    r"|think\s+(?:about|of|back)\b"           # "Think about..."
+    r"|when\s+you\b|say\s+you\b|suppose\s+you\b|let'?s\b"  # "When you..." / "Let's..."
+    r"|ever\s+\w+(?:ed|en)?\b[^.?!]*\?"       # "Ever tripped in front of people?"
+    r"|here'?s\s+(?:a|an|the|what|why|how|something)\b"    # "Here's a sentence that..."
+    r")",
+    re.IGNORECASE,
+)
+
+
+def find_second_person_opener(text: str) -> list[str]:
+    """Return the opening sentence if the paragraph starts with the banned
+    second-person hypothetical opener, else an empty list. Checked per-line so
+    it works on both single paragraphs and multi-paragraph blocks."""
+    flagged: list[str] = []
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        first = re.split(r"(?<=[.!?])\s+", line, maxsplit=1)[0]
+        if _SECOND_PERSON_OPENER_RE.match(first):
+            flagged.append(first[:120])
+    return flagged
+
+
 _CHAPTER_TITLE_RE = re.compile(
     r"^\s*chapter\s+(?:\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|"
     r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\b",
@@ -1277,6 +1433,30 @@ def build_smooth_prompt(
     )
 
 
+def build_opener_fix_prompt(paragraph: str) -> str:
+    """Rewrite only the opening sentence of a paragraph that starts with the
+    banned second-person hypothetical scenario, keeping the rest intact."""
+    return (
+        "The paragraph below opens with a tired, overused shape: a second-person "
+        "hypothetical scenario that walks the reader through an imagined moment "
+        "(for example 'You walk into a room and...', 'Imagine...', 'Picture...', "
+        "'When you say...', 'Here's a...'). Every paragraph in this book opens the "
+        "same way and it has to stop.\n\n"
+        "Rewrite the paragraph so the FIRST sentence uses a different, stronger "
+        "opening. The new first sentence must NOT begin with 'you', 'imagine', "
+        "'picture', 'think about', 'when you', 'say you', 'here's', or 'let's', and "
+        "must not be an imagined 'you'-walkthrough. Good replacements: state a "
+        "concrete fact or number; make the plain point directly; name a specific "
+        "real example in the third person; or describe a concrete real-world detail. "
+        "Lead with the subject of the sentence, not with the reader.\n\n"
+        "Keep the rest of the paragraph's meaning, information, tone, and length the "
+        "same. It is fine to use 'you' later in the paragraph, just not as the opener. "
+        "Do not add new ideas and do not use dashes.\n\n"
+        f"Paragraph:\n{paragraph}\n\n"
+        "Output ONLY the rewritten paragraph. No preamble, no notes."
+    )
+
+
 def generate_clean_paragraph(
     agent_id: str,
     message: str,
@@ -1284,19 +1464,35 @@ def generate_clean_paragraph(
     thinking: str,
     timeout_s: int,
     session_id: str = "",
-    max_smooth_retries: int = 2,
-    max_template_retries: int = 3,
+    max_smooth_retries: int = 0,
+    max_template_retries: int = 0,
+    max_opener_retries: int = 1,
 ) -> str:
-    """Generate a paragraph, then verify it has no choppy short sentences and
-    no Hemingway-red 'very hard to read' sentences. If it does, ask the model
-    to rewrite naturally (split long ones, merge short ones). Keeps the best
-    version and never merges mechanically.
+    """Generate a paragraph and run the same quality checks as before, but
+    (per explicit cost-control instruction) no longer pays for a rewrite call
+    to fix what they find. Each retry call repeats the full ~24K-token
+    OpenClaw system-prompt overhead, so retries were roughly doubling cost
+    per heading. Defaults are 0: issues are still detected and logged, but
+    only fixed for free — via fix_comma_splices, pure Python, no API call.
 
-    Banned-template enforcement is a hard guarantee: text using the
-    negation-flip mold gets dedicated rewrite attempts, then a mechanical
-    splice fix, and if the pattern still survives this raises
-    TemplatePatternError instead of returning it."""
+    Banned-template enforcement remains a hard guarantee even at zero
+    retries: the free mechanical splice fix still runs, and a paragraph that
+    still carries the pattern after that is never shipped — it raises
+    TemplatePatternError so the caller skips the heading instead."""
     generated = call_openclaw(agent_id, message, local, thinking, timeout_s, session_id)
+
+    # Detection-only pass so quality issues are still visible in the log even
+    # when max_smooth_retries=0 means nothing gets spent fixing them via a
+    # second API call — only the free mechanical fixes below still apply.
+    if max_smooth_retries == 0:
+        short0, hard0 = find_problem_sentences(generated)
+        templated0 = find_template_sentences(generated)
+        andy0 = find_and_compound_monotony(generated)
+        issues0 = len(short0) + len(hard0) + len(templated0) + len(andy0)
+        if issues0:
+            print(f"  quality check: {len(hard0)} very-hard + {len(short0)} too-short + "
+                  f"{len(templated0)} templated + {len(andy0)} comma-and sentence(s) "
+                  f"— not rewritten (retries disabled for cost)", flush=True)
 
     for _ in range(max_smooth_retries):
         short, hard = find_problem_sentences(generated)
@@ -1350,6 +1546,28 @@ def generate_clean_paragraph(
             f"{max_template_retries} rewrite attempts: "
             + "; ".join(f'"{s[:80]}"' for s in leftovers[:3])
         )
+
+    # Second-person-opener fix: ONE targeted rewrite, and only when the tic is
+    # actually present (so cost is paid only for the offending paragraphs, not
+    # every one). This can't be fixed mechanically — only the opening sentence
+    # is regenerated, the rest of the paragraph is kept.
+    if max_opener_retries > 0 and find_second_person_opener(generated):
+        opener = find_second_person_opener(generated)[0]
+        print(f'  opener fix: paragraph starts with a second-person scenario '
+              f'("{opener[:50]}…") — rewriting the opening', flush=True)
+        fixed = call_openclaw(
+            agent_id, build_opener_fix_prompt(generated),
+            local, thinking, timeout_s, session_id,
+        )
+        # Accept only if it removed the tic and isn't degenerate.
+        if (len(fixed.split()) >= 0.6 * len(generated.split())
+                and not find_second_person_opener(fixed)
+                and not find_template_sentences(fixed)):
+            generated = fixed
+    else:
+        if find_second_person_opener(generated):
+            print("  opener check: second-person scenario opener (retries off) "
+                  "— not rewritten", flush=True)
 
     return generated
 
@@ -1718,7 +1936,29 @@ def main() -> int:
     ap.add_argument("--no-ai-outline", action="store_true",
                     help="Skip the AI outline analysis and use only the built-in style/pattern "
                          "detection for headings and subheadings.")
+    ap.add_argument("--no-text", action="store_true",
+                    help="Skip ALL text generation. The document already contains finished prose "
+                         "(human-written or previously generated); do not classify headings or "
+                         "write any paragraphs. Only run post-processing (formatting, images, KDP). "
+                         "Use this for already-written books so the writer can't mistake body "
+                         "paragraphs for outline headings and balloon the word count.")
+    ap.add_argument("--max-spend-usd", type=float, default=0.0,
+                    help="OpenClaw spend warning threshold for this run, in dollars, priced from "
+                         "each call's own usage report. Crossing it notifies the web UI while "
+                         "generation continues until the user explicitly stops it. "
+                         "0 (default) means no cap.")
     args = ap.parse_args()
+
+    # Spending warning, measured from real per-call usage (see run_openclaw_call).
+    # Set before any code path can reach an OpenClaw call.
+    global _SPEND_TRACKER
+    _SPEND_TRACKER = SpendTracker(args.max_spend_usd if args.max_spend_usd > 0 else None)
+    if _SPEND_TRACKER.limit_usd is not None:
+        print(
+            f"Spending warning: ${_SPEND_TRACKER.limit_usd:.2f} "
+            "(generation continues unless Stop is clicked)",
+            flush=True,
+        )
 
     # Load .env from project cwd and script directory (without overriding shell env vars).
     env_candidates = [
@@ -1860,8 +2100,8 @@ def main() -> int:
         print(f"Done: rewritten={rewritten}. File: {target}")
         return 0
 
-    if not args.agent:
-        print("ERROR: --agent is required (unless using --image-heading or --rewrite-heading).", file=sys.stderr)
+    if not args.agent and not args.no_text:
+        print("ERROR: --agent is required (unless using --image-heading, --rewrite-heading, or --no-text).", file=sys.stderr)
         return 2
 
     # Resolve session ID: explicit > persisted > new
@@ -1879,11 +2119,23 @@ def main() -> int:
 
     doc = Document(str(in_path))
 
-    # AI outline analysis: one model call labels every line as chapter,
-    # section, or other, so any outline format works. Style/pattern
-    # heuristics remain the fallback when the analysis is unavailable.
+    # Already-written book: skip ALL text generation. Do not classify
+    # headings and do not write paragraphs — the document is finished prose,
+    # and any heading-detection here risks mistaking a real body paragraph
+    # for an outline line and generating content under it (which ballooned a
+    # 29k-word book to 100k once). Fall straight through to post-processing
+    # (formatting, images, KDP) below.
+    if args.no_text:
+        print("Skipping text generation (--no-text): document already contains "
+              "finished prose. Running post-processing only.", flush=True)
+        # Ensure the output file exists for the post-processing stage, which
+        # reads from out_path.
+        if str(out_path) != str(in_path):
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            doc.save(str(out_path))
+
     ai_roles: Optional[dict] = None
-    if args.agent and not args.no_ai_outline:
+    if not args.no_text and args.agent and not args.no_ai_outline:
         outline_lines = [(_p.text or "").strip() for _p in doc.paragraphs if (_p.text or "").strip()]
         try:
             print("Analyzing outline structure with AI...", flush=True)
@@ -1912,21 +2164,24 @@ def main() -> int:
         return ai_roles.get(_normalize_outline_text(paragraph.text))
 
     # Pre-scan to count total work items for progress reporting.
+    # Skipped entirely under --no-text so nothing is treated as a heading.
     total_items = 0
-    for _p in doc.paragraphs:
-        if not (_p.text or "").strip():
-            continue
-        if ai_roles is not None:
-            if outline_role(_p) in ("chapter", "section"):
+    if not args.no_text:
+        for _p in doc.paragraphs:
+            if not (_p.text or "").strip():
+                continue
+            if ai_roles is not None:
+                if outline_role(_p) in ("chapter", "section"):
+                    total_items += 1
+            elif is_heading_paragraph(_p) or is_subheading_paragraph(_p):
                 total_items += 1
-        elif is_heading_paragraph(_p) or is_subheading_paragraph(_p):
-            total_items += 1
-    print(f"Found {total_items} headings/subheadings to process.")
+        print(f"Found {total_items} headings/subheadings to process.")
     processed_items = 0
     run_start = time.time()
 
     # We'll iterate by index because we need to look at nearby paragraphs.
-    i = 0
+    # `--no-text` sets i past the end so the whole generation loop is skipped.
+    i = len(doc.paragraphs) if args.no_text else 0
     while i < len(doc.paragraphs):
         p = doc.paragraphs[i]
         if ai_roles is not None:
@@ -2003,7 +2258,13 @@ def main() -> int:
                         local=args.local,
                         thinking=args.thinking,
                         timeout_s=args.timeout,
-                        session_id=session_id,
+                        # A fresh session per section, not the shared book-level
+                        # session_id. SOUL.md is explicit that headings are
+                        # independent and must not carry context from one to the
+                        # next, but a shared session resends the whole prior
+                        # conversation as input on every call, so cost grew
+                        # quadratically with section count for no quality benefit.
+                        session_id=str(uuid.uuid4()),
                     )
                 except TemplatePatternError as e:
                     print(f"  ERROR: {e}", file=sys.stderr)
@@ -2085,10 +2346,12 @@ def main() -> int:
         i += 1
 
     # Chapter-level cap: at most 4 uses of "just" per chapter across the book.
-    trimmed = enforce_chapter_just_budget(doc)
-    if trimmed:
-        doc.save(str(out_path))
-        print(f"'just' budget: trimmed extras in {trimmed} paragraph(s)", flush=True)
+    # Skipped under --no-text: never edit the human author's finished prose.
+    if not args.no_text:
+        trimmed = enforce_chapter_just_budget(doc)
+        if trimmed:
+            doc.save(str(out_path))
+            print(f"'just' budget: trimmed extras in {trimmed} paragraph(s)", flush=True)
 
     print(f"Done: {out_path}")
     image_target_path = out_path
@@ -2103,78 +2366,89 @@ def main() -> int:
         except Exception as e:
             print(f"WARNING: formatting failed — {e}", file=sys.stderr)
 
-        # Auto-run Hemingway clarity scrub on the formatted document via Playwright
+        # Auto-run Hemingway clarity scrub on the formatted document via Playwright.
+        # Skipped under --no-text: the clarity scrub REWRITES sentences, and an
+        # already-written book must keep the author's exact words.
         clear_path = formatted_path.with_stem(formatted_path.stem + "_clear")
-        print(f"\nClarity scrub → {clear_path}")
-        try:
-            from clarity_agent import (
-                extract_docx_text, save_text_to_docx,
-                process_document, HEMINGWAY_URL, PROFILE_DIR,
-            )
-            from playwright.sync_api import sync_playwright
+        if args.no_text:
+            print("Skipping Hemingway clarity scrub (--no-text): preserving the "
+                  "author's original wording.", flush=True)
+        else:
+            print(f"\nClarity scrub → {clear_path}")
+            try:
+                from clarity_agent import (
+                    extract_docx_text, save_text_to_docx,
+                    process_document, HEMINGWAY_URL, PROFILE_DIR,
+                )
+                from playwright.sync_api import sync_playwright
 
-            text = extract_docx_text(formatted_path)
-            if text.strip():
-                PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-                with sync_playwright() as pw:
-                    context = pw.chromium.launch_persistent_context(
-                        str(PROFILE_DIR),
-                        headless=True,
-                        permissions=["clipboard-read", "clipboard-write"],
-                    )
-                    page = context.pages[0] if context.pages else context.new_page()
-                    page.goto(HEMINGWAY_URL, wait_until="domcontentloaded", timeout=60000)
-                    page.wait_for_selector("[contenteditable='true']", timeout=30000)
+                text = extract_docx_text(formatted_path)
+                if text.strip():
+                    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+                    with sync_playwright() as pw:
+                        context = pw.chromium.launch_persistent_context(
+                            str(PROFILE_DIR),
+                            headless=True,
+                            permissions=["clipboard-read", "clipboard-write"],
+                        )
+                        page = context.pages[0] if context.pages else context.new_page()
+                        page.goto(HEMINGWAY_URL, wait_until="domcontentloaded", timeout=60000)
+                        page.wait_for_selector("[contenteditable='true']", timeout=30000)
 
-                    # Dismiss any modal dialog (e.g. video popup) before interacting
-                    try:
-                        from clarity_agent import dismiss_modal_dialogs
-                        dismiss_modal_dialogs(page)
-                    except ImportError:
-                        pass
+                        # Dismiss any modal dialog (e.g. video popup) before interacting
+                        try:
+                            from clarity_agent import dismiss_modal_dialogs
+                            dismiss_modal_dialogs(page)
+                        except ImportError:
+                            pass
 
-                    try:
-                        cleaned = process_document(page, text, max_passes=5)
-                    except Exception as exc:
-                        from clarity_agent import UpgradePlanRequired
-                        if isinstance(exc, UpgradePlanRequired) and exc.args:
-                            cleaned = exc.args[0]
-                        else:
-                            # For non-UpgradePlanRequired errors, keep original text
-                            cleaned = text
-                        print(f"  Clarity scrub stopped early: {exc}", file=sys.stderr)
-                    context.close()
+                        try:
+                            cleaned = process_document(page, text, max_passes=5)
+                        except Exception as exc:
+                            from clarity_agent import UpgradePlanRequired
+                            if isinstance(exc, UpgradePlanRequired) and exc.args:
+                                cleaned = exc.args[0]
+                            else:
+                                # For non-UpgradePlanRequired errors, keep original text
+                                cleaned = text
+                            print(f"  Clarity scrub stopped early: {exc}", file=sys.stderr)
+                        context.close()
 
-                cleaned = humanize_text(cleaned)
-                # Final gate: the scrub rewrites text after generation, so its
-                # output gets the same enforcement. If a banned pattern survives
-                # the mechanical fix, keep the pre-scrub (already gated) doc.
-                cleaned = fix_comma_splices(cleaned)
-                scrub_leftovers = find_template_sentences(cleaned)
-                if scrub_leftovers:
-                    raise RuntimeError(
-                        "clarity scrub output contains a banned 'not X, it's Y' "
-                        "pattern; keeping the pre-scrub document: "
-                        + "; ".join(f'"{s[:80]}"' for s in scrub_leftovers[:3])
-                    )
-                if cleaned.strip():
-                    save_text_to_docx(cleaned, clear_path)
-                    print(f"  Clarity scrub saved: {clear_path}")
-                    image_target_path = clear_path
+                    cleaned = humanize_text(cleaned)
+                    # Final gate: the scrub rewrites text after generation, so its
+                    # output gets the same enforcement. If a banned pattern survives
+                    # the mechanical fix, keep the pre-scrub (already gated) doc.
+                    cleaned = fix_comma_splices(cleaned)
+                    scrub_leftovers = find_template_sentences(cleaned)
+                    if scrub_leftovers:
+                        raise RuntimeError(
+                            "clarity scrub output contains a banned 'not X, it's Y' "
+                            "pattern; keeping the pre-scrub document: "
+                            + "; ".join(f'"{s[:80]}"' for s in scrub_leftovers[:3])
+                        )
+                    if cleaned.strip():
+                        save_text_to_docx(cleaned, clear_path)
+                        print(f"  Clarity scrub saved: {clear_path}")
+                        image_target_path = clear_path
+                    else:
+                        print("  WARNING: clarity scrub returned empty text, skipping.", file=sys.stderr)
                 else:
-                    print("  WARNING: clarity scrub returned empty text, skipping.", file=sys.stderr)
-            else:
-                print("  WARNING: no text in formatted doc, skipping clarity scrub.", file=sys.stderr)
-        except ImportError as e:
-            print(f"  INFO: clarity_agent not available ({e}), skipping. "
-                  f"Run manually: python clarity_agent.py {formatted_path}", file=sys.stderr)
-        except Exception as e:
-            print(f"  WARNING: clarity scrub failed — {e}", file=sys.stderr)
-            print(f"  Run manually: python clarity_agent.py {formatted_path}", file=sys.stderr)
+                    print("  WARNING: no text in formatted doc, skipping clarity scrub.", file=sys.stderr)
+            except ImportError as e:
+                print(f"  INFO: clarity_agent not available ({e}), skipping. "
+                      f"Run manually: python clarity_agent.py {formatted_path}", file=sys.stderr)
+            except Exception as e:
+                print(f"  WARNING: clarity scrub failed — {e}", file=sys.stderr)
+                print(f"  Run manually: python clarity_agent.py {formatted_path}", file=sys.stderr)
     else:
         print("\nSkipping formatting and clarity scrub (disabled for now).")
 
     # Insert images after post-processing so they survive format/clarity rewrite.
+    # This runs even under --no-text (already-written books): the caller opts in
+    # with --images, and insert_images_into_document only generates for headings
+    # that DON'T already have an image (it skips ones that do). Placement anchors
+    # to real docx headings via _select_heading_for_image, so a flat book with no
+    # heading styles simply gets nothing placed rather than misplaced images.
     if args.images:
         try:
             print(f"\nInserting images into final document → {image_target_path}")

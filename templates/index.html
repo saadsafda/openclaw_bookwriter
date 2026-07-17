@@ -485,6 +485,37 @@
             </div>
         </div>
 
+        <!-- Spending cap reached modal -->
+        <div id="budgetCapModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+                <div class="p-5 border-b border-gray-100 flex items-start gap-3">
+                    <span class="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center flex-shrink-0"><i class="fas fa-hand"></i></span>
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-900">Spending cap reached</h3>
+                        <p class="text-xs text-gray-500 mt-1">The book isn't finished yet, but generation is still running.</p>
+                    </div>
+                </div>
+                <div class="p-5">
+                    <div class="rounded-xl bg-gray-50 border border-gray-100 px-4 py-3 mb-4 flex items-center justify-between">
+                        <span class="text-sm text-gray-600">Spent so far</span>
+                        <span id="budgetCapSpent" class="text-lg font-bold text-gray-900 tabular-nums">$0.00</span>
+                    </div>
+                    <p class="text-sm text-gray-600 mb-4">
+                        Choose Continue to dismiss this notice and let the book keep generating,
+                        or Stop to end generation and keep the sections already saved.
+                    </p>
+                    <div class="flex gap-2 justify-end">
+                        <button id="budgetCapStop" type="button" class="px-4 py-2 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition">
+                            <i class="fas fa-stop mr-1"></i> Stop, keep what's done
+                        </button>
+                        <button id="budgetCapContinue" type="button" class="px-4 py-2 text-sm rounded-lg bg-indigo-600 text-white font-semibold hover:bg-indigo-700 transition">
+                            <i class="fas fa-play mr-1"></i> Continue
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- QR attach modal -->
         <div id="qrModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
             <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden">
@@ -715,6 +746,16 @@
                         <button id="btn-generate" class="btn-lift flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-indigo-600 via-indigo-600 to-purple-600 hover:shadow-lg hover:shadow-indigo-500/30 text-white rounded-xl text-sm font-semibold shadow-md transition disabled:from-gray-300 disabled:to-gray-300 disabled:shadow-none disabled:cursor-not-allowed flex-shrink-0 ml-auto">
                             <i class="fas fa-play text-xs"></i> {% if is_long_book %}Write Long Book{% else %}Write{% endif %}
                         </button>
+                    </div>
+
+                    <!-- Already-written toggle: shown once a file is picked. Format-only
+                         mode for finished documents so no text is generated over them. -->
+                    <div id="preWrittenRow" class="hidden mt-2.5 flex items-center gap-2 px-1">
+                        <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+                            <input type="checkbox" id="preWrittenToggle" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer">
+                            <span class="text-xs text-gray-600">This document is already written</span>
+                        </label>
+                        <span id="preWrittenHint" class="text-[11px] text-gray-400"></span>
                     </div>
                 </div>
                 <p class="text-center text-[11px] text-gray-400 mt-2.5">
@@ -1051,6 +1092,13 @@
 
                     setStatusBadge(book.status === "success" ? "Completed" : book.status === "error" ? "Failed" : book.status, book.status === "success" ? "success" : book.status);
 
+                    // Compatibility for a book paused by the older hard-cap
+                    // behavior. Continue will resume it; new jobs never pause.
+                    if (book.status === "budget_paused") {
+                        const cfg = book.config || {};
+                        showBudgetCapModal(cfg._budget_spent_usd || 0, cfg._budget_limit_usd || 0);
+                    }
+
                     // Re-enable buttons
                     btnGenerate.disabled = false;
                     loadHistory(); // refresh active highlight
@@ -1384,6 +1432,7 @@
                 const tone = type === 'running' ? 'bg-blue-50 border-blue-100 text-blue-700'
                            : type === 'error' ? 'bg-red-50 border-red-100 text-red-700'
                            : type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
+                           : type === 'budget_paused' ? 'bg-amber-50 border-amber-100 text-amber-700'
                            : 'bg-gray-100 border-gray-200/70 text-gray-600';
                 statusBadge.className = `inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded-full border ${tone}`;
                 statusBadge.innerHTML = `<span class="status-dot ${dotType}"></span> ${escapeHtml(String(statusText))}`;
@@ -1563,12 +1612,18 @@
                     if (!this.wrapper || !document.body.contains(this.wrapper) || this.finished) return;
                     this.finished = true;
                     this.errored = status === 'error';
-                    this.completeActive(status === 'error' ? 'warn' : 'done', '');
-                    this.dotEl.className = `status-dot gp-dot ${status === 'error' ? 'error' : 'success'}`;
+                    const icon = status === 'error' ? 'warn' : status === 'budget_paused' ? 'warn' : 'done';
+                    this.completeActive(icon, '');
+                    const dotTone = status === 'error' ? 'error' : status === 'budget_paused' ? 'idle' : 'success';
+                    this.dotEl.className = `status-dot gp-dot ${dotTone}`;
                     if (status === 'error') {
                         this.setStage('Stopped with an error', 'Open the terminal log for details');
                         this.pctEl.classList.remove('gradient-text');
                         this.pctEl.classList.add('text-red-500');
+                    } else if (status === 'budget_paused') {
+                        this.setStage('Paused — spending cap reached', 'Choose Continue or Stop');
+                        this.pctEl.classList.remove('gradient-text');
+                        this.pctEl.classList.add('text-amber-500');
                     } else {
                         this.setStage('Book generated', 'All steps finished');
                     }
@@ -1700,10 +1755,18 @@
                 if (!state.jobId || state.isPolling) return;
                 state.isPolling = true;
 
+                // Guard against a hung fetch: if a request never resolves,
+                // isPolling would stay true forever and every later tick would
+                // bail early — the UI freezes while setInterval keeps firing.
+                // A hard timeout aborts a stuck request so the finally block
+                // always runs and polling recovers on the next tick.
+                const pollCtl = new AbortController();
+                const pollTimer = setTimeout(() => pollCtl.abort(), 8000);
+
                 try {
                     const [statusRes, logsRes] = await Promise.all([
-                        fetch(`/api/jobs/${state.jobId}/status`),
-                        fetch(`/api/jobs/${state.jobId}/logs?from=${state.cursor}`)
+                        fetch(`/api/jobs/${state.jobId}/status`, { signal: pollCtl.signal }),
+                        fetch(`/api/jobs/${state.jobId}/logs?from=${state.cursor}`, { signal: pollCtl.signal })
                     ]);
 
                     if (statusRes.ok) {
@@ -1715,12 +1778,26 @@
                             state.hwLoginPromptedFor = state.jobId;
                             document.getElementById("hwLoginModal").classList.remove("hidden");
                         }
-                        
-                        if(status.status === 'success' || status.status === 'error') {
+
+                        // The spend threshold is only a warning: generation
+                        // remains running behind this modal.
+                        if (
+                            (status.status === 'running' && status.budget_cap_reached)
+                            || status.status === 'budget_paused'
+                        ) {
+                            showBudgetCapModal(status.budget_spent_usd, status.budget_limit_usd);
+                        }
+
+                        if(status.status === 'success' || status.status === 'error' || status.status === 'budget_paused') {
+                            if (status.status !== 'budget_paused' && !budgetCapModal.classList.contains("hidden")) {
+                                hideBudgetCapModal();
+                            }
                             genProgress.finalize(status.status);
                             if(currentLogBox) {
                                 const loader = currentLogBox.parentElement.querySelector('.loader');
-                                if(loader) loader.outerHTML = '<i class="fas fa-check-circle text-green-500"></i>';
+                                const iconClass = status.status === 'budget_paused'
+                                    ? 'fas fa-hand text-amber-500' : 'fas fa-check-circle text-green-500';
+                                if(loader) loader.outerHTML = `<i class="${iconClass}"></i>`;
                                 currentLogBox = null;
                             }
                             btnGenerate.disabled = false;
@@ -1768,16 +1845,63 @@
                 } catch (e) {
                      console.error("Polling error", e);
                 } finally {
+                    clearTimeout(pollTimer);
                     state.isPolling = false;
                 }
             }
 
             setInterval(pollJob, 1000);
 
+            const preWrittenRow = document.getElementById("preWrittenRow");
+            const preWrittenToggle = document.getElementById("preWrittenToggle");
+            const preWrittenHint = document.getElementById("preWrittenHint");
+            // Tracks whether the current toggle state came from the auto-guess
+            // (so a later re-detection may update it) or from a manual user click
+            // (which must never be overwritten).
+            let preWrittenUserSet = false;
+
+            preWrittenToggle && preWrittenToggle.addEventListener("change", () => {
+                preWrittenUserSet = true;
+                preWrittenHint.textContent = preWrittenToggle.checked
+                    ? "Format only — no text will be generated."
+                    : "The AI will generate content for each heading.";
+            });
+
+            async function previewPreWritten(formDataForDetect) {
+                try {
+                    const res = await fetch("/api/detect-pre-written", { method: "POST", body: formDataForDetect });
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    preWrittenRow.classList.remove("hidden");
+                    if (!preWrittenUserSet) {
+                        preWrittenToggle.checked = !!data.pre_written;
+                    }
+                    const wc = (data.word_count || 0).toLocaleString();
+                    preWrittenHint.textContent = preWrittenToggle.checked
+                        ? `Detected finished prose (~${wc} words). Format only, no generation.`
+                        : `Looks like an outline (~${wc} words). AI will write each section.`;
+                } catch (e) { /* detection is best-effort; toggle still works manually */ }
+            }
+
             fileUpload.addEventListener("change", () => {
                 if(fileUpload.files.length > 0) {
                     layoutPath.value = fileUpload.files[0].name;
                     document.getElementById("current-doc-title").textContent = fileUpload.files[0].name;
+                    preWrittenUserSet = false;  // new file → allow auto-guess to set it
+                    const fd = new FormData();
+                    fd.append("layout_file", fileUpload.files[0]);
+                    previewPreWritten(fd);
+                }
+            });
+
+            // Also detect when the user pastes/types a local path (blur = done editing).
+            layoutPath.addEventListener("change", () => {
+                const v = layoutPath.value.trim();
+                if (v && v.toLowerCase().endsWith(".docx") && fileUpload.files.length === 0) {
+                    preWrittenUserSet = false;
+                    const fd = new FormData();
+                    fd.append("layout_path", v);
+                    previewPreWritten(fd);
                 }
             });
 
@@ -1795,6 +1919,13 @@
                 formData.append('layout_path', layoutPath.value);
                 if(fileUpload.files.length > 0) {
                     formData.append('layout_file', fileUpload.files[0]);
+                }
+                // Explicit already-written choice if the toggle is showing;
+                // otherwise "auto" lets the server fall back to detection.
+                if (!preWrittenRow.classList.contains("hidden")) {
+                    formData.set('pre_written', preWrittenToggle.checked ? 'yes' : 'no');
+                } else {
+                    formData.set('pre_written', 'auto');
                 }
 
                 currentLogBox = null;
@@ -2272,6 +2403,89 @@
                 rawTextClose.addEventListener("click", closeRawTextModal);
                 rawTextModal.addEventListener("click", (e) => { if (e.target === rawTextModal) closeRawTextModal(); });
                 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeRawTextModal(); });
+            }
+
+            // ----- Spending cap modal -----
+            const budgetCapModal = document.getElementById("budgetCapModal");
+            const budgetCapSpentEl = document.getElementById("budgetCapSpent");
+            const budgetCapStopBtn = document.getElementById("budgetCapStop");
+            const budgetCapContinueBtn = document.getElementById("budgetCapContinue");
+            let budgetCapActedOnJob = null;
+            let budgetCapBusy = false;
+
+            function resetBudgetCapButtons() {
+                budgetCapContinueBtn.disabled = false;
+                budgetCapStopBtn.disabled = false;
+                budgetCapContinueBtn.innerHTML = '<i class="fas fa-play mr-1"></i> Continue';
+                budgetCapStopBtn.innerHTML = '<i class="fas fa-stop mr-1"></i> Stop, keep what\'s done';
+            }
+
+            function hideBudgetCapModal() {
+                budgetCapModal.classList.add("hidden");
+                resetBudgetCapButtons();
+            }
+
+            function showBudgetCapModal(spentUsd) {
+                // The poller runs every second, so keep the notice idempotent
+                // and do not reopen it after the user has chosen an action.
+                if (budgetCapBusy) return;
+                if (budgetCapActedOnJob === state.jobId) return;
+                if (!budgetCapModal.classList.contains("hidden")) return;
+                budgetCapSpentEl.textContent = `$${(Number(spentUsd) || 0).toFixed(2)}`;
+                resetBudgetCapButtons();
+                budgetCapModal.classList.remove("hidden");
+            }
+
+            if (budgetCapModal) {
+                budgetCapContinueBtn.addEventListener("click", async () => {
+                    if (budgetCapBusy) return;
+                    budgetCapBusy = true;
+                    budgetCapActedOnJob = state.jobId;
+                    hideBudgetCapModal();
+                    try {
+                        const res = await fetch(`/api/jobs/${state.jobId}/budget/continue`, {
+                            method: "POST",
+                        });
+                        if (!res.ok) {
+                            const data = await res.json().catch(() => ({}));
+                            throw new Error(data.error || `HTTP ${res.status}`);
+                        }
+                        const data = await res.json().catch(() => ({}));
+                        if (data.resumed) {
+                            btnGenerate.disabled = true;
+                            genProgress.finished = false;
+                            genProgress.setStage('Resuming generation', 'Continuing saved sections…');
+                        }
+                    } catch (err) {
+                        budgetCapActedOnJob = null;
+                        alert("Could not continue: " + err.message);
+                    } finally {
+                        budgetCapBusy = false;
+                    }
+                });
+
+                budgetCapStopBtn.addEventListener("click", async () => {
+                    if (budgetCapBusy) return;
+                    budgetCapBusy = true;
+                    budgetCapActedOnJob = state.jobId;
+                    budgetCapContinueBtn.disabled = true;
+                    budgetCapStopBtn.disabled = true;
+                    budgetCapStopBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Stopping…';
+                    try {
+                        const res = await fetch(`/api/jobs/${state.jobId}/budget/stop`, { method: "POST" });
+                        if (!res.ok) {
+                            const data = await res.json().catch(() => ({}));
+                            throw new Error(data.error || `HTTP ${res.status}`);
+                        }
+                        hideBudgetCapModal();
+                    } catch (err) {
+                        budgetCapActedOnJob = null;
+                        resetBudgetCapButtons();
+                        alert("Could not stop cleanly: " + err.message);
+                    } finally {
+                        budgetCapBusy = false;
+                    }
+                });
             }
 
             // ----- Hemingway login modal -----

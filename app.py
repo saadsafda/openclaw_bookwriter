@@ -1,8 +1,10 @@
-#!/usr/bin/env python3
 from __future__ import annotations
 
 import json
+import os
+import re
 import shlex
+import signal
 import subprocess
 import sys
 import threading
@@ -60,7 +62,14 @@ DEFAULTS: dict[str, Any] = {
     "words_max": 320,
     "subwords": 250,
     "subwords_max": 320,
-    "thinking": "",
+    # Empty string used to mean "let OpenClaw pick" — but OpenClaw's own
+    # default in that case is "adaptive" thinking (confirmed from a live
+    # call's requestShaping.thinking field), which lets the model reason at
+    # open-ended length before writing each paragraph. That's real added
+    # latency and cost for a task (write a ~300-word paragraph from a
+    # detailed, fully-specified prompt) that doesn't need deep reasoning.
+    # "off" skips that reasoning step entirely.
+    "thinking": "off",
     "timeout": 180,
     "images": True,
     "force": False,
@@ -69,6 +78,10 @@ DEFAULTS: dict[str, Any] = {
     "image_size": "1024x1536",
     "image_quality": "high",
     "image_width": 5.5,
+    # Warning threshold for real OpenClaw spend per generation run. Reaching
+    # it opens a Continue/Stop modal, but the writer keeps running unless the
+    # user explicitly chooses Stop.
+    "max_spend_usd": 15.0,
 }
 
 LONG_BOOK_MIN_PAGES = 600
@@ -96,6 +109,13 @@ class Job:
     pre_written: bool = False
     custom_title: str = ""
     hemingway_login_required: bool = False
+    # Set when the writer crosses the configured spend warning. Generation
+    # keeps running; the frontend uses this only to show Continue/Stop.
+    budget_paused: bool = False
+    budget_spent_usd: float = 0.0
+    budget_limit_usd: float = 0.0
+    stop_requested: bool = False
+    active_process: subprocess.Popen[str] | None = field(default=None, repr=False)
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -136,6 +156,8 @@ def _rehydrate_job_from_db(job_id: str) -> Job | None:
     derived_title = _derive_title(book.get("input_docx") or job_id)
     stored_title = (book.get("title") or "").strip()
     custom_title = stored_title if stored_title and stored_title != derived_title else ""
+    config = dict(book.get("config") or {})
+    status = book.get("status") or "success"
     return Job(
         id=job_id,
         input_docx=book.get("input_docx") or "",
@@ -143,13 +165,16 @@ def _rehydrate_job_from_db(job_id: str) -> Job | None:
         final_docx=final_docx,
         kindle_docx=book.get("kindle_docx") or "",
         paperback_docx=book.get("paperback_docx") or "",
-        status=book.get("status") or "success",
+        status=status,
         headings=list(book.get("headings") or []),
         listing=dict(book.get("listing") or {}),
         logs=list(book.get("logs") or []),
-        config=dict(book.get("config") or {}),
+        config=config,
         pre_written=bool(book.get("pre_written") or 0),
         custom_title=custom_title,
+        budget_paused=status == "budget_paused",
+        budget_spent_usd=float(config.get("_budget_spent_usd", 0) or 0),
+        budget_limit_usd=float(config.get("_budget_limit_usd", 0) or 0),
         created_at=float(book.get("created_at") or time.time()),
         updated_at=float(book.get("updated_at") or time.time()),
     )
@@ -176,6 +201,12 @@ _HEMINGWAY_LOGIN_MARKERS = (
     "button is not appearing",
 )
 
+# Machine-parseable line openclaw_docx_writer.py prints once when its spend
+# warning threshold is crossed. The writer continues running after this line.
+_BUDGET_CAP_RE = re.compile(
+    r"BUDGET_CAP_HIT spent_usd=([\d.]+) limit_usd=([\d.]+) calls=(\d+)"
+)
+
 
 def _append_log(job: Job, text: str) -> None:
     line = f"[{_timestamp()}] {text}"
@@ -184,6 +215,13 @@ def _append_log(job: Job, text: str) -> None:
         job.logs.append(line)
         if any(marker in low for marker in _HEMINGWAY_LOGIN_MARKERS):
             job.hemingway_login_required = True
+        m = _BUDGET_CAP_RE.search(text)
+        if m:
+            job.budget_paused = True
+            job.budget_spent_usd = float(m.group(1))
+            job.budget_limit_usd = float(m.group(2))
+            job.config["_budget_spent_usd"] = job.budget_spent_usd
+            job.config["_budget_limit_usd"] = job.budget_limit_usd
         job.updated_at = time.time()
 
 
@@ -298,7 +336,28 @@ def _pick_final_doc(output_doc: Path, logs: list[str]) -> Path:
     return output_doc
 
 
+# Exit code openclaw_docx_writer.py returns specifically when it stops itself
+# because --max-spend-usd was hit (see its __main__ block). Distinct from
+# every other nonzero exit so the web UI can offer Continue/Stop instead of
+# reporting a plain error.
+_BUDGET_CAP_EXIT_CODE = 3
+
+
+class BudgetPausedError(RuntimeError):
+    """The writer stopped itself on purpose because it hit its spending cap
+    (not a crash). Caught separately in _run_generation to flag the job for
+    the Continue/Stop modal instead of marking it a hard failure."""
+
+
+class GenerationStoppedError(RuntimeError):
+    """The user explicitly stopped an active generation subprocess."""
+
+
 def _stream_command(job: Job, cmd: list[str]) -> None:
+    with job.lock:
+        if job.stop_requested:
+            raise GenerationStoppedError("Generation stopped by user.")
+
     pretty = " ".join(shlex.quote(part) for part in cmd)
     _append_log(job, f"$ {pretty}")
 
@@ -309,16 +368,32 @@ def _stream_command(job: Job, cmd: list[str]) -> None:
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
+        start_new_session=True,
     )
+    with job.lock:
+        job.active_process = proc
 
-    assert proc.stdout is not None
-    for raw_line in proc.stdout:
-        line = raw_line.rstrip("\n")
-        if line.strip():
-            _append_log(job, line)
-    proc.stdout.close()
+    try:
+        assert proc.stdout is not None
+        for raw_line in proc.stdout:
+            line = raw_line.rstrip("\n")
+            if line.strip():
+                _append_log(job, line)
+        proc.stdout.close()
+        rc = proc.wait()
+    finally:
+        with job.lock:
+            stopped_by_user = job.stop_requested
+            if job.active_process is proc:
+                job.active_process = None
 
-    rc = proc.wait()
+    if stopped_by_user:
+        raise GenerationStoppedError("Generation stopped by user.")
+    if rc == _BUDGET_CAP_EXIT_CODE:
+        raise BudgetPausedError(
+            f"Writer stopped: spending cap reached (${job.budget_spent_usd:.2f} "
+            f"of ${job.budget_limit_usd:.2f})."
+        )
     if rc != 0:
         raise RuntimeError(f"Command failed with exit code {rc}")
 
@@ -355,17 +430,8 @@ def _run_kdp_formatting(job: Job, source_doc: Path) -> tuple[Path, Path]:
     return kindle_doc, paperback_doc
 
 
-def _run_generation(job_id: str) -> None:
-    job = _get_job(job_id)
-    cfg = dict(job.config)
-
-    _set_status(job, "running", action="generating_book", error="")
-
+def _build_generation_cmd(job: Job, cfg: dict[str, Any], max_spend_usd: float) -> list[str]:
     input_doc = Path(job.input_docx)
-    output_doc = input_doc
-
-    # Keep the main write action minimal and predictable:
-    # .venv/bin/python openclaw_docx_writer.py <input.docx> --agent main --images --image-model gpt-image-1
     cmd = [
         str(PYTHON_BIN),
         str(ROOT_DIR / "openclaw_docx_writer.py"),
@@ -373,38 +439,143 @@ def _run_generation(job_id: str) -> None:
         "--agent",
         str(cfg["agent"]),
         "--no-cache",
-        "--images",
         "--image-model",
         str(cfg["image_model"]),
+        "--max-spend-usd",
+        str(max_spend_usd),
     ]
-
+    # Already-written book: never generate TEXT (--no-text). This is the fix
+    # for a human-written book whose paragraph formatting confused the heading
+    # detector into "filling in" content under real paragraphs (a 29k-word
+    # book ballooned to 100k). --no-text short-circuits all text generation.
+    if job.pre_written:
+        cmd.append("--no-text")
+    # Images are independent of text: when the "Generate Images" toggle is on,
+    # pass --images for BOTH already-written and outline books. For an
+    # already-written book the writer still runs the image pass, and
+    # insert_images_into_document only creates images for headings that don't
+    # already have one (existing images are left alone). Default True keeps
+    # backward behavior for outline books that predate this config field.
+    if cfg.get("images", True):
+        cmd.append("--images")
+    # Was never actually passed before — openclaw_docx_writer.py only adds
+    # --thinking to the openclaw call when this is non-empty (see
+    # run_openclaw_call), so an empty/missing value here silently left every
+    # call on OpenClaw's own default, which is "adaptive" reasoning — real
+    # added latency and cost per paragraph. Always pass it explicitly now.
+    thinking = str(cfg.get("thinking") or DEFAULTS["thinking"])
+    cmd.extend(["--thinking", thinking])
     if cfg.get("openai_api_key"):
         cmd.extend(["--openai-api-key", str(cfg["openai_api_key"])])
+    return cmd
 
-    try:
-        _stream_command(job, cmd)
 
+def _finish_generation(job: Job, output_doc: Path) -> None:
+    """Shared tail of a successful (or resumed-and-now-successful) generation
+    run: pick the final doc, run KDP formatting, record results.
+
+    For an already-written book (job.pre_written) the chosen behavior is
+    formatting only — the writer already applied book formatting, so skip the
+    KDP Kindle/paperback conversion here and keep the author's document as-is.
+    """
+    with job.lock:
+        final_doc = _pick_final_doc(output_doc, job.logs)
+        job.final_docx = str(final_doc)
+        pre_written = bool(job.pre_written)
+
+    headings = _list_image_headings(final_doc) if final_doc.exists() else []
+
+    if pre_written:
         with job.lock:
-            final_doc = _pick_final_doc(output_doc, job.logs)
-            job.final_docx = str(final_doc)
-
-        headings = _list_image_headings(final_doc) if final_doc.exists() else []
+            job.headings = headings
+            images_on = bool(job.config.get("images", True))
+        _append_log(job, f"Ready. Formatted document: {final_doc}")
+        extra = " Images were generated for headings that lacked one." if images_on else ""
+        _append_log(job, "Already-written book: skipped text generation and KDP "
+                         "conversion; formatting was applied." + extra)
+    else:
         kindle_doc, paperback_doc = _run_kdp_formatting(job, final_doc)
         with job.lock:
             job.headings = headings
             job.kindle_docx = str(kindle_doc)
             job.paperback_docx = str(paperback_doc)
-
         _append_log(job, f"Ready. Final document: {final_doc}")
         _append_log(job, f"Kindle output: {kindle_doc}")
         _append_log(job, f"Paperback output: {paperback_doc}")
 
-        # Landing page + QR is now manual-only (use the QR button in the UI).
+    with job.lock:
+        job.budget_paused = False
+    _set_status(job, "success", action="", error="")
+    _sync_job_to_db(job)
 
-        _set_status(job, "success", action="", error="")
+
+def _run_generation(job_id: str, max_spend_usd: float | None = None) -> None:
+    """Run (or resume) book generation. Sections already written to the
+    output .docx are skipped by the writer regardless of --no-cache (see
+    skip_text_generation in openclaw_docx_writer.py), so calling this again
+    after a budget pause only pays for what's still missing."""
+    job = _get_job(job_id)
+    cfg = dict(job.config)
+
+    with job.lock:
+        job.budget_paused = False
+        job.budget_spent_usd = 0.0
+        job.budget_limit_usd = 0.0
+        job.stop_requested = False
+    _set_status(job, "running", action="generating_book", error="")
+
+    input_doc = Path(job.input_docx)
+    output_doc = input_doc
+
+    spend_cap = max_spend_usd if max_spend_usd is not None else float(
+        cfg.get("max_spend_usd", DEFAULTS["max_spend_usd"])
+    )
+    cmd = _build_generation_cmd(job, cfg, spend_cap)
+
+    try:
+        _stream_command(job, cmd)
+        _finish_generation(job, output_doc)
+        # Landing page + QR is now manual-only (use the QR button in the UI).
+    except GenerationStoppedError:
+        _append_log(job, "User chose Stop. Keeping the book as generated so far.")
+        with job.lock:
+            job.stop_requested = False
+            job.budget_paused = False
+        try:
+            _finish_generation(job, output_doc)
+        except Exception as exc:
+            _append_log(job, f"ERROR finalizing partial book: {exc}")
+            _set_status(job, "error", action="", error=str(exc))
+            _sync_job_to_db(job)
+    except BudgetPausedError as exc:
+        # Compatibility with jobs created by the older writer, which exited
+        # at the threshold. New runs only warn and continue.
+        _append_log(job, str(exc))
+        with job.lock:
+            job.config["_budget_spent_usd"] = job.budget_spent_usd
+            job.config["_budget_limit_usd"] = job.budget_limit_usd
+        _set_status(job, "budget_paused", action="", error="")
         _sync_job_to_db(job)
     except Exception as exc:
         _append_log(job, f"ERROR: {exc}")
+        _set_status(job, "error", action="", error=str(exc))
+        _sync_job_to_db(job)
+
+
+def _resume_generation(job_id: str, new_max_spend_usd: float) -> None:
+    """Resume a legacy job that was paused by the older hard-cap behavior."""
+    _run_generation(job_id, max_spend_usd=new_max_spend_usd)
+
+
+def _finalize_legacy_stopped_job(job_id: str) -> None:
+    """Finalize output from a job paused by the previous hard-cap behavior."""
+    job = _get_job(job_id)
+    output_doc = Path(job.output_docx)
+    _set_status(job, "running", action="finalizing_partial_book", error="")
+    try:
+        _finish_generation(job, output_doc)
+    except Exception as exc:
+        _append_log(job, f"ERROR finalizing partial book: {exc}")
         _set_status(job, "error", action="", error=str(exc))
         _sync_job_to_db(job)
 
@@ -1113,6 +1284,40 @@ def create_landing_qr(job_id: str) -> Any:
     return jsonify({"ok": True, "page_title": page_title})
 
 
+@app.post("/api/detect-pre-written")
+def detect_pre_written_preview() -> Any:
+    """Preview whether an uploaded/selected .docx looks already-written, so the
+    upload form can pre-fill the 'already written' toggle. Does not create a
+    job; the file (if uploaded here) is inspected and discarded."""
+    upload = request.files.get("layout_file")
+    layout_path_raw = (request.form.get("layout_path") or "").strip()
+
+    tmp_path: Path | None = None
+    try:
+        if upload and upload.filename:
+            if not upload.filename.lower().endswith(".docx"):
+                return jsonify({"error": "File must be .docx"}), 400
+            tmp_path = UPLOAD_DIR / f"_detect_{uuid.uuid4().hex[:8]}.docx"
+            upload.save(str(tmp_path))
+            doc_path = tmp_path
+        elif layout_path_raw:
+            doc_path = Path(layout_path_raw).expanduser().resolve()
+            if not doc_path.exists() or doc_path.suffix.lower() != ".docx":
+                return jsonify({"error": "Path must point to an existing .docx"}), 400
+        else:
+            return jsonify({"error": "Provide layout_file or layout_path"}), 400
+
+        pre_written = _detect_pre_written(doc_path)
+        try:
+            word_count = sum(len((p.text or "").split()) for p in Document(str(doc_path)).paragraphs)
+        except Exception:
+            word_count = 0
+        return jsonify({"pre_written": pre_written, "word_count": word_count})
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+
+
 @app.post("/api/jobs")
 def create_job() -> Any:
     upload = request.files.get("layout_file")
@@ -1161,6 +1366,9 @@ def create_job() -> Any:
 
     cfg: dict[str, Any] = {
         "agent": chosen_agent,
+        # HTML checkbox: unchecked sends nothing, checked sends a value. So
+        # presence of the "images" form field == toggle is on.
+        "images": request.form.get("images") is not None,
         "image_prompt_variant": (request.form.get("image_prompt_variant") or DEFAULTS["image_prompt_variant"]).strip() or DEFAULTS["image_prompt_variant"],
         "image_model": (request.form.get("image_model") or DEFAULTS["image_model"]).strip() or DEFAULTS["image_model"],
         "image_size": (request.form.get("image_size") or DEFAULTS["image_size"]).strip() or DEFAULTS["image_size"],
@@ -1177,7 +1385,19 @@ def create_job() -> Any:
     if cfg["image_prompt_variant"] not in image_maker.PROMPT_VARIANTS:
         return jsonify({"error": "Invalid image prompt variant"}), 400
 
-    pre_written = _detect_pre_written(input_doc)
+    # "Already written" mode: format only, don't generate. The user's explicit
+    # choice from the upload form wins; if they left it on "auto", fall back to
+    # the word-counting heuristic. Accepted values for the form field:
+    #   "yes"/"true"/"1" -> force already-written
+    #   "no"/"false"/"0" -> force generate
+    #   "" / "auto" / missing -> auto-detect
+    pre_written_choice = (request.form.get("pre_written") or "auto").strip().lower()
+    if pre_written_choice in ("yes", "true", "1", "on"):
+        pre_written = True
+    elif pre_written_choice in ("no", "false", "0", "off"):
+        pre_written = False
+    else:
+        pre_written = _detect_pre_written(input_doc)
 
     job = Job(
         id=job_id,
@@ -1229,10 +1449,82 @@ def job_status(job_id: str) -> Any:
                 "listing": dict(job.listing) if job.listing else {},
                 "pre_written": bool(job.pre_written),
                 "hemingway_login_required": bool(job.hemingway_login_required),
+                "budget_paused": bool(job.budget_paused),
+                "budget_cap_reached": bool(job.budget_paused),
+                "budget_spent_usd": job.budget_spent_usd,
+                "budget_limit_usd": job.budget_limit_usd,
                 "created_at": job.created_at,
                 "updated_at": job.updated_at,
             }
         )
+
+
+@app.post("/api/jobs/<job_id>/budget/continue")
+def job_budget_continue(job_id: str) -> Any:
+    """Dismiss the warning while generation continues.
+
+    Jobs paused by the previous hard-cap implementation are resumed for
+    backward compatibility; already-written sections are skipped.
+    """
+    job = _get_job(job_id)
+    with job.lock:
+        legacy_paused = job.status == "budget_paused"
+        warning_visible = job.budget_paused
+        if job.status in {"success", "error"}:
+            return jsonify({"ok": True, "resumed": False, "already_finished": True})
+        if job.status == "running" and not warning_visible:
+            return jsonify({"ok": True, "resumed": False, "already_dismissed": True})
+        if not legacy_paused and not (job.status == "running" and warning_visible):
+            return jsonify({"error": "No spending warning is active."}), 409
+        current_limit = job.budget_limit_usd or float(
+            job.config.get("max_spend_usd", DEFAULTS["max_spend_usd"])
+        )
+        job.budget_paused = False
+
+    if legacy_paused:
+        _append_log(job, "Continue selected. Resuming the previously paused generation.")
+        t = threading.Thread(
+            target=_resume_generation,
+            args=(job_id, current_limit),
+            daemon=True,
+        )
+        t.start()
+        return jsonify({"ok": True, "resumed": True})
+
+    _append_log(job, "Continue selected. Spending warning dismissed; generation is still running.")
+    return jsonify({"ok": True, "resumed": False})
+
+
+@app.post("/api/jobs/<job_id>/budget/stop")
+def job_budget_stop(job_id: str) -> Any:
+    """Stop the active writer and keep all sections already saved to disk."""
+    job = _get_job(job_id)
+    with job.lock:
+        legacy_paused = job.status == "budget_paused"
+        if job.status == "success":
+            return jsonify({"ok": True, "stopping": False, "already_finished": True})
+        if not legacy_paused and not (job.status == "running" and job.budget_paused):
+            return jsonify({"error": "No spending warning is active."}), 409
+        job.budget_paused = False
+        job.stop_requested = not legacy_paused
+        proc = job.active_process
+
+    _append_log(job, "Stop selected. Ending generation and keeping completed sections.")
+
+    if legacy_paused:
+        t = threading.Thread(target=_finalize_legacy_stopped_job, args=(job_id,), daemon=True)
+        t.start()
+        return jsonify({"ok": True, "stopping": True}), 202
+
+    if proc is not None and proc.poll() is None:
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError):
+            try:
+                proc.terminate()
+            except OSError:
+                pass
+    return jsonify({"ok": True, "stopping": True}), 202
 
 
 @app.get("/api/jobs/<job_id>/logs")
