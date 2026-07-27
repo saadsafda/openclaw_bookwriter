@@ -1457,7 +1457,7 @@ def build_opener_fix_prompt(paragraph: str) -> str:
     )
 
 
-def generate_clean_paragraph(
+def _generate_clean_paragraph_once(
     agent_id: str,
     message: str,
     local: bool,
@@ -1478,7 +1478,7 @@ def generate_clean_paragraph(
     Banned-template enforcement remains a hard guarantee even at zero
     retries: the free mechanical splice fix still runs, and a paragraph that
     still carries the pattern after that is never shipped — it raises
-    TemplatePatternError so the caller skips the heading instead."""
+    TemplatePatternError so generate_clean_paragraph can resample."""
     generated = call_openclaw(agent_id, message, local, thinking, timeout_s, session_id)
 
     # Detection-only pass so quality issues are still visible in the log even
@@ -1570,6 +1570,50 @@ def generate_clean_paragraph(
                   "— not rewritten", flush=True)
 
     return generated
+
+
+def generate_clean_paragraph(
+    agent_id: str,
+    message: str,
+    local: bool,
+    thinking: str,
+    timeout_s: int,
+    session_id: str = "",
+    max_smooth_retries: int = 0,
+    max_template_retries: int = 0,
+    max_opener_retries: int = 1,
+    max_regen_attempts: int = 2,
+) -> str:
+    """Generate a paragraph, resampling from scratch when the banned template
+    survives the free mechanical fix. The old behavior skipped the heading and
+    told the user to re-run the whole job; that re-run pays for the exact same
+    fresh generation call this retry makes, so resampling here costs nothing
+    extra — it just removes the manual step. Each attempt uses a new session
+    so it is an independent sample, not a conversation that re-reads the
+    rejected text. Raises TemplatePatternError only when every attempt still
+    carries the pattern."""
+    attempts_left = 1 + max(0, max_regen_attempts)
+    while True:
+        try:
+            return _generate_clean_paragraph_once(
+                agent_id=agent_id,
+                message=message,
+                local=local,
+                thinking=thinking,
+                timeout_s=timeout_s,
+                session_id=session_id,
+                max_smooth_retries=max_smooth_retries,
+                max_template_retries=max_template_retries,
+                max_opener_retries=max_opener_retries,
+            )
+        except TemplatePatternError:
+            attempts_left -= 1
+            if attempts_left <= 0:
+                raise
+            print(f"  banned template survived the mechanical fix — "
+                  f"regenerating from scratch ({attempts_left} attempt(s) left)",
+                  flush=True)
+            session_id = str(uuid.uuid4())
 
 
 def call_openclaw_for_image(message: str, local: bool, thinking: str, timeout_s: int, session_id: str = "") -> str:
@@ -2177,6 +2221,7 @@ def main() -> int:
                 total_items += 1
         print(f"Found {total_items} headings/subheadings to process.")
     processed_items = 0
+    skipped_headings: list[str] = []
     run_start = time.time()
 
     # We'll iterate by index because we need to look at nearby paragraphs.
@@ -2270,6 +2315,7 @@ def main() -> int:
                     print(f"  ERROR: {e}", file=sys.stderr)
                     print("  Heading left empty (banned pattern is never written to the book); "
                           "re-run to fill it.", flush=True)
+                    skipped_headings.append(heading)
                     i += 1
                     continue
                 call_dur = time.time() - call_start
@@ -2353,6 +2399,13 @@ def main() -> int:
             doc.save(str(out_path))
             print(f"'just' budget: trimmed extras in {trimmed} paragraph(s)", flush=True)
 
+    if skipped_headings:
+        print(f"WARNING: {len(skipped_headings)} section(s) still empty after "
+              "all regeneration attempts:", flush=True)
+        for h in skipped_headings:
+            print(f"  - {h[:80]}", flush=True)
+        print("Re-run the job to retry the empty sections.", flush=True)
+
     print(f"Done: {out_path}")
     image_target_path = out_path
     if ENABLE_AUTO_POSTPROCESS:
@@ -2367,79 +2420,79 @@ def main() -> int:
             print(f"WARNING: formatting failed — {e}", file=sys.stderr)
 
         # Auto-run Hemingway clarity scrub on the formatted document via Playwright.
-        # Skipped under --no-text: the clarity scrub REWRITES sentences, and an
-        # already-written book must keep the author's exact words.
+        # Runs even under --no-text (already-written books): the scrub only
+        # tightens/clarifies existing sentences, it doesn't invent new content,
+        # and it has its own safeguards (fix_comma_splices, banned-pattern
+        # check below) that fall back to the pre-scrub doc if anything looks
+        # off. An already-written book still needs the clarity pass — the
+        # thing --no-text protects is generation, not this step.
         clear_path = formatted_path.with_stem(formatted_path.stem + "_clear")
-        if args.no_text:
-            print("Skipping Hemingway clarity scrub (--no-text): preserving the "
-                  "author's original wording.", flush=True)
-        else:
-            print(f"\nClarity scrub → {clear_path}")
-            try:
-                from clarity_agent import (
-                    extract_docx_text, save_text_to_docx,
-                    process_document, HEMINGWAY_URL, PROFILE_DIR,
-                )
-                from playwright.sync_api import sync_playwright
+        print(f"\nClarity scrub → {clear_path}")
+        try:
+            from clarity_agent import (
+                extract_docx_text, save_text_to_docx,
+                process_document, HEMINGWAY_URL, PROFILE_DIR,
+            )
+            from playwright.sync_api import sync_playwright
 
-                text = extract_docx_text(formatted_path)
-                if text.strip():
-                    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-                    with sync_playwright() as pw:
-                        context = pw.chromium.launch_persistent_context(
-                            str(PROFILE_DIR),
-                            headless=True,
-                            permissions=["clipboard-read", "clipboard-write"],
-                        )
-                        page = context.pages[0] if context.pages else context.new_page()
-                        page.goto(HEMINGWAY_URL, wait_until="domcontentloaded", timeout=60000)
-                        page.wait_for_selector("[contenteditable='true']", timeout=30000)
+            text = extract_docx_text(formatted_path)
+            if text.strip():
+                PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+                with sync_playwright() as pw:
+                    context = pw.chromium.launch_persistent_context(
+                        str(PROFILE_DIR),
+                        headless=True,
+                        permissions=["clipboard-read", "clipboard-write"],
+                    )
+                    page = context.pages[0] if context.pages else context.new_page()
+                    page.goto(HEMINGWAY_URL, wait_until="domcontentloaded", timeout=60000)
+                    page.wait_for_selector("[contenteditable='true']", timeout=30000)
 
-                        # Dismiss any modal dialog (e.g. video popup) before interacting
-                        try:
-                            from clarity_agent import dismiss_modal_dialogs
-                            dismiss_modal_dialogs(page)
-                        except ImportError:
-                            pass
+                    # Dismiss any modal dialog (e.g. video popup) before interacting
+                    try:
+                        from clarity_agent import dismiss_modal_dialogs
+                        dismiss_modal_dialogs(page)
+                    except ImportError:
+                        pass
 
-                        try:
-                            cleaned = process_document(page, text, max_passes=5)
-                        except Exception as exc:
-                            from clarity_agent import UpgradePlanRequired
-                            if isinstance(exc, UpgradePlanRequired) and exc.args:
-                                cleaned = exc.args[0]
-                            else:
-                                # For non-UpgradePlanRequired errors, keep original text
-                                cleaned = text
-                            print(f"  Clarity scrub stopped early: {exc}", file=sys.stderr)
-                        context.close()
+                    try:
+                        cleaned = process_document(page, text, max_passes=5)
+                    except Exception as exc:
+                        from clarity_agent import UpgradePlanRequired
+                        if isinstance(exc, UpgradePlanRequired) and exc.args:
+                            cleaned = exc.args[0]
+                        else:
+                            # For non-UpgradePlanRequired errors, keep original text
+                            cleaned = text
+                        print(f"  Clarity scrub stopped early: {exc}", file=sys.stderr)
+                    context.close()
 
-                    cleaned = humanize_text(cleaned)
-                    # Final gate: the scrub rewrites text after generation, so its
-                    # output gets the same enforcement. If a banned pattern survives
-                    # the mechanical fix, keep the pre-scrub (already gated) doc.
-                    cleaned = fix_comma_splices(cleaned)
-                    scrub_leftovers = find_template_sentences(cleaned)
-                    if scrub_leftovers:
-                        raise RuntimeError(
-                            "clarity scrub output contains a banned 'not X, it's Y' "
-                            "pattern; keeping the pre-scrub document: "
-                            + "; ".join(f'"{s[:80]}"' for s in scrub_leftovers[:3])
-                        )
-                    if cleaned.strip():
-                        save_text_to_docx(cleaned, clear_path)
-                        print(f"  Clarity scrub saved: {clear_path}")
-                        image_target_path = clear_path
-                    else:
-                        print("  WARNING: clarity scrub returned empty text, skipping.", file=sys.stderr)
+                cleaned = humanize_text(cleaned)
+                # Final gate: the scrub rewrites text after generation, so its
+                # output gets the same enforcement. If a banned pattern survives
+                # the mechanical fix, keep the pre-scrub (already gated) doc.
+                cleaned = fix_comma_splices(cleaned)
+                scrub_leftovers = find_template_sentences(cleaned)
+                if scrub_leftovers:
+                    raise RuntimeError(
+                        "clarity scrub output contains a banned 'not X, it's Y' "
+                        "pattern; keeping the pre-scrub document: "
+                        + "; ".join(f'"{s[:80]}"' for s in scrub_leftovers[:3])
+                    )
+                if cleaned.strip():
+                    save_text_to_docx(cleaned, clear_path)
+                    print(f"  Clarity scrub saved: {clear_path}")
+                    image_target_path = clear_path
                 else:
-                    print("  WARNING: no text in formatted doc, skipping clarity scrub.", file=sys.stderr)
-            except ImportError as e:
-                print(f"  INFO: clarity_agent not available ({e}), skipping. "
-                      f"Run manually: python clarity_agent.py {formatted_path}", file=sys.stderr)
-            except Exception as e:
-                print(f"  WARNING: clarity scrub failed — {e}", file=sys.stderr)
-                print(f"  Run manually: python clarity_agent.py {formatted_path}", file=sys.stderr)
+                    print("  WARNING: clarity scrub returned empty text, skipping.", file=sys.stderr)
+            else:
+                print("  WARNING: no text in formatted doc, skipping clarity scrub.", file=sys.stderr)
+        except ImportError as e:
+            print(f"  INFO: clarity_agent not available ({e}), skipping. "
+                  f"Run manually: python clarity_agent.py {formatted_path}", file=sys.stderr)
+        except Exception as e:
+            print(f"  WARNING: clarity scrub failed — {e}", file=sys.stderr)
+            print(f"  Run manually: python clarity_agent.py {formatted_path}", file=sys.stderr)
     else:
         print("\nSkipping formatting and clarity scrub (disabled for now).")
 

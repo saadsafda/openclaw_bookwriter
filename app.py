@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 import uuid
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -121,12 +122,33 @@ class Job:
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
 
+@dataclass
+class Batch:
+    """A set of books selected together in the UI and generated one at a time.
+
+    A batch owns no generation logic of its own: it holds an ordered list of
+    normal Job ids and a worker thread that runs each job's existing
+    _run_generation to completion before starting the next. Every per-book
+    feature (stop, spend cap, downloads, DB persistence) keeps working through
+    the underlying Job untouched.
+    """
+    id: str
+    job_ids: list[str] = field(default_factory=list)
+    current_index: int = 0  # index into job_ids of the book being generated
+    status: str = "queued"  # queued | running | done
+    created_at: float = field(default_factory=time.time)
+    updated_at: float = field(default_factory=time.time)
+    lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+
 app = Flask(__name__)
 # Re-read templates from disk on each request so HTML edits show up without a
 # restart (small per-request cost; fine for this single-user local app).
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 JOBS: dict[str, Job] = {}
 JOBS_LOCK = threading.Lock()
+BATCHES: dict[str, Batch] = {}
+BATCHES_LOCK = threading.Lock()
 
 bookdb.init_db()
 pub_routes.register(app)
@@ -1318,37 +1340,24 @@ def detect_pre_written_preview() -> Any:
             tmp_path.unlink(missing_ok=True)
 
 
-@app.post("/api/jobs")
-def create_job() -> Any:
-    upload = request.files.get("layout_file")
-    layout_path_raw = (request.form.get("layout_path") or "").strip()
+def _build_cfg_from_form(form: Any) -> tuple[dict[str, Any] | None, str | None]:
+    """Build a job config dict from the submitted form, applying the same
+    validation and model side effect create_job() has always done.
 
-    if upload and upload.filename:
-        file_name = secure_filename(upload.filename)
-        if not file_name.lower().endswith(".docx"):
-            return jsonify({"error": "Uploaded file must be .docx"}), 400
-        input_doc = UPLOAD_DIR / f"{uuid.uuid4().hex[:8]}_{file_name}"
-        upload.save(str(input_doc))
-    elif layout_path_raw:
-        input_doc = Path(layout_path_raw).expanduser().resolve()
-        if not input_doc.exists() or input_doc.suffix.lower() != ".docx":
-            return jsonify({"error": "layout_path must point to an existing .docx file"}), 400
-    else:
-        return jsonify({"error": "Provide either layout_file or layout_path"}), 400
+    Returns (cfg, None) on success or (None, error_message) on a validation
+    failure. Shared by the single-book endpoint and the batch endpoint so a
+    book built either way is configured identically. The config here is
+    per-request (agent/model/images/etc.), not per-file — a batch applies one
+    config to every selected file, which is why this reads the form once.
+    """
+    dashboard_mode = _normalize_dashboard_mode(form.get("dashboard_mode"))
 
-    job_id = uuid.uuid4().hex
-    # Write in-place, same as the requested terminal command pattern.
-    output_doc = input_doc
-    dashboard_mode = _normalize_dashboard_mode(request.form.get("dashboard_mode"))
-
-    estimated_pages = _parse_int(request.form.get("estimated_pages"), 0)
+    estimated_pages = _parse_int(form.get("estimated_pages"), 0)
     if dashboard_mode == DASHBOARD_MODE_LONG and estimated_pages < LONG_BOOK_MIN_PAGES:
-        return jsonify({
-            "error": f"Long Book dashboard requires estimated_pages >= {LONG_BOOK_MIN_PAGES}"
-        }), 400
+        return None, f"Long Book dashboard requires estimated_pages >= {LONG_BOOK_MIN_PAGES}"
 
-    submitted_agent = (request.form.get("agent") or "").strip()
-    submitted_model = (request.form.get("openclaw_model") or "").strip()
+    submitted_agent = (form.get("agent") or "").strip()
+    submitted_model = (form.get("openclaw_model") or "").strip()
     chosen_agent = submitted_agent or (
         LONG_BOOK_AGENT_ID if dashboard_mode == DASHBOARD_MODE_LONG else DEFAULTS["agent"]
     )
@@ -1360,44 +1369,60 @@ def create_job() -> Any:
         try:
             _set_openclaw_default_model(chosen_model)
         except subprocess.TimeoutExpired:
-            return jsonify({"error": "OpenClaw CLI timed out while setting model. Make sure the gateway is running (openclaw gateway)."}), 504
+            return None, "OpenClaw CLI timed out while setting model. Make sure the gateway is running (openclaw gateway)."
         except Exception as exc:
-            return jsonify({"error": f"Failed to set model '{chosen_model}': {exc}"}), 500
+            return None, f"Failed to set model '{chosen_model}': {exc}"
 
     cfg: dict[str, Any] = {
         "agent": chosen_agent,
         # HTML checkbox: unchecked sends nothing, checked sends a value. So
         # presence of the "images" form field == toggle is on.
-        "images": request.form.get("images") is not None,
-        "image_prompt_variant": (request.form.get("image_prompt_variant") or DEFAULTS["image_prompt_variant"]).strip() or DEFAULTS["image_prompt_variant"],
-        "image_model": (request.form.get("image_model") or DEFAULTS["image_model"]).strip() or DEFAULTS["image_model"],
-        "image_size": (request.form.get("image_size") or DEFAULTS["image_size"]).strip() or DEFAULTS["image_size"],
-        "image_quality": (request.form.get("image_quality") or DEFAULTS["image_quality"]).strip() or DEFAULTS["image_quality"],
-        "image_width": _parse_float(request.form.get("image_width"), float(DEFAULTS["image_width"])),
-        "openai_api_key": (request.form.get("openai_api_key") or "").strip(),
-        "title_placeholder": (request.form.get("title_placeholder") or "Book Title Placeholder").strip() or "Book Title Placeholder",
-        "author_placeholder": (request.form.get("author_placeholder") or "Author Name").strip() or "Author Name",
+        "images": form.get("images") is not None,
+        "image_prompt_variant": (form.get("image_prompt_variant") or DEFAULTS["image_prompt_variant"]).strip() or DEFAULTS["image_prompt_variant"],
+        "image_model": (form.get("image_model") or DEFAULTS["image_model"]).strip() or DEFAULTS["image_model"],
+        "image_size": (form.get("image_size") or DEFAULTS["image_size"]).strip() or DEFAULTS["image_size"],
+        "image_quality": (form.get("image_quality") or DEFAULTS["image_quality"]).strip() or DEFAULTS["image_quality"],
+        "image_width": _parse_float(form.get("image_width"), float(DEFAULTS["image_width"])),
+        "openai_api_key": (form.get("openai_api_key") or "").strip(),
+        "title_placeholder": (form.get("title_placeholder") or "Book Title Placeholder").strip() or "Book Title Placeholder",
+        "author_placeholder": (form.get("author_placeholder") or "Author Name").strip() or "Author Name",
         "estimated_pages": estimated_pages,
         "dashboard_mode": dashboard_mode,
         "openclaw_model": chosen_model,
     }
 
     if cfg["image_prompt_variant"] not in image_maker.PROMPT_VARIANTS:
-        return jsonify({"error": "Invalid image prompt variant"}), 400
+        return None, "Invalid image prompt variant"
 
-    # "Already written" mode: format only, don't generate. The user's explicit
-    # choice from the upload form wins; if they left it on "auto", fall back to
-    # the word-counting heuristic. Accepted values for the form field:
-    #   "yes"/"true"/"1" -> force already-written
-    #   "no"/"false"/"0" -> force generate
-    #   "" / "auto" / missing -> auto-detect
-    pre_written_choice = (request.form.get("pre_written") or "auto").strip().lower()
-    if pre_written_choice in ("yes", "true", "1", "on"):
-        pre_written = True
-    elif pre_written_choice in ("no", "false", "0", "off"):
-        pre_written = False
-    else:
-        pre_written = _detect_pre_written(input_doc)
+    return cfg, None
+
+
+def _resolve_pre_written(input_doc: Path, pre_written_choice: str) -> bool:
+    """Resolve the "already written" flag from the form choice, falling back to
+    the word-count heuristic on "auto". Accepted values:
+      "yes"/"true"/"1"/"on" -> force already-written
+      "no"/"false"/"0"/"off" -> force generate
+      "" / "auto" / anything else -> auto-detect
+    """
+    choice = (pre_written_choice or "auto").strip().lower()
+    if choice in ("yes", "true", "1", "on"):
+        return True
+    if choice in ("no", "false", "0", "off"):
+        return False
+    return _detect_pre_written(input_doc)
+
+
+def _create_job_record(input_doc: Path, cfg: dict[str, Any], pre_written: bool) -> Job:
+    """Build a queued Job for input_doc, register it in JOBS, and persist it.
+
+    Does NOT start the generation thread — the caller decides how to run it
+    (immediately for a single job, or sequentially for a batch). This is the
+    exact Job construction create_job() has always used, extracted so batch
+    jobs are byte-for-byte the same as single ones.
+    """
+    job_id = uuid.uuid4().hex
+    # Write in-place, same as the requested terminal command pattern.
+    output_doc = input_doc
 
     job = Job(
         id=job_id,
@@ -1411,10 +1436,10 @@ def create_job() -> Any:
         pre_written=pre_written,
     )
     _append_log(job, "Job created.")
-    if dashboard_mode == DASHBOARD_MODE_LONG:
+    if cfg.get("dashboard_mode") == DASHBOARD_MODE_LONG:
         _append_log(
             job,
-            f"Long-book dashboard mode active (estimated pages: {estimated_pages}, agent: {cfg['agent']}, model: {cfg.get('openclaw_model') or ''}).",
+            f"Long-book dashboard mode active (estimated pages: {cfg.get('estimated_pages', 0)}, agent: {cfg['agent']}, model: {cfg.get('openclaw_model') or ''}).",
         )
     if pre_written:
         _append_log(job, "Input file detected as already-written (contains full prose).")
@@ -1423,11 +1448,274 @@ def create_job() -> Any:
         JOBS[job_id] = job
 
     _sync_job_to_db(job)
+    return job
 
-    t = threading.Thread(target=_run_generation, args=(job_id,), daemon=True)
+
+def _save_uploaded_docx(upload: Any) -> tuple[Path | None, str | None]:
+    """Persist an uploaded .docx to UPLOAD_DIR under a uuid-prefixed name.
+    Returns (path, None) or (None, error_message)."""
+    file_name = secure_filename(upload.filename)
+    if not file_name.lower().endswith(".docx"):
+        return None, "Uploaded file must be .docx"
+    input_doc = UPLOAD_DIR / f"{uuid.uuid4().hex[:8]}_{file_name}"
+    upload.save(str(input_doc))
+    return input_doc, None
+
+
+@app.post("/api/jobs")
+def create_job() -> Any:
+    upload = request.files.get("layout_file")
+    layout_path_raw = (request.form.get("layout_path") or "").strip()
+
+    if upload and upload.filename:
+        input_doc, err = _save_uploaded_docx(upload)
+        if err:
+            return jsonify({"error": err}), 400
+    elif layout_path_raw:
+        input_doc = Path(layout_path_raw).expanduser().resolve()
+        if not input_doc.exists() or input_doc.suffix.lower() != ".docx":
+            return jsonify({"error": "layout_path must point to an existing .docx file"}), 400
+    else:
+        return jsonify({"error": "Provide either layout_file or layout_path"}), 400
+
+    cfg, err = _build_cfg_from_form(request.form)
+    if err:
+        # Preserve the original status codes for the two special cases.
+        if err.startswith("OpenClaw CLI timed out"):
+            return jsonify({"error": err}), 504
+        if err.startswith("Failed to set model"):
+            return jsonify({"error": err}), 500
+        return jsonify({"error": err}), 400
+
+    pre_written = _resolve_pre_written(input_doc, request.form.get("pre_written") or "auto")
+    job = _create_job_record(input_doc, cfg, pre_written)
+
+    t = threading.Thread(target=_run_generation, args=(job.id,), daemon=True)
     t.start()
 
-    return jsonify({"job_id": job_id})
+    return jsonify({"job_id": job.id})
+
+
+def _get_batch(batch_id: str) -> Batch:
+    with BATCHES_LOCK:
+        batch = BATCHES.get(batch_id)
+    if batch is None:
+        abort(404, description="Batch not found")
+    return batch
+
+
+def _run_batch(batch_id: str) -> None:
+    """Worker thread: generate each book in the batch one at a time.
+
+    _run_generation is blocking (it streams the writer subprocess to
+    completion), so calling it in a loop gives true sequential 'one by one'
+    execution: book N+1 does not start until book N reaches a terminal state.
+    A book that fails or is stopped is left in its own terminal status and the
+    batch continues to the next (per the chosen 'continue on failure' policy);
+    _run_generation already swallows its own exceptions, but we guard the call
+    anyway so one book can never take the whole batch worker down.
+    """
+    batch = _get_batch(batch_id)
+    with batch.lock:
+        job_ids = list(batch.job_ids)
+        batch.status = "running"
+        batch.updated_at = time.time()
+
+    for index, job_id in enumerate(job_ids):
+        with batch.lock:
+            batch.current_index = index
+            batch.updated_at = time.time()
+        try:
+            _run_generation(job_id)
+        except Exception as exc:  # defensive: _run_generation handles its own
+            try:
+                job = _get_job(job_id)
+                _append_log(job, f"ERROR: batch worker caught unexpected error: {exc}")
+                _set_status(job, "error", action="", error=str(exc))
+                _sync_job_to_db(job)
+            except Exception:
+                pass
+
+    with batch.lock:
+        batch.current_index = len(job_ids)
+        batch.status = "done"
+        batch.updated_at = time.time()
+
+
+@app.post("/api/batches")
+def create_batch() -> Any:
+    """Create a batch from multiple uploaded .docx files and generate them
+    sequentially. Shares create_job()'s config building and Job construction,
+    so each book in the batch is configured exactly like a single-book job."""
+    uploads = [u for u in request.files.getlist("layout_file") if u and u.filename]
+    if not uploads:
+        return jsonify({"error": "Provide at least one layout_file"}), 400
+
+    cfg, err = _build_cfg_from_form(request.form)
+    if err:
+        if err.startswith("OpenClaw CLI timed out"):
+            return jsonify({"error": err}), 504
+        if err.startswith("Failed to set model"):
+            return jsonify({"error": err}), 500
+        return jsonify({"error": err}), 400
+
+    pre_written_choice = request.form.get("pre_written") or "auto"
+
+    jobs: list[Job] = []
+    for upload in uploads:
+        input_doc, save_err = _save_uploaded_docx(upload)
+        if save_err:
+            return jsonify({"error": f"{upload.filename}: {save_err}"}), 400
+        # Each file gets its own copy of the shared config so per-job budget
+        # bookkeeping written into config doesn't bleed across books.
+        pre_written = _resolve_pre_written(input_doc, pre_written_choice)
+        job = _create_job_record(input_doc, dict(cfg), pre_written)
+        jobs.append(job)
+
+    batch_id = uuid.uuid4().hex
+    batch = Batch(id=batch_id, job_ids=[j.id for j in jobs])
+    with BATCHES_LOCK:
+        BATCHES[batch_id] = batch
+
+    t = threading.Thread(target=_run_batch, args=(batch_id,), daemon=True)
+    t.start()
+
+    return jsonify({
+        "batch_id": batch_id,
+        "job_ids": [j.id for j in jobs],
+        "count": len(jobs),
+    })
+
+
+@app.get("/api/batches/<batch_id>/status")
+def batch_status(batch_id: str) -> Any:
+    """Return batch progress plus a compact per-book status list so the UI can
+    render 'Book N of M' and the queue beside the active book's detail panel."""
+    batch = _get_batch(batch_id)
+    with batch.lock:
+        job_ids = list(batch.job_ids)
+        current_index = batch.current_index
+        batch_status_str = batch.status
+
+    books = []
+    for idx, job_id in enumerate(job_ids):
+        try:
+            job = _get_job(job_id)
+        except Exception:
+            continue
+        with job.lock:
+            books.append({
+                "job_id": job_id,
+                "index": idx,
+                "title": job.custom_title.strip() or _derive_title(job.input_docx),
+                "status": job.status,
+                "current_action": job.current_action,
+                "error": job.error,
+            })
+
+    active_job_id = (
+        job_ids[current_index]
+        if batch_status_str == "running" and 0 <= current_index < len(job_ids)
+        else ""
+    )
+    return jsonify({
+        "id": batch_id,
+        "status": batch_status_str,
+        "count": len(job_ids),
+        "current_index": current_index,
+        "active_job_id": active_job_id,
+        "books": books,
+    })
+
+
+def _resolve_book_files(job_id: str) -> tuple[str, dict[str, Path]]:
+    """Return (title, {kind: path}) of a book's output files, resolving from the
+    in-memory Job first and falling back to the DB record for historical books.
+    Mirrors download_file's resolution so a batch ZIP contains exactly what the
+    per-book Download menu would offer. Only files that exist on disk are
+    included, and only for a book that finished successfully — a failed or
+    still-queued book has its final_docx pre-set to the raw input path at
+    creation, so gating on status is what keeps that unprocessed input out of
+    the archive."""
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+    if job is not None:
+        with job.lock:
+            status = job.status
+            title = job.custom_title.strip() or _derive_title(job.input_docx)
+            candidates = {
+                "final": job.final_docx,
+                "kindle": job.kindle_docx,
+                "paperback": job.paperback_docx,
+            }
+    else:
+        book = bookdb.get_book(job_id)
+        if book is None:
+            return job_id, {}
+        status = book.get("status") or ""
+        title = (book.get("title") or "").strip() or _derive_title(book.get("input_docx") or job_id)
+        candidates = {
+            "final": book.get("final_docx") or "",
+            "kindle": book.get("kindle_docx") or "",
+            "paperback": book.get("paperback_docx") or "",
+        }
+
+    if status != "success":
+        return title, {}
+
+    out: dict[str, Path] = {}
+    for kind, raw in candidates.items():
+        if not raw:
+            continue
+        p = Path(raw)
+        if p.exists() and p.is_file():
+            out[kind] = p
+    return title, out
+
+
+@app.get("/api/batches/<batch_id>/download")
+def download_batch(batch_id: str) -> Any:
+    """Stream a single ZIP with every finished book's output files, one folder
+    per book (Final + Kindle + Paperback where they exist). Books that never
+    produced any file (failed early) are skipped. 404 if nothing is ready."""
+    batch = _get_batch(batch_id)
+    with batch.lock:
+        job_ids = list(batch.job_ids)
+
+    buffer = io.BytesIO()
+    added = 0
+    used_folders: set[str] = set()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for idx, job_id in enumerate(job_ids, start=1):
+            title, files = _resolve_book_files(job_id)
+            if not files:
+                continue
+            # Numbered, filesystem-safe folder per book; keep it unique so two
+            # books with the same title don't collide inside the archive.
+            base = secure_filename(title) or "book"
+            folder = f"{idx:02d}_{base}"
+            suffix = 1
+            while folder in used_folders:
+                suffix += 1
+                folder = f"{idx:02d}_{base}_{suffix}"
+            used_folders.add(folder)
+
+            for kind, path in files.items():
+                # e.g. 01_My_Book/My_Book_final.docx
+                arcname = f"{folder}/{base}_{kind}{path.suffix}"
+                zf.write(str(path), arcname)
+                added += 1
+
+    if added == 0:
+        abort(404, description="No finished files are available for this batch yet.")
+
+    buffer.seek(0)
+    return send_file(
+        buffer,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=f"batch_{batch_id[:8]}.zip",
+    )
 
 
 @app.get("/api/jobs/<job_id>/status")

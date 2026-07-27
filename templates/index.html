@@ -592,6 +592,25 @@
 
         <div id="chat-container" class="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar scroll-smooth relative">
             <div class="max-w-4xl mx-auto space-y-6 pb-32" id="chat-messages">
+                <!-- Batch progress: visible only while a multi-book batch runs.
+                     Shows the active book and the queue; the detail/log panel for
+                     the active book renders below, reusing the single-book flow. -->
+                <div id="batchProgress" class="hidden premium-card p-4 rounded-2xl">
+                    <div class="flex items-center justify-between mb-2.5">
+                        <div class="flex items-center gap-2">
+                            <i class="fas fa-layer-group text-indigo-500 text-sm"></i>
+                            <span class="font-semibold text-gray-800 text-sm">Batch — <span id="batchProgressCounter">Book 0 of 0</span></span>
+                        </div>
+                        <span id="batchProgressBadge" class="text-[11px] font-medium text-indigo-600 px-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-100">Running</span>
+                    </div>
+                    <ul id="batchProgressList" class="space-y-1"></ul>
+                    <div id="batchDownloadRow" class="hidden mt-3 pt-3 border-t border-gray-100">
+                        <a id="batchDownloadAll" href="#" class="btn-lift inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-lg hover:shadow-lg hover:shadow-blue-500/25 transition shadow-sm text-sm font-semibold">
+                            <i class="fas fa-file-zipper"></i> Download all (ZIP)
+                        </a>
+                        <span class="text-[11px] text-gray-400 ml-2">Every finished book — Final, Kindle &amp; Paperback</span>
+                    </div>
+                </div>
                 <div class="flex items-start gap-4">
                     <div class="w-10 h-10 rounded-full logo-glow flex items-center justify-center flex-shrink-0">
                         <i class="fas fa-feather-pointed text-white text-sm"></i>
@@ -735,13 +754,33 @@
 
                     <!-- Row 2: paperclip (bottom-left), Write button (bottom-right) -->
                     <div class="flex items-center gap-2">
-                        <button class="p-2.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition rounded-xl flex-shrink-0" title="Upload layout .docx file" onclick="document.getElementById('file-upload').click()">
-                            <i class="fas fa-paperclip text-base"></i>
-                        </button>
+                        <div class="relative flex-shrink-0">
+                            <button id="btn-attach" type="button" class="p-2.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition rounded-xl" title="Upload layout .docx file" aria-haspopup="true" aria-expanded="false">
+                                <i class="fas fa-paperclip text-base"></i>
+                            </button>
+
+                            <!-- Attach popover: choose single or multiple .docx files -->
+                            <div id="attachMenu" class="hidden absolute bottom-full left-0 mb-2 w-64 bg-white border border-gray-200 rounded-xl shadow-[0_12px_32px_-8px_rgba(15,23,42,0.25)] overflow-hidden z-40 py-1.5">
+                                <button type="button" data-attach-mode="single" class="w-full flex items-center gap-3 px-3.5 py-2.5 text-left hover:bg-indigo-50 transition group">
+                                    <span class="w-9 h-9 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center flex-shrink-0 group-hover:bg-indigo-200 transition"><i class="fas fa-file-word"></i></span>
+                                    <span class="min-w-0">
+                                        <span class="font-semibold text-sm text-gray-800 block leading-tight">Single file</span>
+                                        <span class="text-[11px] text-gray-400">Write or format one book</span>
+                                    </span>
+                                </button>
+                                <button type="button" data-attach-mode="multiple" class="w-full flex items-center gap-3 px-3.5 py-2.5 text-left hover:bg-indigo-50 transition group">
+                                    <span class="w-9 h-9 rounded-lg bg-purple-100 text-purple-600 flex items-center justify-center flex-shrink-0 group-hover:bg-purple-200 transition"><i class="fas fa-layer-group"></i></span>
+                                    <span class="min-w-0">
+                                        <span class="font-semibold text-sm text-gray-800 block leading-tight">Multiple files</span>
+                                        <span class="text-[11px] text-gray-400">Pick several — they generate one by one</span>
+                                    </span>
+                                </button>
+                            </div>
+                        </div>
 
                         <!-- Row 1: text input across the top -->
                         <input type="text" id="layoutPath" class="w-full px-3 py-2.5 text-sm bg-transparent border-none focus:outline-none focus:ring-0 text-gray-800 placeholder-gray-400" placeholder="{% if is_long_book %}Paste a local .docx path for your long book… or use the paperclip to upload{% else %}Paste a local .docx path… or use the paperclip to upload{% endif %}">
-                        <input type="file" id="file-upload" name="layout_file" class="hidden" accept=".docx" />
+                        <input type="file" id="file-upload" name="layout_file" class="hidden" accept=".docx" multiple />
 
                         <button id="btn-generate" class="btn-lift flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-indigo-600 via-indigo-600 to-purple-600 hover:shadow-lg hover:shadow-indigo-500/30 text-white rounded-xl text-sm font-semibold shadow-md transition disabled:from-gray-300 disabled:to-gray-300 disabled:shadow-none disabled:cursor-not-allowed flex-shrink-0 ml-auto">
                             <i class="fas fa-play text-xs"></i> {% if is_long_book %}Write Long Book{% else %}Write{% endif %}
@@ -756,6 +795,16 @@
                             <span class="text-xs text-gray-600">This document is already written</span>
                         </label>
                         <span id="preWrittenHint" class="text-[11px] text-gray-400"></span>
+                    </div>
+
+                    <!-- Batch: shown when more than one .docx is selected. These books
+                         run one at a time; the config above applies to all of them. -->
+                    <div id="batchSelectedRow" class="hidden mt-2.5 px-1">
+                        <div class="flex items-center gap-2 mb-1.5">
+                            <i class="fas fa-layer-group text-[11px] text-indigo-500"></i>
+                            <span class="text-xs font-semibold text-gray-700"><span id="batchSelectedCount">0</span> books selected — they’ll generate one by one</span>
+                        </div>
+                        <ul id="batchSelectedList" class="text-[11px] text-gray-500 space-y-0.5 max-h-28 overflow-y-auto"></ul>
                     </div>
                 </div>
                 <p class="text-center text-[11px] text-gray-400 mt-2.5">
@@ -774,7 +823,9 @@
                 jobId: null,
                 cursor: 0,
                 isPolling: false,
-                knownHeadings: []
+                knownHeadings: [],
+                polledJobId: null,   // last jobId pollJob actually fetched for
+                jobDone: false       // true once that job reached success/error/budget_paused
             };
             window.state = state;  // exposed so the book-editor modal can read the current job id
 
@@ -797,6 +848,52 @@
             const statusBadge = document.getElementById("status-badge");
             const layoutPath = document.getElementById("layoutPath");
             const fileUpload = document.getElementById("file-upload");
+
+            // Attach popover: choose single vs. multiple .docx before the OS
+            // picker opens. We toggle the file input's `multiple` attribute so
+            // the same input + change handler serves both modes.
+            const btnAttach = document.getElementById("btn-attach");
+            const attachMenu = document.getElementById("attachMenu");
+
+            function closeAttachMenu() {
+                attachMenu.classList.add("hidden");
+                btnAttach.setAttribute("aria-expanded", "false");
+            }
+            function toggleAttachMenu() {
+                const open = attachMenu.classList.toggle("hidden");
+                btnAttach.setAttribute("aria-expanded", open ? "false" : "true");
+            }
+
+            btnAttach.addEventListener("click", (e) => {
+                e.stopPropagation();
+                toggleAttachMenu();
+            });
+
+            attachMenu.querySelectorAll("[data-attach-mode]").forEach((opt) => {
+                opt.addEventListener("click", () => {
+                    const mode = opt.getAttribute("data-attach-mode");
+                    if (mode === "multiple") {
+                        fileUpload.setAttribute("multiple", "");
+                    } else {
+                        fileUpload.removeAttribute("multiple");
+                    }
+                    closeAttachMenu();
+                    fileUpload.click();
+                });
+            });
+
+            // Dismiss the popover on outside click or Escape.
+            document.addEventListener("click", (e) => {
+                if (!attachMenu.classList.contains("hidden")
+                    && !e.target.closest("#attachMenu")
+                    && !e.target.closest("#btn-attach")) {
+                    closeAttachMenu();
+                }
+            });
+            document.addEventListener("keydown", (e) => {
+                if (e.key === "Escape") closeAttachMenu();
+            });
+
             const historySearch = document.getElementById("history-search");
             const historySearchClear = document.getElementById("history-search-clear");
             const btnLandingQr = document.getElementById("btn-landing-qr");
@@ -1651,7 +1748,7 @@
                     if ((m = line.match(/generated \((\d+)s(?:, (\d+) words)?\)(?:.*ETA ~([\d:]+))?/))) {
                         const meta = `${m[1]}s${m[2] ? ` · ${m[2]} words` : ''}`;
                         this.completeActive('done', meta);
-                        if (m[3]) {
+                        if (m[3] && this.subEl) {
                             this.eta = m[3];
                             this.subEl.textContent = `${this.subEl.textContent.split(' · ')[0]} · ~${m[3]} left`;
                         }
@@ -1673,6 +1770,7 @@
                         this.postStage('Building KDP files', 'Kindle and paperback versions…', 98); return;
                     }
                     if (/Image insertion complete|^\[\d{2}:\d{2}:\d{2}\] Done:/.test(line)) {
+                        if (!this.wrapper || !document.body.contains(this.wrapper)) return;
                         this.postStage(this.stageEl.textContent, 'Wrapping up…', 99); return;
                     }
                 }
@@ -1753,6 +1851,18 @@
 
             async function pollJob() {
                 if (!state.jobId || state.isPolling) return;
+
+                // Once a job reaches a terminal state, stop hitting /status and
+                // /logs for it every second — without this, polling for a
+                // finished job (e.g. an already-written book, which finishes
+                // fast) runs forever until the workspace is reset, spamming
+                // the server. Reset the flag whenever the tracked job changes.
+                if (state.polledJobId !== state.jobId) {
+                    state.polledJobId = state.jobId;
+                    state.jobDone = false;
+                }
+                if (state.jobDone) return;
+
                 state.isPolling = true;
 
                 // Guard against a hung fetch: if a request never resolves,
@@ -1789,6 +1899,11 @@
                         }
 
                         if(status.status === 'success' || status.status === 'error' || status.status === 'budget_paused') {
+                            if (status.status !== 'budget_paused') {
+                                // budget_paused can resume later (Continue button), but
+                                // success/error are truly final — stop polling this job.
+                                state.jobDone = true;
+                            }
                             if (status.status !== 'budget_paused' && !budgetCapModal.classList.contains("hidden")) {
                                 hideBudgetCapModal();
                             }
@@ -1852,6 +1967,109 @@
 
             setInterval(pollJob, 1000);
 
+            // ---- Batch: run several books one at a time -------------------
+            // The batch poller only tracks which book is active and renders the
+            // queue. It points state.jobId at the active book so the existing
+            // pollJob renders that book's logs, status, and downloads exactly as
+            // for a single book — no duplicate log-rendering logic.
+            const batchProgress = document.getElementById("batchProgress");
+            const batchProgressCounter = document.getElementById("batchProgressCounter");
+            const batchProgressBadge = document.getElementById("batchProgressBadge");
+            const batchProgressList = document.getElementById("batchProgressList");
+            const batchDownloadRow = document.getElementById("batchDownloadRow");
+            const batchDownloadAll = document.getElementById("batchDownloadAll");
+            const batchState = { id: null, activeJobId: null, polling: false };
+
+            const BATCH_STATUS_STYLE = {
+                success:       { icon: "fa-check-circle text-green-500",   label: "Done" },
+                error:         { icon: "fa-circle-exclamation text-red-500", label: "Failed" },
+                budget_paused: { icon: "fa-hand text-amber-500",          label: "Paused (spend cap)" },
+                running:       { icon: "fa-spinner fa-spin text-indigo-500", label: "Generating…" },
+                queued:        { icon: "fa-clock text-gray-300",          label: "Queued" },
+            };
+
+            function renderBatchQueue(data) {
+                batchProgressList.innerHTML = "";
+                (data.books || []).forEach((b) => {
+                    const isActive = b.job_id === data.active_job_id;
+                    const style = BATCH_STATUS_STYLE[b.status] || BATCH_STATUS_STYLE.queued;
+                    const li = document.createElement("li");
+                    li.className = "flex items-center gap-2 text-xs " + (isActive ? "font-semibold text-gray-800" : "text-gray-500");
+                    const detail = isActive && b.current_action ? ` · ${escapeHtml(b.current_action)}` : "";
+                    li.innerHTML = `<i class="fas ${style.icon} text-[11px] w-4 text-center"></i>`
+                        + `<span class="truncate">${escapeHtml(b.title)}</span>`
+                        + `<span class="text-[10px] text-gray-400 ml-auto flex-shrink-0">${style.label}${detail}</span>`;
+                    batchProgressList.appendChild(li);
+                });
+            }
+
+            function startBatch(batchId) {
+                batchState.id = batchId;
+                batchState.activeJobId = null;
+                batchProgress.classList.remove("hidden");
+                batchDownloadRow.classList.add("hidden");  // hidden until the batch finishes
+                batchProgressBadge.textContent = "Running";
+                document.getElementById("current-doc-title").textContent = "Batch generation";
+                loadHistory();
+            }
+
+            async function pollBatch() {
+                if (!batchState.id || batchState.polling) return;
+                batchState.polling = true;
+                const ctl = new AbortController();
+                const timer = setTimeout(() => ctl.abort(), 8000);
+                try {
+                    const res = await fetch(`/api/batches/${batchState.id}/status`, { signal: ctl.signal });
+                    if (!res.ok) return;
+                    const data = await res.json();
+
+                    batchProgressCounter.textContent = `Book ${Math.min(data.current_index + 1, data.count)} of ${data.count}`;
+                    renderBatchQueue(data);
+
+                    // When the active book changes, hand it to the single-book
+                    // poller: reset the log cursor + terminal so its logs render
+                    // fresh, and point state at it for downloads/status.
+                    if (data.active_job_id && data.active_job_id !== batchState.activeJobId) {
+                        batchState.activeJobId = data.active_job_id;
+                        state.jobId = data.active_job_id;
+                        activeBookId = data.active_job_id;
+                        state.cursor = 0;
+                        currentLogBox = null;
+                        document.getElementById("job-id-display").textContent = data.active_job_id;
+                        document.getElementById('downloadLinks').classList.add('hidden');
+                    }
+
+                    if (data.status === "done") {
+                        const ok = (data.books || []).filter(b => b.status === "success").length;
+                        const failed = data.count - ok;
+                        batchProgressCounter.textContent = `${data.count} book${data.count === 1 ? "" : "s"}`;
+                        batchProgressBadge.textContent = failed ? `${ok} done · ${failed} failed` : "All done";
+                        batchProgressBadge.className = "text-[11px] font-medium px-2 py-0.5 rounded-full border "
+                            + (failed ? "text-amber-700 bg-amber-50 border-amber-100" : "text-green-700 bg-green-50 border-green-100");
+                        addMessage("bot", `<span class="font-semibold">Batch complete.</span> ${ok} of ${data.count} book${data.count === 1 ? "" : "s"} succeeded${failed ? `, ${failed} failed` : ""}.`);
+                        // Offer the one-click ZIP of every finished book, but only
+                        // if at least one succeeded (else the endpoint 404s).
+                        const finishedBatchId = batchState.id;
+                        if (ok > 0) {
+                            batchDownloadAll.href = `/api/batches/${finishedBatchId}/download`;
+                            batchDownloadRow.classList.remove("hidden");
+                        } else {
+                            batchDownloadRow.classList.add("hidden");
+                        }
+                        btnGenerate.disabled = false;
+                        batchState.id = null;  // stop polling this batch
+                        loadHistory();
+                    }
+                } catch (e) {
+                    console.error("Batch polling error", e);
+                } finally {
+                    clearTimeout(timer);
+                    batchState.polling = false;
+                }
+            }
+
+            setInterval(pollBatch, 1000);
+
             const preWrittenRow = document.getElementById("preWrittenRow");
             const preWrittenToggle = document.getElementById("preWrittenToggle");
             const preWrittenHint = document.getElementById("preWrittenHint");
@@ -1883,15 +2101,45 @@
                 } catch (e) { /* detection is best-effort; toggle still works manually */ }
             }
 
-            fileUpload.addEventListener("change", () => {
-                if(fileUpload.files.length > 0) {
-                    layoutPath.value = fileUpload.files[0].name;
-                    document.getElementById("current-doc-title").textContent = fileUpload.files[0].name;
-                    preWrittenUserSet = false;  // new file → allow auto-guess to set it
-                    const fd = new FormData();
-                    fd.append("layout_file", fileUpload.files[0]);
-                    previewPreWritten(fd);
+            const batchSelectedRow = document.getElementById("batchSelectedRow");
+            const batchSelectedList = document.getElementById("batchSelectedList");
+            const batchSelectedCount = document.getElementById("batchSelectedCount");
+
+            function renderBatchSelection(files) {
+                // More than one file → batch mode: show the list, hide the
+                // single-file already-written toggle (each file is detected
+                // server-side per book).
+                if (files.length > 1) {
+                    batchSelectedCount.textContent = String(files.length);
+                    batchSelectedList.innerHTML = "";
+                    Array.from(files).forEach((f, i) => {
+                        const li = document.createElement("li");
+                        li.className = "flex items-center gap-2";
+                        li.innerHTML = `<span class="text-gray-300">${i + 1}.</span> <i class="fas fa-file-word text-[10px] text-indigo-400"></i> <span class="truncate">${escapeHtml(f.name)}</span>`;
+                        batchSelectedList.appendChild(li);
+                    });
+                    batchSelectedRow.classList.remove("hidden");
+                    preWrittenRow.classList.add("hidden");
+                } else {
+                    batchSelectedRow.classList.add("hidden");
                 }
+            }
+
+            fileUpload.addEventListener("change", () => {
+                const files = fileUpload.files;
+                if (files.length === 0) return;
+                renderBatchSelection(files);
+                if (files.length > 1) {
+                    layoutPath.value = "";
+                    document.getElementById("current-doc-title").textContent = `${files.length} books selected`;
+                    return;  // batch: skip single-file path + pre-written preview
+                }
+                layoutPath.value = files[0].name;
+                document.getElementById("current-doc-title").textContent = files[0].name;
+                preWrittenUserSet = false;  // new file → allow auto-guess to set it
+                const fd = new FormData();
+                fd.append("layout_file", files[0]);
+                previewPreWritten(fd);
             });
 
             // Also detect when the user pastes/types a local path (blur = done editing).
@@ -1916,9 +2164,40 @@
                 }
                 formData.set("agent", agentSelect.value || (isLongBookMode ? longBookAgentId : defaultAgent));
                 formData.set("openclaw_model", modelSelect.value || (isLongBookMode ? longBookModelKey : ""));
+
+                const files = fileUpload.files;
+                const isBatch = files.length > 1;
+
+                if (isBatch) {
+                    // Batch: attach every selected file. pre_written stays "auto"
+                    // so each book is detected server-side individually.
+                    Array.from(files).forEach(f => formData.append('layout_file', f));
+                    formData.set('pre_written', 'auto');
+
+                    currentLogBox = null;
+                    state.cursor = 0;
+                    document.getElementById('downloadLinks').classList.add('hidden');
+                    addMessage("user", `Start batch: <span class="font-mono text-xs ml-1">${files.length} books</span> — one at a time`);
+
+                    btnGenerate.disabled = true;
+                    setStatusBadge("Starting batch...", "running");
+
+                    try {
+                        const res = await fetch("/api/batches", { method: "POST", body: formData });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.error);
+                        startBatch(data.batch_id);
+                    } catch (e) {
+                        addMessage("bot", `<span class="text-red-500 font-bold">Error:</span> ${escapeHtml(e.message)}`);
+                        btnGenerate.disabled = false;
+                        setStatusBadge("Failed", "error");
+                    }
+                    return;
+                }
+
                 formData.append('layout_path', layoutPath.value);
-                if(fileUpload.files.length > 0) {
-                    formData.append('layout_file', fileUpload.files[0]);
+                if(files.length > 0) {
+                    formData.append('layout_file', files[0]);
                 }
                 // Explicit already-written choice if the toggle is showing;
                 // otherwise "auto" lets the server fall back to detection.
@@ -1931,22 +2210,22 @@
                 currentLogBox = null;
                 state.cursor = 0;
                 document.getElementById('downloadLinks').classList.add('hidden');
-                
+
                 const modeNote = isLongBookMode
                     ? ` <span class="ml-2 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-semibold">${longBookMinPages}+ pages mode</span>`
                     : "";
                 const summary = `Start writing: <span class="font-mono text-xs ml-1">${escapeHtml(layoutPath.value || 'No file selected')}</span>${modeNote}`;
                 addMessage("user", summary);
-                
+
                 btnGenerate.disabled = true;
                 setStatusBadge("Starting...", "running");
 
                 try {
                     const res = await fetch("/api/jobs", { method: "POST", body: formData });
                     const data = await res.json();
-                    
+
                     if (!res.ok) throw new Error(data.error);
-                    
+
                     state.jobId = data.job_id;
                     activeBookId = data.job_id;
                     document.getElementById("job-id-display").textContent = data.job_id;
