@@ -2319,6 +2319,27 @@
                 books.forEach((b, i) => {
                     const card = document.createElement("div");
                     card.className = "border border-gray-200 rounded-xl overflow-hidden";
+
+                    // Already-written book: formatted only, no text generated,
+                    // so there is nothing to confirm. Shown (greyed) rather than
+                    // hidden so a mixed batch still lists every file.
+                    if (b.pre_written) {
+                        card.className += " opacity-60";
+                        card.innerHTML = `
+                            <div class="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center justify-between gap-2">
+                                <span class="text-xs font-semibold text-gray-700 truncate" title="${escapeHtml(b.filename)}">
+                                    <i class="fas fa-file-word text-blue-500 mr-1.5"></i>${escapeHtml(b.filename)}
+                                </span>
+                                <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 text-[10px] font-semibold">Already written</span>
+                            </div>
+                            <div class="px-4 py-2.5">
+                                <p class="text-[11px] text-gray-500">Formatting only. No new text is written, so there is nothing to set here.</p>
+                            </div>
+                        `;
+                        identityList.appendChild(card);
+                        return;
+                    }
+
                     const badge = b.error
                         ? '<span class="px-2 py-0.5 rounded-full bg-red-50 text-red-600 text-[10px] font-semibold">Not detected</span>'
                         : (b.source === "typed"
@@ -2397,10 +2418,17 @@
                 const files = fileUpload.files;
                 const isBatch = files.length > 1;
 
+                // An already-written book runs with --no-text: no paragraphs are
+                // generated, so premise/voice are never used. Detecting them
+                // would be a wasted model call and a dialog with nothing to
+                // decide. The toggle is already set by auto-detection on upload.
+                const isPreWritten = !preWrittenRow.classList.contains("hidden")
+                    && preWrittenToggle.checked;
+
                 // Step 1: show what the AI thinks these books are, and wait for
                 // OK. Only runs for uploaded files (a layout_path re-run has no
                 // file to send) and only once per click-through.
-                if (!identityConfirmed && files.length > 0) {
+                if (!identityConfirmed && files.length > 0 && !isPreWritten) {
                     const probe = new FormData(document.getElementById("config-form"));
                     probe.set("agent", formData.get("agent") || "");
                     Array.from(files).forEach(f => probe.append("layout_file", f));
@@ -2411,6 +2439,15 @@
                         const res = await fetch("/api/detect-book-identity", { method: "POST", body: probe });
                         const data = await res.json();
                         if (!res.ok) throw new Error(data.error || "Detection failed");
+                        // Server marks already-written books: they generate no
+                        // text, so there is nothing to confirm for them. If
+                        // every upload is one, skip the dialog and just write.
+                        const needsReview = (data.books || []).filter(b => !b.pre_written);
+                        if (needsReview.length === 0) {
+                            identityConfirmed = true;
+                            btnGenerate.click();
+                            return;
+                        }
                         renderIdentityBooks(data.books || []);
                         identityMenu.classList.remove("hidden");
                         setStatusBadge("Check before writing", "idle");

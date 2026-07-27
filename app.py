@@ -1726,6 +1726,8 @@ def detect_book_identity() -> Any:
     # "auto_book_context=0" still turns it off.
     cfg["auto_book_context"] = (request.form.get("auto_book_context") or "1").lower() not in {"0", "false", "no", "off"}
 
+    pre_written_choice = request.form.get("pre_written") or "auto"
+
     books: list[dict[str, Any]] = []
     for upload in uploads:
         input_doc, save_err = _save_uploaded_docx(upload)
@@ -1737,9 +1739,25 @@ def detect_book_identity() -> Any:
                 "error": save_err,
             })
             continue
+        # An already-written book is generated with --no-text, so premise and
+        # voice are never used. Skip the model call and tell the UI to leave it
+        # out of the dialog. Resolved per file: a batch can mix outlines and
+        # finished manuscripts, and the client's single toggle can't say which
+        # is which.
+        if _resolve_pre_written(input_doc, pre_written_choice):
+            books.append({
+                "filename": upload.filename,
+                "input_path": str(input_doc),
+                "premise": "", "voice": "",
+                "detected": False, "source": "pre_written",
+                "pre_written": True, "error": "",
+            })
+            continue
+
         info = _detect_identity_for_upload(input_doc, cfg)
         info["filename"] = upload.filename
         info["input_path"] = str(input_doc)
+        info["pre_written"] = False
         books.append(info)
 
     return jsonify({"books": books})
