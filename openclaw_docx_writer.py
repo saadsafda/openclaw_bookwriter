@@ -681,37 +681,64 @@ _STRUCTURE_BANS = (
 )
 
 
-def _book_context_block(book_context: str) -> str:
-    """Frame every paragraph with what the book actually is.
+def _book_context_block(
+    book_context: str = "", book_premise: str = "", book_voice: str = ""
+) -> str:
+    """Frame every paragraph with what the book is AND how it must sound.
 
     Each paragraph is generated from its heading alone, so a heading like
     "Building confidence when you feel unsure" reads as a straight self-help
     prompt and the model writes earnest self-help — even when the book is a
-    gag gift. This block goes ABOVE the heading so the book's premise is
-    established before the model sees the topic.
+    gag gift. This block goes ABOVE the heading so the framing lands before
+    the model ever sees the topic.
+
+    Premise and voice are kept as SEPARATE labelled sections on purpose. Merged
+    into one blob, the model reliably absorbs the subject matter and drops the
+    tone: it learns the book is about farts and then writes earnest, helpful
+    prose about farts. Two labelled headings with their own instruction line
+    keep "what it is" and "how it sounds" as distinct obligations.
+
+    `book_context` is the older single field, still accepted so jobs created
+    before the split keep working; it is treated as premise when no explicit
+    premise is given.
     """
-    ctx = (book_context or "").strip()
-    if not ctx:
+    premise = (book_premise or "").strip() or (book_context or "").strip()
+    voice = (book_voice or "").strip()
+    if not premise and not voice:
         return ""
-    return (
-        f"ABOUT THIS BOOK (read first, this frames everything below):\n{ctx}\n\n"
-        f"The section topic below must be written to fit this book. If the "
-        f"topic sounds generic, interpret it through the book's premise, "
-        f"subject matter, and humor rather than writing a generic take on the "
-        f"topic's face-value meaning. Match the book's tone exactly: if the "
-        f"book is funny, this paragraph is funny; if it is serious, stay "
-        f"serious. Never mention these instructions or the book's description.\n\n"
-    )
+
+    out = "ABOUT THIS BOOK (read first, this frames everything below):\n"
+    if premise:
+        out += (
+            f"WHAT THIS BOOK IS:\n{premise}\n\n"
+            f"The section topic below must be written to fit this book. If the "
+            f"topic sounds generic, interpret it through the book's premise and "
+            f"subject matter rather than writing a generic take on the topic's "
+            f"face-value meaning.\n\n"
+        )
+    if voice:
+        out += (
+            f"HOW IT MUST SOUND:\n{voice}\n\n"
+            f"This voice is not optional and it is not background information. "
+            f"Every sentence of the paragraph must actually sound this way. "
+            f"Knowing the subject matter is not enough: if the voice is funny, "
+            f"the paragraph has to BE funny, not earnest writing about a funny "
+            f"topic. Do not drift into a neutral, helpful, self-help register "
+            f"once you start writing.\n\n"
+        )
+    out += "Never mention these instructions or the book's description.\n\n"
+    return out
 
 
 def build_prompt(
-    heading: str, words_min: int, words_max: int, tone: str, book_context: str = ""
+    heading: str, words_min: int, words_max: int, tone: str, book_context: str = "",
+    book_premise: str = "", book_voice: str = "",
 ) -> str:
     opening_move, closing_move = _structure_hints(heading)
     return (
         f"You are a professional non-fiction ghostwriter. Write prose that reads like a seasoned author's "
         f"work in a well-edited published book: natural, warm, and human, but polished and never gimmicky.\n\n"
-        f"{_book_context_block(book_context)}"
+        f"{_book_context_block(book_context, book_premise, book_voice)}"
         f"Section topic: {heading}\n\n"
         f"Write ONE paragraph, {words_min}–{words_max} words.\n\n"
         f"VOICE & STYLE (critical):\n"
@@ -763,7 +790,8 @@ def build_prompt(
 
 
 def build_subheading_prompt(
-    subheading: str, words_min: int, words_max: int, tone: str, book_context: str = ""
+    subheading: str, words_min: int, words_max: int, tone: str, book_context: str = "",
+    book_premise: str = "", book_voice: str = "",
 ) -> str:
     clean = re.sub(r"^[\-•*–—]\s+", "", subheading).strip()
     # Strip leading "Thing N: " label if present
@@ -774,7 +802,7 @@ def build_subheading_prompt(
     return (
         f"You are a professional non-fiction ghostwriter. Write prose that reads like a seasoned author's "
         f"work in a well-edited published book: natural, warm, and human, but polished and never gimmicky.\n\n"
-        f"{_book_context_block(book_context)}"
+        f"{_book_context_block(book_context, book_premise, book_voice)}"
         f"Specific point to cover: {clean}\n\n"
         f"Write ONE paragraph, {words_min}–{words_max} words, on this specific point.\n\n"
         f"VOICE & STYLE (critical):\n"
@@ -1467,6 +1495,104 @@ def _normalize_outline_text(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").strip()).lower()
 
 
+def infer_book_identity(
+    agent_id: str,
+    lines: list[str],
+    local: bool,
+    thinking: str,
+    timeout_s: int,
+    title_hint: str = "",
+) -> Optional[dict[str, str]]:
+    """Read the whole outline once and infer WHAT the book is and HOW it should
+    sound, returning {'premise': ..., 'voice': ...} or None if unusable.
+
+    This is the auto-detect path for book context: every paragraph is generated
+    from its heading alone, so a gag book whose subheadings read like ordinary
+    self-help ("Building confidence when you feel unsure") gets written as
+    ordinary self-help. A human can spot the joke by reading the title plus the
+    full list of headings together; this asks the model to do the same and
+    feeds the answer into every paragraph prompt.
+
+    Deliberately one call over the WHOLE outline, before any paragraph is
+    written: the signal that a book is a joke often lives in the title and in
+    how the headings sit next to each other, which a per-heading call can
+    never see.
+    """
+    if not lines:
+        return None
+    # Cap the payload: outlines can be hundreds of lines and the identity is
+    # readable from the title plus a broad sample of headings.
+    sample = [l.strip()[:200] for l in lines if l.strip()][:200]
+    numbered = "\n".join(f"{i + 1}. {l}" for i, l in enumerate(sample))
+    hint = f"The file is named: {title_hint}\n\n" if title_hint.strip() else ""
+    prompt = (
+        "TASK: identify what kind of book this outline is for. Do NOT write any "
+        "book content.\n\n"
+        f"{hint}"
+        "Below are the lines of a book outline. Read ALL of them together, then "
+        "judge what the book actually is. Pay attention to the title and to how "
+        "the headings read as a group.\n\n"
+        "Be alert to books that are NOT what a single heading suggests:\n"
+        "- Gag gifts, joke books, and parodies whose headings mimic sincere "
+        "self-help. A silly or crude title over earnest-sounding chapter names "
+        "almost always means a joke book, and the humor is the entire point.\n"
+        "- Satire that plays a ridiculous subject completely straight.\n"
+        "- Novelty, gift, and prank books meant to be funny rather than useful.\n"
+        "If the book is genuinely a sincere how-to, guide, memoir, or textbook, "
+        "say so plainly. Do not invent humor that is not there.\n\n"
+        f"OUTLINE:\n{numbered}\n\n"
+        "Reply in EXACTLY this format, two lines, nothing else:\n"
+        "PREMISE: <2-3 sentences on what this book is: subject, angle, who buys "
+        "it and why. Name the joke or gimmick outright if there is one.>\n"
+        "VOICE: <2-3 sentences on how the prose must sound: tone, register, how "
+        "funny or serious, what to avoid. Be specific and directive.>\n"
+    )
+    stdout = run_openclaw_call(
+        agent_id=agent_id,
+        message=prompt,
+        local=local,
+        thinking=thinking,
+        timeout_s=timeout_s,
+        # Fresh session so this analysis never leaks into the writing session.
+        session_id=str(uuid.uuid4()),
+    )
+    reply = parse_openclaw_reply(stdout)
+    if not reply:
+        return None
+
+    premise, voice = "", ""
+    current = None
+    for raw in reply.split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+        # Models often wrap the label in markdown ("**PREMISE:**"), so allow
+        # asterisks on either side of the label AND after the colon.
+        m = re.match(r"^\**\s*(PREMISE|VOICE)\s*\**\s*:\s*\**\s*(.*?)\s*\**$",
+                     line, re.IGNORECASE)
+        if m:
+            current = m.group(1).lower()
+            text = m.group(2).strip()
+            if current == "premise":
+                premise = text
+            else:
+                voice = text
+            continue
+        # Continuation of a wrapped answer.
+        if current == "premise" and premise:
+            premise += " " + line
+        elif current == "voice" and voice:
+            voice += " " + line
+
+    premise = premise.strip().strip('"')
+    voice = voice.strip().strip('"')
+    # A reply that produced neither field is unusable; the caller falls back to
+    # whatever the user typed (possibly nothing).
+    if not premise and not voice:
+        return None
+    return {"premise": premise, "voice": voice}
+
+
 def classify_outline_with_ai(
     agent_id: str,
     lines: list[str],
@@ -1603,9 +1729,12 @@ def build_opener_fix_prompt(paragraph: str) -> str:
         "opening. The new first sentence must NOT begin with 'you', 'imagine', "
         "'picture', 'think about', 'when you', 'say you', 'here's', or 'let's', and "
         "must not be an imagined 'you'-walkthrough. Good replacements: state a "
-        "concrete fact or number; make the plain point directly; name a specific "
-        "real example in the third person; or describe a concrete real-world detail. "
-        "Lead with the subject of the sentence, not with the reader.\n\n"
+        "concrete fact or number; make the plain point directly; describe a "
+        "concrete real-world detail (an object, a place, a sound); or say what "
+        "most people do, written generally ('most people', 'anyone who'). "
+        "Lead with the subject of the sentence, not with the reader. Do NOT "
+        "swap in an invented character: no made-up first names, no 'Sarah was "
+        "sitting on a beach' story openers.\n\n"
         "Keep the rest of the paragraph's meaning, information, tone, and length the "
         "same. It is fine to use 'you' later in the paragraph, just not as the opener. "
         "Do not add new ideas and do not use dashes.\n\n"
@@ -2120,13 +2249,23 @@ def main() -> int:
     ap.add_argument("--subwords", type=int, default=250, help="Min words per bullet-point paragraph")
     ap.add_argument("--subwords-max", type=int, default=320, help="Max words per bullet-point paragraph (default: subwords+40)")
     ap.add_argument("--tone", default="friendly, encouraging, and easy to understand", help="Writing tone")
-    ap.add_argument("--book-context", default="",
-                    help="A short description of what this book actually is (premise, humor, "
-                         "audience). Prepended to every paragraph prompt so generic-sounding "
-                         "headings are written to fit the book. Use --book-context-file to "
-                         "load it from a file instead.")
-    ap.add_argument("--book-context-file", default="",
-                    help="Path to a text file holding the book context (see --book-context).")
+    ap.add_argument("--book-premise", default="",
+                    help="WHAT this book is: subject, angle, audience (e.g. 'a gag gift joke "
+                         "book about bathroom mishaps'). Prepended to every paragraph prompt "
+                         "so generic-sounding headings are written to fit the book.")
+    ap.add_argument("--book-premise-file", default="",
+                    help="Path to a text file holding the book premise (see --book-premise).")
+    ap.add_argument("--book-voice", default="",
+                    help="HOW it must sound: tone and register (e.g. 'crude toilet humor "
+                         "played completely straight; must be funny, never earnest'). Kept "
+                         "separate from the premise because merged into one blob the model "
+                         "absorbs the subject and drops the tone.")
+    ap.add_argument("--book-voice-file", default="",
+                    help="Path to a text file holding the book voice (see --book-voice).")
+    # Superseded by --book-premise/--book-voice; still accepted so older
+    # callers and saved jobs keep working (treated as the premise).
+    ap.add_argument("--book-context", default="", help=argparse.SUPPRESS)
+    ap.add_argument("--book-context-file", default="", help=argparse.SUPPRESS)
     ap.add_argument("--local", action="store_true", help="Force --local (embedded runtime)")
     ap.add_argument("--thinking", default="", help="Thinking level (off|minimal|low|medium|high|xhigh)")
     ap.add_argument("--timeout", type=int, default=180, help="OpenClaw timeout seconds")
@@ -2161,6 +2300,10 @@ def main() -> int:
                     help="Also write intro text for chapter-title headings ('Chapter 3: ...'). "
                          "Default: skip them so only subheadings get content; a chapter intro "
                          "written in isolation half-repeats what the sections below it say.")
+    ap.add_argument("--no-auto-context", action="store_true",
+                    help="Skip the one-call auto-detection of the book's premise and voice. "
+                         "Detection already skips itself when both --book-premise and "
+                         "--book-voice are given.")
     ap.add_argument("--no-ai-outline", action="store_true",
                     help="Skip the AI outline analysis and use only the built-in style/pattern "
                          "detection for headings and subheadings.")
@@ -2177,18 +2320,36 @@ def main() -> int:
                          "0 (default) means no cap.")
     args = ap.parse_args()
 
-    # Resolve book context: --book-context-file wins when both are given, so a
-    # long premise can live in a file instead of a shell argument.
-    book_context = (args.book_context or "").strip()
-    if args.book_context_file:
-        ctx_path = Path(args.book_context_file)
-        if not ctx_path.exists():
-            print(f"ERROR: --book-context-file not found: {ctx_path}", file=sys.stderr)
-            return 2
-        book_context = ctx_path.read_text(encoding="utf-8").strip()
-    if book_context:
-        preview = book_context.replace("\n", " ")[:100]
-        print(f"Book context active ({len(book_context)} chars): {preview}…", flush=True)
+    # Resolve premise and voice. The --*-file form wins when both are given, so
+    # long text can live in a file instead of a shell argument.
+    def _resolve_ctx(inline: str, file_arg: str, flag: str) -> tuple[str, bool]:
+        value = (inline or "").strip()
+        if file_arg:
+            p = Path(file_arg)
+            if not p.exists():
+                print(f"ERROR: {flag} not found: {p}", file=sys.stderr)
+                return "", False
+            value = p.read_text(encoding="utf-8").strip()
+        return value, True
+
+    book_premise, ok = _resolve_ctx(
+        args.book_premise, args.book_premise_file, "--book-premise-file")
+    if not ok:
+        return 2
+    book_voice, ok = _resolve_ctx(
+        args.book_voice, args.book_voice_file, "--book-voice-file")
+    if not ok:
+        return 2
+    # Legacy single field: fills in as the premise when no explicit one is set.
+    book_context, ok = _resolve_ctx(
+        args.book_context, args.book_context_file, "--book-context-file")
+    if not ok:
+        return 2
+
+    for label, value in (("Premise", book_premise or book_context), ("Voice", book_voice)):
+        if value:
+            preview = value.replace("\n", " ")[:100]
+            print(f"Book {label.lower()} active ({len(value)} chars): {preview}…", flush=True)
 
     # Spending warning, measured from real per-call usage (see run_openclaw_call).
     # Set before any code path can reach an OpenClaw call.
@@ -2314,9 +2475,9 @@ def main() -> int:
             print(f"  rewriting {tag}: {heading[:80]}")
 
             if is_h:
-                prompt = build_prompt(heading=heading, words_min=words_min, words_max=words_max, tone=args.tone, book_context=book_context)
+                prompt = build_prompt(heading=heading, words_min=words_min, words_max=words_max, tone=args.tone, book_context=book_context, book_premise=book_premise, book_voice=book_voice)
             else:
-                prompt = build_subheading_prompt(subheading=heading, words_min=subwords_min, words_max=subwords_max, tone=args.tone, book_context=book_context)
+                prompt = build_subheading_prompt(subheading=heading, words_min=subwords_min, words_max=subwords_max, tone=args.tone, book_context=book_context, book_premise=book_premise, book_voice=book_voice)
 
             # Append user guidance to steer the rewrite
             if args.rewrite_guidance.strip():
@@ -2400,6 +2561,36 @@ def main() -> int:
         if str(out_path) != str(in_path):
             out_path.parent.mkdir(parents=True, exist_ok=True)
             doc.save(str(out_path))
+
+    # Auto-detect what kind of book this is when the user did not say. One
+    # call over the whole outline, before any paragraph is written. Anything
+    # the user typed always wins — this only fills the gaps.
+    if (not args.no_text and args.agent and not args.no_auto_context
+            and not (book_premise and book_voice)):
+        identity_lines = [(_p.text or "").strip() for _p in doc.paragraphs if (_p.text or "").strip()]
+        try:
+            print("Detecting what kind of book this is...", flush=True)
+            identity = infer_book_identity(
+                agent_id=args.agent,
+                lines=identity_lines,
+                local=args.local,
+                thinking=args.thinking,
+                timeout_s=args.timeout,
+                title_hint=in_path.stem.replace("_", " "),
+            )
+        except Exception as e:
+            print(f"WARNING: book detection failed ({e}); continuing without it.",
+                  file=sys.stderr)
+            identity = None
+        if identity is None:
+            print("Book detection unusable — continuing with what was provided.", flush=True)
+        else:
+            if not book_premise and identity.get("premise"):
+                book_premise = identity["premise"]
+                print(f"  Detected premise: {book_premise[:150]}", flush=True)
+            if not book_voice and identity.get("voice"):
+                book_voice = identity["voice"]
+                print(f"  Detected voice: {book_voice[:150]}", flush=True)
 
     ai_roles: Optional[dict] = None
     if not args.no_text and args.agent and not args.no_ai_outline:
@@ -2505,9 +2696,9 @@ def main() -> int:
             print("  chapter title — no intro text (subheadings carry the content)", flush=True)
         else:
             if is_h:
-                prompt = build_prompt(heading=heading, words_min=words_min, words_max=words_max, tone=args.tone, book_context=book_context)
+                prompt = build_prompt(heading=heading, words_min=words_min, words_max=words_max, tone=args.tone, book_context=book_context, book_premise=book_premise, book_voice=book_voice)
             else:
-                prompt = build_subheading_prompt(subheading=heading, words_min=subwords_min, words_max=subwords_max, tone=args.tone, book_context=book_context)
+                prompt = build_subheading_prompt(subheading=heading, words_min=subwords_min, words_max=subwords_max, tone=args.tone, book_context=book_context, book_premise=book_premise, book_voice=book_voice)
             cache_key = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
             cached = None if (args.no_cache or args.force) else cache.get(cache_key)

@@ -59,10 +59,17 @@ if not PYTHON_BIN.exists():
 DEFAULTS: dict[str, Any] = {
     "agent": "main",
     "tone": "friendly, encouraging, and easy to understand",
-    # Free-form description of what the book actually is (premise, humor,
-    # audience). Prepended to every paragraph prompt so a generic-sounding
-    # heading is written to fit the book instead of at face value.
+    # WHAT the book is (subject, angle, audience) and HOW it must sound (tone,
+    # register), kept separate: merged into one field the model absorbs the
+    # subject and drops the tone. Both are prepended to every paragraph prompt
+    # so a generic-sounding heading is written to fit the book.
+    "book_premise": "",
+    "book_voice": "",
+    # Pre-split single field, retained so saved jobs keep working.
     "book_context": "",
+    # Let the writer infer premise/voice from the outline when the user leaves
+    # them blank. One extra model call per book, before any paragraph is written.
+    "auto_book_context": True,
     "words": 250,
     "words_max": 320,
     "subwords": 250,
@@ -511,19 +518,29 @@ def _run_kdp_formatting(job: Job, source_doc: Path) -> tuple[Path, Path]:
 
 
 def _book_context_flag(job: Job, cfg: dict[str, Any]) -> list[str]:
-    """Return the --book-context-file flag for this job, or [].
+    """Return the --book-premise-file / --book-voice-file flags, or [].
 
-    The context is written to a file next to the job's output rather than
-    passed inline: it is free-form multi-line text from the user, and a long
-    premise as a command-line argument is fragile.
+    Each is written to a file next to the job's output rather than passed
+    inline: they are free-form multi-line text from the user, and long text as
+    a command-line argument is fragile.
+
+    Premise and voice stay separate all the way to the prompt — merging them
+    into one blob makes the model absorb the subject and drop the tone.
+    `book_context` is the pre-split field, still read so saved jobs keep
+    working; it fills in as the premise.
     """
-    ctx = str(cfg.get("book_context") or "").strip()
-    if not ctx:
-        return []
-    ctx_path = OUTPUT_DIR / f"{job.id}_book_context.txt"
-    ctx_path.parent.mkdir(parents=True, exist_ok=True)
-    ctx_path.write_text(ctx, encoding="utf-8")
-    return ["--book-context-file", str(ctx_path)]
+    premise = str(cfg.get("book_premise") or cfg.get("book_context") or "").strip()
+    voice = str(cfg.get("book_voice") or "").strip()
+
+    flags: list[str] = []
+    for name, value in (("premise", premise), ("voice", voice)):
+        if not value:
+            continue
+        path = OUTPUT_DIR / f"{job.id}_book_{name}.txt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(value, encoding="utf-8")
+        flags.extend([f"--book-{name}-file", str(path)])
+    return flags
 
 
 def _build_generation_cmd(job: Job, cfg: dict[str, Any], max_spend_usd: float) -> list[str]:
@@ -564,6 +581,10 @@ def _build_generation_cmd(job: Job, cfg: dict[str, Any], max_spend_usd: float) -
     ctx_flag = _book_context_flag(job, cfg)
     if ctx_flag:
         cmd.extend(ctx_flag)
+    # Auto-detect the book's premise/voice from the outline unless the user
+    # turned it off. The writer skips detection anyway when both were typed.
+    if not cfg.get("auto_book_context", True):
+        cmd.append("--no-auto-context")
     if cfg.get("openai_api_key"):
         cmd.extend(["--openai-api-key", str(cfg["openai_api_key"])])
     return cmd
@@ -1455,7 +1476,10 @@ def _build_cfg_from_form(form: Any) -> tuple[dict[str, Any] | None, str | None]:
 
     cfg: dict[str, Any] = {
         "agent": chosen_agent,
-        "book_context": (form.get("book_context") or "").strip(),
+        "book_premise": (form.get("book_premise") or "").strip(),
+        "book_voice": (form.get("book_voice") or "").strip(),
+        # Checkbox: present == on. Defaults to on for new uploads.
+        "auto_book_context": form.get("auto_book_context") is not None,
         # HTML checkbox: unchecked sends nothing, checked sends a value. So
         # presence of the "images" form field == toggle is on.
         "images": form.get("images") is not None,
@@ -1568,6 +1592,11 @@ def create_job() -> Any:
             return jsonify({"error": err}), 500
         return jsonify({"error": err}), 400
 
+    # Confirmed in the pre-write dialog, so detection already ran — don't pay
+    # for a second call that would return the same thing.
+    if cfg.get("book_premise") and cfg.get("book_voice"):
+        cfg["auto_book_context"] = False
+
     pre_written = _resolve_pre_written(input_doc, request.form.get("pre_written") or "auto")
     job = _create_job_record(input_doc, cfg, pre_written)
 
@@ -1623,6 +1652,99 @@ def _run_batch(batch_id: str) -> None:
         batch.updated_at = time.time()
 
 
+def _detect_identity_for_upload(
+    input_doc: Path, cfg: dict[str, Any]
+) -> dict[str, Any]:
+    """Run the premise/voice detection for one uploaded outline.
+
+    Preview only: no Job is created and nothing is written. Whatever the user
+    already typed wins, exactly as in the writer, so the dialog shows the same
+    values the run would actually use.
+    """
+    typed_premise = str(cfg.get("book_premise") or "").strip()
+    typed_voice = str(cfg.get("book_voice") or "").strip()
+
+    result: dict[str, Any] = {
+        "premise": typed_premise,
+        "voice": typed_voice,
+        "source": "typed" if (typed_premise and typed_voice) else "detected",
+        "detected": False,
+        "error": "",
+    }
+
+    # Nothing to infer, or the user opted out.
+    if (typed_premise and typed_voice) or not cfg.get("auto_book_context", True):
+        result["source"] = "typed"
+        return result
+
+    try:
+        doc = Document(str(input_doc))
+        lines = [(p.text or "").strip() for p in doc.paragraphs if (p.text or "").strip()]
+        identity = writer.infer_book_identity(
+            agent_id=str(cfg.get("agent", DEFAULTS["agent"])),
+            lines=lines,
+            local=False,
+            thinking=str(cfg.get("thinking") or DEFAULTS["thinking"]),
+            timeout_s=int(cfg.get("timeout", DEFAULTS["timeout"])),
+            title_hint=input_doc.stem.replace("_", " "),
+        )
+    except Exception as exc:
+        result["error"] = str(exc)
+        return result
+
+    if not identity:
+        result["error"] = "Could not determine the book type from this outline."
+        return result
+
+    result["detected"] = True
+    if not typed_premise and identity.get("premise"):
+        result["premise"] = identity["premise"]
+    if not typed_voice and identity.get("voice"):
+        result["voice"] = identity["voice"]
+    return result
+
+
+@app.post("/api/detect-book-identity")
+def detect_book_identity() -> Any:
+    """Preview what the AI thinks each uploaded outline is, before writing.
+
+    Accepts the same multipart form as /api/jobs and /api/batches, so the
+    dialog can show one section per uploaded book. Creates no jobs and spends
+    one model call per file.
+    """
+    uploads = [u for u in request.files.getlist("layout_file") if u and u.filename]
+    if not uploads:
+        return jsonify({"error": "Provide at least one layout_file"}), 400
+
+    cfg, err = _build_cfg_from_form(request.form)
+    if err:
+        return jsonify({"error": err}), 400
+
+    # Reaching this endpoint IS the request to detect, so don't inherit the
+    # form's checkbox convention (absent == off) — the probe form is built
+    # from the config form and may not carry the checkbox at all. An explicit
+    # "auto_book_context=0" still turns it off.
+    cfg["auto_book_context"] = (request.form.get("auto_book_context") or "1").lower() not in {"0", "false", "no", "off"}
+
+    books: list[dict[str, Any]] = []
+    for upload in uploads:
+        input_doc, save_err = _save_uploaded_docx(upload)
+        if save_err:
+            books.append({
+                "filename": upload.filename,
+                "premise": "", "voice": "",
+                "detected": False, "source": "error",
+                "error": save_err,
+            })
+            continue
+        info = _detect_identity_for_upload(input_doc, cfg)
+        info["filename"] = upload.filename
+        info["input_path"] = str(input_doc)
+        books.append(info)
+
+    return jsonify({"books": books})
+
+
 @app.post("/api/batches")
 def create_batch() -> Any:
     """Create a batch from multiple uploaded .docx files and generate them
@@ -1643,14 +1765,27 @@ def create_batch() -> Any:
     pre_written_choice = request.form.get("pre_written") or "auto"
 
     jobs: list[Job] = []
-    for upload in uploads:
+    for idx, upload in enumerate(uploads):
         input_doc, save_err = _save_uploaded_docx(upload)
         if save_err:
             return jsonify({"error": f"{upload.filename}: {save_err}"}), 400
         # Each file gets its own copy of the shared config so per-job budget
         # bookkeeping written into config doesn't bleed across books.
+        job_cfg = dict(cfg)
+        # Per-book premise/voice confirmed in the pre-write dialog. Sent as
+        # book_premise_0, book_voice_0, book_premise_1, ... so each book in a
+        # batch keeps its own identity instead of sharing one form value.
+        per_premise = (request.form.get(f"book_premise_{idx}") or "").strip()
+        per_voice = (request.form.get(f"book_voice_{idx}") or "").strip()
+        if per_premise:
+            job_cfg["book_premise"] = per_premise
+        if per_voice:
+            job_cfg["book_voice"] = per_voice
+        # Already confirmed by the user, so don't pay for detection again.
+        if per_premise and per_voice:
+            job_cfg["auto_book_context"] = False
         pre_written = _resolve_pre_written(input_doc, pre_written_choice)
-        job = _create_job_record(input_doc, dict(cfg), pre_written)
+        job = _create_job_record(input_doc, job_cfg, pre_written)
         jobs.append(job)
 
     batch_id = uuid.uuid4().hex
@@ -1817,7 +1952,8 @@ def job_status(job_id: str) -> Any:
                 "headings": list(job.headings),
                 "listing": dict(job.listing) if job.listing else {},
                 "pre_written": bool(job.pre_written),
-                "book_context": job.config.get("book_context", ""),
+                "book_premise": job.config.get("book_premise", "") or job.config.get("book_context", ""),
+                "book_voice": job.config.get("book_voice", ""),
                 "hemingway_login_required": bool(job.hemingway_login_required),
                 "budget_paused": bool(job.budget_paused),
                 "budget_cap_reached": bool(job.budget_paused),
@@ -2019,13 +2155,18 @@ def rewrite_paragraphs(job_id: str) -> Any:
         "subwords": int(payload.get("subwords") or job.config.get("subwords", DEFAULTS["subwords"])),
         "subwords_max": int(payload.get("subwords_max") or job.config.get("subwords_max", DEFAULTS["subwords_max"])),
         "rewrite_guidance": str(payload.get("rewrite_guidance") or "").strip(),
-        # Editable at rewrite time: a book generated before the context was
-        # written (or with the wrong one) is fixed by setting it here and
-        # rewriting the affected headings.
-        "book_context": (
-            str(payload.get("book_context")).strip()
-            if payload.get("book_context") is not None
-            else job.config.get("book_context", "")
+        # Inherited from the job, not the rewrite dialog: without these a
+        # rewritten paragraph loses the book's identity and reverts to generic
+        # prose. Still overridable via the API for callers that send them.
+        "book_premise": (
+            str(payload.get("book_premise")).strip()
+            if payload.get("book_premise") is not None
+            else (job.config.get("book_premise", "") or job.config.get("book_context", ""))
+        ),
+        "book_voice": (
+            str(payload.get("book_voice")).strip()
+            if payload.get("book_voice") is not None
+            else job.config.get("book_voice", "")
         ),
     }
 
