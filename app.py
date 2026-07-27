@@ -59,6 +59,10 @@ if not PYTHON_BIN.exists():
 DEFAULTS: dict[str, Any] = {
     "agent": "main",
     "tone": "friendly, encouraging, and easy to understand",
+    # Free-form description of what the book actually is (premise, humor,
+    # audience). Prepended to every paragraph prompt so a generic-sounding
+    # heading is written to fit the book instead of at face value.
+    "book_context": "",
     "words": 250,
     "words_max": 320,
     "subwords": 250,
@@ -342,6 +346,60 @@ def _list_image_headings(doc_path: Path) -> list[str]:
     return out
 
 
+def _list_rewritable_headings(doc_path: Path) -> list[dict[str, Any]]:
+    """List every heading that actually has a body paragraph to rewrite.
+
+    This is deliberately NOT _list_image_headings(): that one returns only
+    chapter-level headings (the right unit for one image per chapter), but
+    chapter titles get no intro text by default, so the rewrite menu showed
+    only entries that could not be rewritten. Walk the document instead and
+    report each heading with its level, plus whether a body paragraph was
+    found for it.
+    """
+    doc = Document(str(doc_path))
+    paragraphs = doc.paragraphs
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    current_chapter = ""
+
+    for i, p in enumerate(paragraphs):
+        is_h = writer.is_heading_paragraph(p)
+        is_sub = (not is_h) and writer.is_subheading_paragraph(p)
+        if not is_h and not is_sub:
+            continue
+        heading = (p.text or "").strip()
+        if not heading:
+            continue
+
+        # Front matter (TOC, bonus pages, subtitle block) is not rewritable
+        # prose — offering it just invites a rewrite that can't do anything.
+        flat = re.sub(r"\s+", " ", heading).strip().lower()
+        flat = re.sub(r"^chapter:\s*", "", flat)
+        if (flat.startswith("table of contents")
+                or flat.startswith("free bonus")
+                or flat.startswith("— a comprehensive guide")
+                or flat.startswith("- a comprehensive guide")):
+            continue
+
+        body = writer.find_body_paragraph_after(paragraphs, i)
+        if is_h:
+            current_chapter = heading
+
+        key = heading.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+
+        out.append({
+            "heading": heading,
+            "level": "chapter" if is_h else "section",
+            "chapter": "" if is_h else current_chapter,
+            "has_body": body is not None,
+            "preview": ((body.text or "").strip()[:140] if body is not None else ""),
+        })
+    return out
+
+
 def _pick_final_doc(output_doc: Path, logs: list[str]) -> Path:
     for line in reversed(logs):
         marker = "Final file:"
@@ -452,6 +510,22 @@ def _run_kdp_formatting(job: Job, source_doc: Path) -> tuple[Path, Path]:
     return kindle_doc, paperback_doc
 
 
+def _book_context_flag(job: Job, cfg: dict[str, Any]) -> list[str]:
+    """Return the --book-context-file flag for this job, or [].
+
+    The context is written to a file next to the job's output rather than
+    passed inline: it is free-form multi-line text from the user, and a long
+    premise as a command-line argument is fragile.
+    """
+    ctx = str(cfg.get("book_context") or "").strip()
+    if not ctx:
+        return []
+    ctx_path = OUTPUT_DIR / f"{job.id}_book_context.txt"
+    ctx_path.parent.mkdir(parents=True, exist_ok=True)
+    ctx_path.write_text(ctx, encoding="utf-8")
+    return ["--book-context-file", str(ctx_path)]
+
+
 def _build_generation_cmd(job: Job, cfg: dict[str, Any], max_spend_usd: float) -> list[str]:
     input_doc = Path(job.input_docx)
     cmd = [
@@ -487,6 +561,9 @@ def _build_generation_cmd(job: Job, cfg: dict[str, Any], max_spend_usd: float) -
     # added latency and cost per paragraph. Always pass it explicitly now.
     thinking = str(cfg.get("thinking") or DEFAULTS["thinking"])
     cmd.extend(["--thinking", thinking])
+    ctx_flag = _book_context_flag(job, cfg)
+    if ctx_flag:
+        cmd.extend(ctx_flag)
     if cfg.get("openai_api_key"):
         cmd.extend(["--openai-api-key", str(cfg["openai_api_key"])])
     return cmd
@@ -694,6 +771,9 @@ def _run_rewrite_paragraphs(job_id: str, headings: list[str], overrides: dict[st
                 "--subwords-max",
                 str(cfg.get("subwords_max", DEFAULTS["subwords_max"])),
             ]
+            ctx_flag = _book_context_flag(job, cfg)
+            if ctx_flag:
+                cmd.extend(ctx_flag)
             if cfg.get("rewrite_guidance"):
                 cmd.extend(["--rewrite-guidance", str(cfg["rewrite_guidance"])])
 
@@ -1375,6 +1455,7 @@ def _build_cfg_from_form(form: Any) -> tuple[dict[str, Any] | None, str | None]:
 
     cfg: dict[str, Any] = {
         "agent": chosen_agent,
+        "book_context": (form.get("book_context") or "").strip(),
         # HTML checkbox: unchecked sends nothing, checked sends a value. So
         # presence of the "images" form field == toggle is on.
         "images": form.get("images") is not None,
@@ -1736,6 +1817,7 @@ def job_status(job_id: str) -> Any:
                 "headings": list(job.headings),
                 "listing": dict(job.listing) if job.listing else {},
                 "pre_written": bool(job.pre_written),
+                "book_context": job.config.get("book_context", ""),
                 "hemingway_login_required": bool(job.hemingway_login_required),
                 "budget_paused": bool(job.budget_paused),
                 "budget_cap_reached": bool(job.budget_paused),
@@ -1887,6 +1969,28 @@ def replace_images(job_id: str) -> Any:
     return jsonify({"ok": True, "queued": len(normalized)})
 
 
+@app.get("/api/jobs/<job_id>/rewritable-headings")
+def rewritable_headings(job_id: str) -> Any:
+    """Headings the rewrite menu can offer, including subheadings.
+
+    Separate from job.headings (image headings, chapter-level only) because a
+    chapter title has no body paragraph of its own to rewrite.
+    """
+    job = _get_job(job_id)
+    with job.lock:
+        final_doc = Path(job.final_docx or job.output_docx)
+
+    if not final_doc.exists():
+        return jsonify({"error": "Final document not found for this job"}), 400
+
+    try:
+        items = _list_rewritable_headings(final_doc)
+    except Exception as exc:
+        return jsonify({"error": f"Could not read document: {exc}"}), 500
+
+    return jsonify({"headings": items})
+
+
 @app.post("/api/jobs/<job_id>/rewrite-paragraphs")
 def rewrite_paragraphs(job_id: str) -> Any:
     job = _get_job(job_id)
@@ -1915,6 +2019,14 @@ def rewrite_paragraphs(job_id: str) -> Any:
         "subwords": int(payload.get("subwords") or job.config.get("subwords", DEFAULTS["subwords"])),
         "subwords_max": int(payload.get("subwords_max") or job.config.get("subwords_max", DEFAULTS["subwords_max"])),
         "rewrite_guidance": str(payload.get("rewrite_guidance") or "").strip(),
+        # Editable at rewrite time: a book generated before the context was
+        # written (or with the wrong one) is fixed by setting it here and
+        # rewriting the affected headings.
+        "book_context": (
+            str(payload.get("book_context")).strip()
+            if payload.get("book_context") is not None
+            else job.config.get("book_context", "")
+        ),
     }
 
     t = threading.Thread(target=_run_rewrite_paragraphs, args=(job_id, normalized, overrides), daemon=True)

@@ -178,6 +178,31 @@ def paragraph_looks_like_body(p: Paragraph) -> bool:
     return word_count >= 35 or len(text) >= 220 or sentence_count >= 2
 
 
+def find_body_paragraph_after(paragraphs: list, index: int, max_scan: int = 6):
+    """Return the generated body paragraph that belongs to the heading at
+    `index`, or None.
+
+    The body is NOT always at index+1. Generated books carry a blank spacer
+    paragraph after every heading, and formatted ones can also carry an
+    image-only paragraph, so the naive index+1 check finds an empty paragraph
+    and silently skips the rewrite. Scan forward over empty/image-only
+    paragraphs instead, and stop at the next heading so a heading with no body
+    never steals the following section's text.
+    """
+    for j in range(index + 1, min(len(paragraphs), index + 1 + max_scan)):
+        cand = paragraphs[j]
+        text = (cand.text or "").strip()
+        if not text:
+            # Blank spacer, or a paragraph holding only an inline image.
+            continue
+        if is_heading_paragraph(cand) or is_subheading_paragraph(cand):
+            return None
+        if paragraph_looks_like_body(cand):
+            return cand
+        return None
+    return None
+
+
 def insert_paragraph_after(paragraph, text: str, style: str = "Normal") -> Paragraph:
     """
     Insert a new paragraph right after `paragraph`.
@@ -593,16 +618,17 @@ PARAGRAPH_OPENING_MOVES = [
     "Do not address the reader as 'you' in the first sentence.",
     "Open by stating the main point in one plain, declarative sentence. "
     "No 'you', no 'imagine', no scenario — just the claim itself.",
-    "Open on a specific named example, person, place, thing, or moment in the "
-    "third person (he/she/they/it/a name), not the second person.",
+    "Open on a specific thing, place, object, or moment, described in the third "
+    "person. Do NOT invent a person or give anyone a first name.",
     "Open with a short, surprising observation about how the thing actually works. "
     "Lead with the subject of the sentence, not with 'you'.",
     "Open with a concrete detail from the real world (an object, a sound, a place) "
     "described in the third person.",
     "Open mid-thought on the idea itself, as if continuing an explanation already "
     "underway. Do not start with a 'you'-address or an imagined scene.",
-    "Open with a brief third-person story beat: a specific someone doing a specific "
-    "thing, somewhere real. Name them; do not make it 'you'.",
+    "Open with a plain observation about what most people do in this situation, "
+    "written about people in general ('most people', 'anyone who'). Do NOT invent "
+    "a named character.",
 ]
 
 PARAGRAPH_CLOSING_MOVES = [
@@ -646,14 +672,46 @@ _STRUCTURE_BANS = (
     "paragraph read the same. The opening sentence must NOT be a 'you'-address "
     "walkthrough of an imagined moment. Follow the PARAGRAPH SHAPE opening below "
     "literally instead.\n"
+    "- DO NOT invent a fictional named person. Never open with a made-up character "
+    "doing something (banned: 'Sarah was sitting on a beach...', 'Marco was standing "
+    "in Best Buy...', 'Linda opened her laptop...'). Do not give anyone a first name "
+    "anywhere in the paragraph unless that person is a real, well-known figure. Write "
+    "about the reader, about people in general ('most people', 'anyone who'), or about "
+    "the thing itself instead of a fake anecdote.\n"
 )
 
 
-def build_prompt(heading: str, words_min: int, words_max: int, tone: str) -> str:
+def _book_context_block(book_context: str) -> str:
+    """Frame every paragraph with what the book actually is.
+
+    Each paragraph is generated from its heading alone, so a heading like
+    "Building confidence when you feel unsure" reads as a straight self-help
+    prompt and the model writes earnest self-help — even when the book is a
+    gag gift. This block goes ABOVE the heading so the book's premise is
+    established before the model sees the topic.
+    """
+    ctx = (book_context or "").strip()
+    if not ctx:
+        return ""
+    return (
+        f"ABOUT THIS BOOK (read first, this frames everything below):\n{ctx}\n\n"
+        f"The section topic below must be written to fit this book. If the "
+        f"topic sounds generic, interpret it through the book's premise, "
+        f"subject matter, and humor rather than writing a generic take on the "
+        f"topic's face-value meaning. Match the book's tone exactly: if the "
+        f"book is funny, this paragraph is funny; if it is serious, stay "
+        f"serious. Never mention these instructions or the book's description.\n\n"
+    )
+
+
+def build_prompt(
+    heading: str, words_min: int, words_max: int, tone: str, book_context: str = ""
+) -> str:
     opening_move, closing_move = _structure_hints(heading)
     return (
         f"You are a professional non-fiction ghostwriter. Write prose that reads like a seasoned author's "
         f"work in a well-edited published book: natural, warm, and human, but polished and never gimmicky.\n\n"
+        f"{_book_context_block(book_context)}"
         f"Section topic: {heading}\n\n"
         f"Write ONE paragraph, {words_min}–{words_max} words.\n\n"
         f"VOICE & STYLE (critical):\n"
@@ -704,7 +762,9 @@ def build_prompt(heading: str, words_min: int, words_max: int, tone: str) -> str
     )
 
 
-def build_subheading_prompt(subheading: str, words_min: int, words_max: int, tone: str) -> str:
+def build_subheading_prompt(
+    subheading: str, words_min: int, words_max: int, tone: str, book_context: str = ""
+) -> str:
     clean = re.sub(r"^[\-•*–—]\s+", "", subheading).strip()
     # Strip leading "Thing N: " label if present
     clean = re.sub(r"^Thing\s+\d+:\s*", "", clean, flags=re.IGNORECASE).strip()
@@ -714,6 +774,7 @@ def build_subheading_prompt(subheading: str, words_min: int, words_max: int, ton
     return (
         f"You are a professional non-fiction ghostwriter. Write prose that reads like a seasoned author's "
         f"work in a well-edited published book: natural, warm, and human, but polished and never gimmicky.\n\n"
+        f"{_book_context_block(book_context)}"
         f"Specific point to cover: {clean}\n\n"
         f"Write ONE paragraph, {words_min}–{words_max} words, on this specific point.\n\n"
         f"VOICE & STYLE (critical):\n"
@@ -1292,6 +1353,102 @@ def find_second_person_opener(text: str) -> list[str]:
     return flagged
 
 
+# Fabricated-character opener: "Sarah was sitting on a beach...", "Marco was
+# standing in Best Buy...". The rotating opening moves used to ask for a named
+# third-person story beat outright, so roughly a third of paragraphs opened on
+# an invented person. Match a capitalized first name (optionally with a last
+# name) as the sentence subject, followed by a verb — the shape of an anecdote.
+# Words that legitimately start a sentence in title case are excluded so real
+# openers ("Most people...", "Your phone...") never trip it.
+_NAME_OPENER_STOPWORDS = frozenset({
+    "a", "an", "the", "this", "that", "these", "those", "there", "here",
+    "it", "he", "she", "they", "we", "i", "you", "your", "his", "her", "their",
+    "our", "my", "its", "one", "two", "three", "some", "many", "most", "every",
+    "each", "all", "no", "nobody", "anyone", "someone", "everyone", "people",
+    "when", "while", "after", "before", "if", "because", "since", "for", "but",
+    "and", "so", "yet", "or", "nor", "as", "at", "by", "from", "in", "into",
+    "on", "of", "to", "with", "without", "up", "down", "out", "over", "under",
+    "what", "why", "how", "where", "who", "which", "whose", "whom",
+    "imagine", "picture", "think", "consider", "say", "suppose", "let",
+    "ever", "not", "never", "always", "once", "then", "now", "today",
+    "good", "bad", "best", "worst", "new", "old", "first", "last", "next",
+    "nothing", "something", "anything", "everything", "both", "either",
+    "neither", "another", "other", "others", "few", "several", "half",
+})
+
+_NAME_OPENER_RE = re.compile(
+    r"^\s*[\"'“‘(]*\s*"
+    r"(?P<name>[A-Z][a-z]{1,14})"                     # "Sarah"
+    r"(?P<surname>\s+[A-Z][a-z]{1,14})?"              # optional "Chen"
+    r"\s+(?P<verb>"
+    # Progressive/possessive frames only a person fits: "was sitting",
+    # "had spent", "has been". A bare "was" is excluded so "Confidence is a
+    # strange thing" and "Google was founded in a garage" do not match.
+    r"(?:was|were|is|are)\s+(?:\w+ing|been)\b"
+    r"|(?:had|has)\s+(?:\w+ed|\w+en|been|spent|kept|got|made|taken)\b"
+    # Or an unambiguous human action verb in the past/present tense.
+    r"|(?:sat|stood|walked|opened|picked|tried|stared|grabbed|"
+    r"turned|started|stopped|knew|thought|felt|wanted|needed|noticed|"
+    r"realized|decided|remembered|checked|called|bought|drove|"
+    r"works|worked|lives|lived|smiled|laughed|cried|nodded|shrugged|"
+    r"asked|answered|replied|explained|admitted|complained)\b"
+    r")"
+)
+
+# Abstract nouns that look like names to the regex ("Confidence had been...").
+# A real anecdote subject is a person, so these can never be one.
+_NAME_OPENER_ABSTRACT = frozenset({
+    "confidence", "doubt", "fear", "anger", "hope", "trust", "shame", "guilt",
+    "worry", "stress", "anxiety", "panic", "courage", "patience", "practice",
+    "success", "failure", "change", "progress", "money", "time", "work",
+    "sleep", "health", "memory", "focus", "energy", "balance", "comfort",
+    "pride", "regret", "grief", "joy", "love", "luck", "truth", "silence",
+    "nothing", "everything", "something", "anything", "life", "death",
+})
+
+
+def find_invented_name_opener(text: str) -> list[str]:
+    """Return the opening sentence if the paragraph starts with a fabricated
+    named character doing something, else an empty list. Only the FIRST
+    sentence of each line is checked."""
+    flagged: list[str] = []
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        first = re.split(r"(?<=[.!?])\s+", line, maxsplit=1)[0]
+        m = _NAME_OPENER_RE.match(first)
+        if not m:
+            continue
+        name = m.group("name").lower()
+        if name in _NAME_OPENER_STOPWORDS or name in _NAME_OPENER_ABSTRACT:
+            continue
+        flagged.append(first[:120])
+    return flagged
+
+
+def build_name_opener_fix_prompt(paragraph: str) -> str:
+    """Rewrite only the opening sentence of a paragraph that opens on an
+    invented named character, keeping the rest intact."""
+    return (
+        "The paragraph below opens with a made-up character doing something "
+        "(for example 'Sarah was sitting on a beach...', 'Marco was standing in "
+        "Best Buy...'). This book does not use invented people, and every "
+        "section opening on a fake name reads like filler.\n\n"
+        "Rewrite the paragraph so the FIRST sentence does not name or invent a "
+        "person. Good replacements: state a concrete fact or number; make the "
+        "plain point directly; describe a real-world object, place, or sound; or "
+        "say what most people do, written generally ('most people', 'anyone "
+        "who'). Do not swap in a different invented name, and do not replace it "
+        "with a 'you walk into...' hypothetical either.\n\n"
+        "Keep the rest of the paragraph's meaning, information, tone, and length "
+        "the same. Remove any other invented characters and their names from the "
+        "paragraph. Do not add new ideas and do not use dashes.\n\n"
+        f"Paragraph:\n{paragraph}\n\n"
+        "Output ONLY the rewritten paragraph. No preamble, no notes."
+    )
+
+
 _CHAPTER_TITLE_RE = re.compile(
     r"^\s*chapter\s+(?:\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|"
     r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\b",
@@ -1568,6 +1725,26 @@ def _generate_clean_paragraph_once(
         if find_second_person_opener(generated):
             print("  opener check: second-person scenario opener (retries off) "
                   "— not rewritten", flush=True)
+
+    # Invented-character-opener fix, same one-shot targeted pattern: only pays
+    # for a rewrite when a paragraph actually opens on a made-up person
+    # ("Sarah was sitting on a beach...").
+    if max_opener_retries > 0 and find_invented_name_opener(generated):
+        opener = find_invented_name_opener(generated)[0]
+        print(f'  opener fix: paragraph opens on an invented character '
+              f'("{opener[:50]}…") — rewriting the opening', flush=True)
+        fixed = call_openclaw(
+            agent_id, build_name_opener_fix_prompt(generated),
+            local, thinking, timeout_s, session_id,
+        )
+        if (len(fixed.split()) >= 0.6 * len(generated.split())
+                and not find_invented_name_opener(fixed)
+                and not find_second_person_opener(fixed)
+                and not find_template_sentences(fixed)):
+            generated = fixed
+    elif find_invented_name_opener(generated):
+        print("  opener check: invented-character opener (retries off) "
+              "— not rewritten", flush=True)
 
     return generated
 
@@ -1943,6 +2120,13 @@ def main() -> int:
     ap.add_argument("--subwords", type=int, default=250, help="Min words per bullet-point paragraph")
     ap.add_argument("--subwords-max", type=int, default=320, help="Max words per bullet-point paragraph (default: subwords+40)")
     ap.add_argument("--tone", default="friendly, encouraging, and easy to understand", help="Writing tone")
+    ap.add_argument("--book-context", default="",
+                    help="A short description of what this book actually is (premise, humor, "
+                         "audience). Prepended to every paragraph prompt so generic-sounding "
+                         "headings are written to fit the book. Use --book-context-file to "
+                         "load it from a file instead.")
+    ap.add_argument("--book-context-file", default="",
+                    help="Path to a text file holding the book context (see --book-context).")
     ap.add_argument("--local", action="store_true", help="Force --local (embedded runtime)")
     ap.add_argument("--thinking", default="", help="Thinking level (off|minimal|low|medium|high|xhigh)")
     ap.add_argument("--timeout", type=int, default=180, help="OpenClaw timeout seconds")
@@ -1992,6 +2176,19 @@ def main() -> int:
                          "generation continues until the user explicitly stops it. "
                          "0 (default) means no cap.")
     args = ap.parse_args()
+
+    # Resolve book context: --book-context-file wins when both are given, so a
+    # long premise can live in a file instead of a shell argument.
+    book_context = (args.book_context or "").strip()
+    if args.book_context_file:
+        ctx_path = Path(args.book_context_file)
+        if not ctx_path.exists():
+            print(f"ERROR: --book-context-file not found: {ctx_path}", file=sys.stderr)
+            return 2
+        book_context = ctx_path.read_text(encoding="utf-8").strip()
+    if book_context:
+        preview = book_context.replace("\n", " ")[:100]
+        print(f"Book context active ({len(book_context)} chars): {preview}…", flush=True)
 
     # Spending warning, measured from real per-call usage (see run_openclaw_call).
     # Set before any code path can reach an OpenClaw call.
@@ -2087,6 +2284,8 @@ def main() -> int:
 
         doc = Document(str(target))
         rewritten = 0
+        matched = 0
+        skipped = 0
         i = 0
         while i < len(doc.paragraphs):
             p = doc.paragraphs[i]
@@ -2099,11 +2298,15 @@ def main() -> int:
             if not heading or args.rewrite_heading.lower() not in heading.lower():
                 i += 1
                 continue
+            matched += 1
 
-            # Find the body paragraph right after this heading
-            next_para = doc.paragraphs[i + 1] if (i + 1) < len(doc.paragraphs) else None
-            if next_para is None or not paragraph_looks_like_body(next_para):
+            # Find the body paragraph belonging to this heading. It is usually
+            # not the very next paragraph: generated books put a blank spacer
+            # (and sometimes an image) between the heading and its prose.
+            next_para = find_body_paragraph_after(doc.paragraphs, i)
+            if next_para is None:
                 print(f"  skipping '{heading[:60]}' — no body paragraph found after it")
+                skipped += 1
                 i += 1
                 continue
 
@@ -2111,9 +2314,9 @@ def main() -> int:
             print(f"  rewriting {tag}: {heading[:80]}")
 
             if is_h:
-                prompt = build_prompt(heading=heading, words_min=words_min, words_max=words_max, tone=args.tone)
+                prompt = build_prompt(heading=heading, words_min=words_min, words_max=words_max, tone=args.tone, book_context=book_context)
             else:
-                prompt = build_subheading_prompt(subheading=heading, words_min=subwords_min, words_max=subwords_max, tone=args.tone)
+                prompt = build_subheading_prompt(subheading=heading, words_min=subwords_min, words_max=subwords_max, tone=args.tone, book_context=book_context)
 
             # Append user guidance to steer the rewrite
             if args.rewrite_guidance.strip():
@@ -2141,7 +2344,27 @@ def main() -> int:
 
         if rewritten > 0:
             doc.save(str(target))
-        print(f"Done: rewritten={rewritten}. File: {target}")
+        print(f"Done: rewritten={rewritten}, matched={matched}, skipped={skipped}. File: {target}")
+
+        # A rewrite that changed nothing must not look like a success. Before
+        # this, a heading that matched nothing (or whose body was not found)
+        # printed a note, saved no file, and exited 0, so the web UI reported
+        # "rewrite completed" over a document that was never touched.
+        if rewritten == 0:
+            if matched == 0:
+                print(
+                    f"ERROR: no heading matched '{args.rewrite_heading}'. "
+                    f"Nothing was rewritten and the file was not changed.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"ERROR: matched {matched} heading(s) for "
+                    f"'{args.rewrite_heading}' but found no body paragraph to "
+                    f"replace. Nothing was rewritten and the file was not changed.",
+                    file=sys.stderr,
+                )
+            return 1
         return 0
 
     if not args.agent and not args.no_text:
@@ -2282,9 +2505,9 @@ def main() -> int:
             print("  chapter title — no intro text (subheadings carry the content)", flush=True)
         else:
             if is_h:
-                prompt = build_prompt(heading=heading, words_min=words_min, words_max=words_max, tone=args.tone)
+                prompt = build_prompt(heading=heading, words_min=words_min, words_max=words_max, tone=args.tone, book_context=book_context)
             else:
-                prompt = build_subheading_prompt(subheading=heading, words_min=subwords_min, words_max=subwords_max, tone=args.tone)
+                prompt = build_subheading_prompt(subheading=heading, words_min=subwords_min, words_max=subwords_max, tone=args.tone, book_context=book_context)
             cache_key = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
             cached = None if (args.no_cache or args.force) else cache.get(cache_key)

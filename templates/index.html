@@ -320,6 +320,11 @@
                             <label class="block text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Writing Tone</label>
                             <input type="text" name="tone" value="{{ defaults.tone }}" class="w-full bg-white/[0.04] border border-white/10 text-gray-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500/50 transition">
                         </div>
+                        <div>
+                            <label class="block text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Book Context</label>
+                            <textarea name="book_context" rows="4" placeholder="What is this book actually about? e.g. This is a gag gift joke book called 'Never Trust a Fart'. It's crude toilet humor played completely straight, like a serious self-help book. Every chapter takes a normal self-help topic and applies it to farts and bathroom mishaps. The reader is buying it as a funny gift, so the writing must be genuinely funny, never earnest." class="w-full bg-white/[0.04] border border-white/10 text-gray-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500/50 transition resize-y"></textarea>
+                            <p class="text-[10px] text-gray-500 mt-1">Added to every paragraph prompt. Use it when the outline headings are generic and don't convey what the book really is (joke books, niche angles, unusual framing).</p>
+                        </div>
                         <div class="grid grid-cols-2 gap-2">
                             <div>
                                 <label class="block text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Min W/Heading</label>
@@ -697,8 +702,8 @@
                     </div>
                 </div>
 
-                <div id="rewrite-menu" class="hidden absolute bottom-full left-0 mb-4 bg-white border border-gray-200 rounded-2xl shadow-xl w-full max-h-80 flex flex-col z-20 overflow-hidden transform origin-bottom transition-all">
-                    <div class="px-5 py-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                <div id="rewrite-menu" class="hidden absolute bottom-full left-0 mb-4 bg-white border border-gray-200 rounded-2xl shadow-xl w-full max-h-[min(34rem,75vh)] flex flex-col z-20 overflow-hidden transform origin-bottom transition-all">
+                    <div class="px-5 py-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center flex-none">
                         <h4 class="font-semibold text-gray-800 text-sm"><i class="fas fa-pen-nib text-emerald-500 mr-2"></i> Select Headings to Rewrite</h4>
                         <div class="flex gap-2">
                            <button id="rw-select-all" class="text-xs text-emerald-600 hover:underline">Select All</button>
@@ -706,12 +711,15 @@
                            <button id="close-rewrite" class="text-gray-400 hover:text-gray-700 ml-2"><i class="fas fa-times"></i></button>
                         </div>
                     </div>
-                    <div class="overflow-y-auto custom-scrollbar flex-1 p-2" id="rw-headings-list"></div>
-                    <div class="px-4 py-3 border-t border-gray-100 bg-gray-50">
+                    <!-- Only the heading list scrolls. Guidance and the submit
+                         row are pinned below it so they stay reachable no
+                         matter how long the list is. -->
+                    <div class="overflow-y-auto custom-scrollbar flex-1 min-h-0 p-2" id="rw-headings-list"></div>
+                    <div class="px-4 py-3 border-t border-gray-100 bg-gray-50 flex-none">
                         <label for="rewriteGuidance" class="block text-xs font-semibold text-gray-600 mb-1"><i class="fas fa-pencil-alt text-emerald-400 mr-1"></i> Rewrite Guidance <span class="font-normal text-gray-400">(optional)</span></label>
                         <textarea id="rewriteGuidance" rows="2" class="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300 resize-none placeholder-gray-400" placeholder="e.g. &quot;make it more humorous&quot; or &quot;focus on practical tips, less theory&quot;"></textarea>
                     </div>
-                    <div class="p-3 border-t border-gray-100 bg-white flex justify-between items-center">
+                    <div class="p-3 border-t border-gray-100 bg-white flex justify-between items-center flex-none">
                         <span class="text-xs text-gray-500 font-medium" id="rw-selected-count">0 selected</span>
                         <button id="btn-submit-rewrite" class="px-5 py-2 transition-colors duration-200 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-xl shadow-sm disabled:opacity-50">
                             Rewrite Paragraphs
@@ -1816,25 +1824,110 @@
                         updateSelectedCount();
                     });
                     headingsList.appendChild(div);
-
-                    // Rewrite list
-                    const rwDiv = document.createElement("div");
-                    rwDiv.className = "flex items-start gap-3 p-2 hover:bg-gray-50 rounded-lg cursor-pointer";
-                    rwDiv.innerHTML = `
-                        <input id="rwchk-${i}" type="checkbox" value="${escapeHtml(h)}" class="h-4 w-4 mt-0.5 text-emerald-600 rounded border-gray-300 cursor-pointer">
-                        <label for="rwchk-${i}" class="text-sm text-gray-700 cursor-pointer flex-1 select-none">${escapeHtml(h)}</label>
-                    `;
-                    rwDiv.addEventListener('click', (e) => {
-                        if(e.target.tagName !== 'INPUT' && e.target.tagName !== 'LABEL') {
-                            const chk = rwDiv.querySelector('input');
-                            chk.checked = !chk.checked;
-                        }
-                        updateRwSelectedCount();
-                    });
-                    rwHeadingsList.appendChild(rwDiv);
                 });
                 updateSelectedCount();
+            }
+
+            // The rewrite list is loaded separately from the image list: image
+            // headings are chapter-level only, and a chapter title has no body
+            // paragraph of its own, so that list offered nothing rewritable.
+            async function loadRewritableHeadings() {
+                if (!state.jobId) return;
+                rwHeadingsList.innerHTML = '<div class="p-4 text-xs text-gray-400">Loading headings…</div>';
+                let items = [];
+                try {
+                    const res = await fetch(`/api/jobs/${state.jobId}/rewritable-headings`);
+                    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Could not load headings");
+                    items = (await res.json()).headings || [];
+                } catch (e) {
+                    rwHeadingsList.innerHTML = `<div class="p-4 text-xs text-red-500">${escapeHtml(e.message)}</div>`;
+                    return;
+                }
+
+                rwHeadingsList.innerHTML = '';
+                if (!items.length) {
+                    rwHeadingsList.innerHTML = '<div class="p-4 text-xs text-gray-400">No rewritable sections found.</div>';
+                    updateRwSelectedCount();
+                    return;
+                }
+
+                items.forEach((item, i) => {
+                    const isChapter = item.level === 'chapter';
+                    // Chapter rows drive their subheadings; the checkbox is
+                    // tagged with the chapter name so the cascade can find its
+                    // children (and a child can find its parent) by data attr.
+                    const chapterName = isChapter ? item.heading : (item.chapter || '');
+
+                    // A chapter title with no body of its own still gets a
+                    // checkbox when it has subheadings, because its only job
+                    // then is to select them all at once.
+                    const row = document.createElement("div");
+                    row.className = "flex items-start gap-3 p-2 hover:bg-gray-50 rounded-lg cursor-pointer"
+                        + (isChapter ? " mt-2" : " ml-6");
+                    const label = isChapter
+                        ? `<span class="font-semibold text-gray-800">${escapeHtml(item.heading)}</span>`
+                        : escapeHtml(item.heading);
+                    const preview = item.preview
+                        ? `<span class="block text-[11px] text-gray-400 mt-0.5 truncate">${escapeHtml(item.preview)}</span>`
+                        : '';
+                    // A bodyless chapter is a grouping control only — checking
+                    // it must not queue a rewrite for a paragraph that isn't
+                    // there, so it is excluded from the submitted selection.
+                    const noBody = !item.has_body;
+                    row.innerHTML = `
+                        <input id="rwchk-${i}" type="checkbox" value="${escapeHtml(item.heading)}"
+                               data-role="${isChapter ? 'chapter' : 'section'}"
+                               data-chapter="${escapeHtml(chapterName)}"
+                               ${noBody ? 'data-no-body="1"' : ''}
+                               class="h-4 w-4 mt-0.5 text-emerald-600 rounded border-gray-300 cursor-pointer">
+                        <label for="rwchk-${i}" class="text-sm text-gray-700 cursor-pointer flex-1 select-none min-w-0">${label}${preview}${
+                            noBody ? '<span class="block text-[10px] text-gray-400 mt-0.5 italic">Selects the sections below</span>' : ''
+                        }</label>
+                    `;
+
+                    const chk = row.querySelector('input');
+                    chk.addEventListener('change', () => {
+                        if (isChapter) cascadeChapter(chk);
+                        else syncChapterFromSections(chk.dataset.chapter);
+                        updateRwSelectedCount();
+                    });
+                    row.addEventListener('click', (e) => {
+                        if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'LABEL') {
+                            chk.checked = !chk.checked;
+                            chk.dispatchEvent(new Event('change'));
+                        }
+                    });
+                    rwHeadingsList.appendChild(row);
+                });
                 updateRwSelectedCount();
+            }
+
+            // Headings are arbitrary author text (quotes, colons, brackets), so
+            // match on dataset values in JS rather than interpolating them into
+            // a CSS attribute selector.
+            function rwSectionsOf(chapterName) {
+                if (!chapterName) return [];
+                return Array.from(rwHeadingsList.querySelectorAll('input[data-role="section"]'))
+                    .filter(s => s.dataset.chapter === chapterName);
+            }
+
+            // Checking a chapter checks every subheading under it; unchecking
+            // clears them.
+            function cascadeChapter(chapterChk) {
+                rwSectionsOf(chapterChk.value).forEach(s => { s.checked = chapterChk.checked; });
+            }
+
+            // Unchecking any subheading unchecks its chapter; re-checking them
+            // all ticks the chapter back on.
+            function syncChapterFromSections(chapterName) {
+                if (!chapterName) return;
+                const chapterChk = Array.from(
+                    rwHeadingsList.querySelectorAll('input[data-role="chapter"]')
+                ).find(c => c.value === chapterName);
+                if (!chapterChk) return;
+                const sections = rwSectionsOf(chapterName);
+                if (!sections.length) return;
+                chapterChk.checked = sections.every(s => s.checked);
             }
 
             function updateSelectedCount() {
@@ -1843,8 +1936,17 @@
                 btnSubmitReplace.disabled = count === 0;
             }
 
+            // A checked chapter that has no body of its own is a grouping
+            // control, not a rewrite target — count and submit its sections
+            // instead, or the job queues a heading with no paragraph to replace.
+            function rwSelectedHeadings() {
+                return Array.from(rwHeadingsList.querySelectorAll('input:checked'))
+                    .filter(i => !i.dataset.noBody)
+                    .map(i => i.value);
+            }
+
             function updateRwSelectedCount() {
-                const count = rwHeadingsList.querySelectorAll('input:checked').length;
+                const count = rwSelectedHeadings().length;
                 document.getElementById('rw-selected-count').textContent = `${count} selected`;
                 btnSubmitRewrite.disabled = count === 0;
             }
@@ -2255,6 +2357,7 @@
 
             btnShowRewrite.addEventListener('click', () => {
                 rewriteMenu.classList.remove('hidden');
+                loadRewritableHeadings();
             });
             document.getElementById('close-rewrite').addEventListener('click', () => {
                 rewriteMenu.classList.add('hidden');
@@ -2489,7 +2592,7 @@
             btnSubmitRewrite.addEventListener('click', async () => {
                 if(!state.jobId) return;
                 
-                const selected = Array.from(rwHeadingsList.querySelectorAll('input:checked')).map(i => i.value);
+                const selected = rwSelectedHeadings();
                 if(selected.length === 0) return;
                 
                 rewriteMenu.classList.add('hidden');
