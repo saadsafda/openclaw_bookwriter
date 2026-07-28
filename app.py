@@ -500,6 +500,13 @@ def _run_kdp_formatting(job: Job, source_doc: Path) -> tuple[Path, Path]:
         str(cfg.get("author_placeholder", "Author Name")),
     ]
 
+    # The original outline is the authority on which lines are subheadings.
+    # Without it the formatter guesses from text shape and promotes AI-written
+    # prose (colon lead-ins, generated list items) into headings.
+    outline_path = Path(job.input_docx) if job.input_docx else None
+    if outline_path and outline_path.exists():
+        cmd.extend(["--outline", str(outline_path)])
+
     estimated_pages = int(cfg.get("estimated_pages", 0) or 0)
     if estimated_pages > 0:
         cmd.extend(["--estimated-pages", str(estimated_pages)])

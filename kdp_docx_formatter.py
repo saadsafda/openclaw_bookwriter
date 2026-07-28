@@ -386,6 +386,30 @@ def _canonical_title_key(text: str) -> str:
     return cleaned.upper()
 
 
+def load_outline_topics(outline_path: str) -> set[str]:
+    """Return the canonical keys of every non-empty line in the source outline.
+
+    Used as the authoritative list of what may become a Heading 2. Outlines are
+    often written with no bullet/heading styles at all (every paragraph is
+    "normal"), so the text itself is the only structural signal we get. Matching
+    against it keeps AI-written body prose from being promoted to a heading.
+
+    Returns an empty set if the outline is missing or unreadable — callers treat
+    that as "fall back to the heuristic" rather than an error.
+    """
+    try:
+        outline_doc = Document(outline_path)
+    except Exception:
+        return set()
+
+    topics: set[str] = set()
+    for para in outline_doc.paragraphs:
+        key = _canonical_title_key(para.text)
+        if key:
+            topics.add(key)
+    return topics
+
+
 def _drop_duplicate_title_heading(headings: list[HeadingEntry], title_placeholder: str) -> list[HeadingEntry]:
     if not headings:
         return headings
@@ -407,8 +431,17 @@ def _drop_duplicate_title_heading(headings: list[HeadingEntry], title_placeholde
     return headings[1:]
 
 
-def _set_heading_styles_and_collect_bookmarks(doc: Document, body_start_idx: int) -> list[HeadingEntry]:
-    """Smart identification: detect headings by pattern, Word style, and formatting."""
+def _set_heading_styles_and_collect_bookmarks(
+    doc: Document,
+    body_start_idx: int,
+    outline_topics: set[str] | None = None,
+) -> list[HeadingEntry]:
+    """Smart identification: detect headings by pattern, Word style, and formatting.
+
+    ``outline_topics`` is the canonical-key set from the source outline. When
+    supplied it is the authority on which bare lines are subheadings; without it
+    we fall back to shape heuristics.
+    """
     entries: list[HeadingEntry] = []
     pending_chapter_label = False
     pending_chapter_label_text = ""
@@ -476,12 +509,21 @@ def _set_heading_styles_and_collect_bookmarks(doc: Document, body_start_idx: int
             continue
 
         # ── Heading 2 detection (smart) ─────────────────────────────────
-        # Bare outline topic: short phrase, not a heading, no trailing period
-        is_bare_topic = (
-            2 <= len(text.split()) <= 15
-            and len(text) <= 120
-            and text[-1] != '.'
-        ) if text else False
+        # Bare outline topic: short phrase, not a heading, no trailing period.
+        #
+        # When we know the source outline, a line is a topic only if it appears
+        # there. The shape test alone promotes AI-written prose — colon lead-ins
+        # ("The occupant should:"), generated list items ("Forty-seven cans
+        # purchased") and short quotes all look exactly like an outline topic,
+        # and once promoted their body text reads as an empty bullet.
+        if outline_topics:
+            is_bare_topic = _canonical_title_key(text) in outline_topics
+        else:
+            is_bare_topic = (
+                2 <= len(text.split()) <= 15
+                and len(text) <= 120
+                and text[-1] != '.'
+            ) if text else False
         is_sub_heading = (
             style_name.startswith("heading 2")
             or LIST_BULLET_STYLE_RE.match(style_name) is not None
@@ -957,6 +999,7 @@ def build_kdp_documents(
     estimated_pages: int = 0,
     title_placeholder: str = "Book Title Placeholder",
     author_placeholder: str = "Author Name",
+    outline_topics: set[str] | None = None,
 ) -> tuple[Path, Path, int, float]:
     if not source_docx.exists():
         raise FileNotFoundError(f"Source .docx not found: {source_docx}")
@@ -968,7 +1011,7 @@ def build_kdp_documents(
         kindle_doc.add_paragraph("")
     kindle_anchor = kindle_doc.paragraphs[0]
     kindle_body_idx = 0
-    kindle_headings = _set_heading_styles_and_collect_bookmarks(kindle_doc, kindle_body_idx)
+    kindle_headings = _set_heading_styles_and_collect_bookmarks(kindle_doc, kindle_body_idx, outline_topics)
     _apply_base_text_styles(kindle_doc, kindle_body_idx, font_name="Times New Roman", body_size_pt=11.5, kindle_mode=True)
     _insert_front_matter_and_toc(
         kindle_doc,
@@ -994,7 +1037,7 @@ def build_kdp_documents(
         paperback_doc.add_paragraph("")
     paperback_anchor = paperback_doc.paragraphs[0]
     paperback_body_idx = 0
-    paperback_headings = _set_heading_styles_and_collect_bookmarks(paperback_doc, paperback_body_idx)
+    paperback_headings = _set_heading_styles_and_collect_bookmarks(paperback_doc, paperback_body_idx, outline_topics)
     _apply_base_text_styles(paperback_doc, paperback_body_idx, font_name="Times New Roman", body_size_pt=11, kindle_mode=False)
 
     title, author = _derive_title_author(paperback_doc)
@@ -1034,12 +1077,25 @@ def main() -> int:
     ap.add_argument("--estimated-pages", type=int, default=0, help="Optional manual page count for gutter sizing")
     ap.add_argument("--title-placeholder", default="Book Title Placeholder", help="Placeholder title for page 1")
     ap.add_argument("--author-placeholder", default="Author Name", help="Placeholder author for front matter and header")
+    ap.add_argument(
+        "--outline",
+        default="",
+        help="Original outline .docx. When given, only lines appearing in it become subheadings.",
+    )
     args = ap.parse_args()
 
     in_path = Path(args.input)
     if not in_path.exists():
         print(f"ERROR: Source file not found: {in_path}")
         return 2
+
+    outline_topics: set[str] = set()
+    if args.outline:
+        outline_topics = load_outline_topics(args.outline)
+        if outline_topics:
+            print(f"Outline loaded: {len(outline_topics)} topics will be used for subheading detection.")
+        else:
+            print(f"WARNING: could not read outline '{args.outline}'; falling back to heuristic detection.")
 
     kindle_out = Path(args.kindle_output) if args.kindle_output else in_path.with_stem(in_path.stem + "_kindle")
     paperback_out = (
@@ -1058,6 +1114,7 @@ def main() -> int:
         estimated_pages=args.estimated_pages,
         title_placeholder=args.title_placeholder,
         author_placeholder=args.author_placeholder,
+        outline_topics=outline_topics,
     )
 
     print(f"Kindle file: {kindle_path}")
