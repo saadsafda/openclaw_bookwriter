@@ -101,7 +101,6 @@
             <aside class="w-56 shrink-0">
                 <nav class="space-y-1" id="settings-nav">
                     <div class="nav-item active" data-panel="mailerlite"><i class="fas fa-envelope-open-text w-4 text-center"></i> MailerLite</div>
-                    <div class="nav-item" data-panel="amazon"><i class="fab fa-amazon w-4 text-center"></i> Amazon Ads</div>
                     <div class="nav-item" data-panel="webhook"><i class="fas fa-link w-4 text-center"></i> Click bridge</div>
                 </nav>
             </aside>
@@ -116,16 +115,6 @@
                         <span id="ml-status" class="pill pill-off"><i class="fas fa-circle-notch fa-spin"></i> Loading…</span>
                     </div>
                     <p class="row-sub mb-2">Used to push launch-email drafts. Emails are never auto-sent — you publish them manually inside MailerLite.</p>
-
-                    <div class="row stack">
-                        <div>
-                            <div class="row-label">Configuration scope</div>
-                            <div class="row-sub" id="ml-scope-sub">Global default — used by every publisher unless that publisher has its own MailerLite config below.</div>
-                        </div>
-                        <select id="ml-scope" class="field" style="max-width: 28rem;">
-                            <option value="">Global default (all publishers)</option>
-                        </select>
-                    </div>
 
                     <div class="row stack">
                         <div><div class="row-label">API key</div><div class="row-sub" id="ml-api-sub">MailerLite → Integrations → API. Stored server-side; never shown back.</div></div>
@@ -155,130 +144,6 @@
                     <div class="flex items-center gap-2 mt-5">
                         <button id="ml-save" class="btn btn-accent"><i class="fas fa-save mr-1"></i> Save settings</button>
                         <button id="ml-test" class="btn btn-outline"><i class="fas fa-plug mr-1"></i> Test connection</button>
-                    </div>
-                </div>
-
-                <!-- ============ Amazon Ads panel ============ -->
-                <div class="panel card-panel" id="panel-amazon">
-
-                    <!-- Header -->
-                    <div class="flex items-start justify-between mb-5">
-                        <div>
-                            <div class="section-title flex items-center gap-2">
-                                <i class="fab fa-amazon"></i> Amazon Ads
-                                <span id="acct-global-status" class="pill pill-off"><i class="fas fa-circle-notch fa-spin"></i></span>
-                            </div>
-                            <p class="row-sub mt-1">Each connected Amazon Ads account gives OpenClaw access to launch and track campaigns across your marketplaces (US, UK, CA, AU, etc.).</p>
-                        </div>
-                    </div>
-
-                    <!-- ── Step 1: App credentials ── -->
-                    <div style="background:#f8f9ff;border:1px solid #e0e3f8;border-radius:11px;padding:16px 18px;margin-bottom:22px;">
-                        <div class="section-title mb-1" style="font-size:13px;">Step 1 — App credentials <span class="row-sub" style="font-weight:400;">(shared across all accounts, set once in .env)</span></div>
-                        <div class="space-y-1.5 mt-2" id="app-creds-status">
-                            <div class="row-sub"><i class="fas fa-circle-notch fa-spin"></i> Checking…</div>
-                        </div>
-                        <p class="row-sub mt-3">These are your Amazon LWA developer app credentials. If not set yet, add them to your <code>.env</code> file as <code>LWA_CLIENT_ID</code> and <code>LWA_CLIENT_SECRET</code>.</p>
-                        <div style="margin-top:10px;padding:10px 12px;background:#fff;border:1px solid #c7d2fe;border-radius:8px;font-size:12.5px;">
-                            <strong style="color:#4338ca;"><i class="fas fa-link mr-1"></i>OAuth Callback URL</strong> — add this to your LWA app's <em>Allowed Return URLs</em>:<br>
-                            <code id="oauth-callback-display" style="color:#3730a3;word-break:break-all;font-size:12px;"></code>
-                            <button onclick="navigator.clipboard.writeText(document.getElementById('oauth-callback-display').textContent);this.innerHTML='<i class=\'fas fa-check\'></i>';setTimeout(()=>this.innerHTML='<i class=\'fas fa-copy\'></i>',1500);" style="margin-left:8px;background:none;border:none;cursor:pointer;color:#6366f1;font-size:12px;padding:0;"><i class="fas fa-copy"></i></button>
-                        </div>
-                    </div>
-
-                    <!-- ── Step 2: Connected accounts ── -->
-                    <div class="section-title mb-3" style="font-size:13px;">Step 2 — Connected accounts</div>
-                    <div id="accounts-list" class="space-y-3 mb-6">
-                        <div class="row-sub"><i class="fas fa-circle-notch fa-spin"></i> Loading…</div>
-                    </div>
-
-                    <!-- ── Step 3: Add a new account ── -->
-                    <div style="border-top:1px solid var(--row-line);padding-top:20px;margin-top:4px;">
-                        <div class="section-title mb-1" style="font-size:13px;">Step 3 — Connect a new account</div>
-
-                        <!-- Primary: OAuth flow -->
-                        <div style="background:linear-gradient(135deg,#6366f1 0%,#7c3aed 100%);border-radius:14px;padding:20px 22px;margin-bottom:18px;color:#fff;">
-                            <div style="font-size:15px;font-weight:700;margin-bottom:5px;"><i class="fab fa-amazon mr-2"></i>Connect with Amazon (Recommended)</div>
-                            <div style="font-size:13px;opacity:0.9;line-height:1.6;margin-bottom:16px;">
-                                Click the button below to open Amazon's authorization page in a new tab. Log in with your Amazon Ads account and click <em>Allow</em>. OpenClaw will automatically capture the refresh token for you — no terminal commands needed.
-                            </div>
-                            <div id="oauth-prereq-warning" style="display:none;background:rgba(255,255,255,0.18);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12.5px;">
-                                <i class="fas fa-exclamation-triangle mr-1"></i>
-                                <strong>Before you continue:</strong> Set <code>LWA_CLIENT_ID</code> and <code>LWA_CLIENT_SECRET</code> in your <code>.env</code> file (Step 1 above), then reload this page.
-                            </div>
-                            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-                                <button id="connect-amazon-btn" class="btn" style="background:#fff;color:#6366f1;font-weight:700;border:none;font-size:14px;" onclick="startAmazonOAuth()">
-                                    <i class="fab fa-amazon mr-1.5"></i> Grant Access to Amazon Ads
-                                </button>
-                                <span id="oauth-status" style="font-size:13px;opacity:0.9;display:none;"></span>
-                            </div>
-                        </div>
-
-                        <!-- Advanced: manual token form (collapsible) -->
-                        <details id="manual-setup-details" style="border:1px solid #e5e7eb;border-radius:10px;margin-bottom:18px;overflow:hidden;">
-                            <summary style="cursor:pointer;padding:12px 14px;font-size:13px;font-weight:600;color:var(--txt-muted);background:#fafafa;user-select:none;list-style:none;display:flex;align-items:center;gap:7px;">
-                                <i class="fas fa-chevron-right" id="howto-icon" style="font-size:10px;transition:transform .15s;"></i>
-                                Advanced — manually paste a refresh token
-                            </summary>
-                            <div style="padding:16px 18px;background:#fff;font-size:13px;line-height:1.7;color:var(--txt);">
-                                <p class="row-sub mb-4">Use this if you generated a refresh token via the terminal (<code>python -m amazon_ads.get_refresh_token</code>) and want to paste it here directly.</p>
-
-                                <!-- Add account form -->
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <div class="row-label mb-1">Account label</div>
-                                        <input id="acct-label" class="field" placeholder="e.g. Oak Harbor Press" />
-                                        <div class="row-sub mt-1">A name to identify this Amazon Ads account.</div>
-                                    </div>
-                                    <div>
-                                        <div class="row-label mb-1">Environment</div>
-                                        <select id="acct-env" class="field">
-                                            <option value="production">production (real campaigns)</option>
-                                            <option value="sandbox">sandbox (testing only)</option>
-                                        </select>
-                                    </div>
-                                    <div class="md:col-span-2">
-                                        <div class="row-label mb-1">Refresh token</div>
-                                        <textarea id="acct-token" class="field font-mono" rows="2" placeholder="Atzr|IwEBI…" style="font-size:12px;"></textarea>
-                                        <div class="row-sub mt-1">Paste the token from the terminal. It starts with <code>Atzr|</code> and is several hundred characters long.</div>
-                                    </div>
-
-                                    <div class="md:col-span-2">
-                                        <div class="row-label mb-1">Notes <span style="font-weight:400;color:var(--txt-dim)">(optional)</span></div>
-                                        <input id="acct-notes" class="field" placeholder="e.g. Oak Harbor US + UK account" />
-                                    </div>
-                                </div>
-                                <div id="acct-error" class="hidden text-sm rounded-lg px-3 py-2 mt-3"></div>
-                                <div class="mt-4 flex items-center gap-3">
-                                    <button id="acct-add" class="btn btn-accent"><i class="fas fa-plug mr-1.5"></i> Connect account</button>
-                                    <span id="acct-add-status" class="row-sub hidden"></span>
-                                </div>
-                            </div>
-                        </details>
-
-                        <script>
-                        document.getElementById('manual-setup-details').addEventListener('toggle', function(e) {
-                            const icon = document.getElementById('howto-icon');
-                            icon.style.transform = this.open ? 'rotate(90deg)' : '';
-                        });
-                        </script>
-
-                        <!-- ── Inline edit panel (hidden until Edit is clicked) ── -->
-                        <div id="edit-panel" class="hidden" style="margin-top:24px;border:1px solid #e0e3f8;border-radius:12px;padding:18px 20px;background:#f8f9ff;">
-                            <div class="section-title mb-3" style="font-size:13px;">Edit account: <span id="edit-panel-label"></span></div>
-                            <input type="hidden" id="edit-acct-id" />
-                            <div class="grid grid-cols-1 gap-4">
-                                <div>
-                                    <div class="row-label mb-1" style="font-size:12px;">New refresh token <span style="font-weight:400;color:var(--txt-dim)">(leave blank to keep current)</span></div>
-                                    <textarea id="edit-token" class="field font-mono" rows="2" placeholder="Atzr|IwEBI…" style="font-size:12px;"></textarea>
-                                </div>
-                            </div>
-                            <div id="edit-error" class="hidden text-sm rounded-lg px-3 py-2 mt-3"></div>
-                            <div class="mt-3 flex items-center gap-2">
-                                <button id="edit-save" class="btn btn-accent" style="font-size:13px;"><i class="fas fa-save mr-1"></i> Save changes</button>
-                                <button id="edit-cancel" class="btn btn-outline" style="font-size:13px;">Cancel</button>
-                            </div>
-                        </div>
                     </div>
                 </div>
 
@@ -339,33 +204,16 @@ $$('#settings-nav .nav-item').forEach(item => {
         item.classList.add('active');
         $$('.panel').forEach(p => p.classList.remove('active'));
         $('#panel-' + item.dataset.panel).classList.add('active');
-        if (item.dataset.panel === 'amazon') { loadAppCredentials(); loadAccountsList(); }
         location.hash = item.dataset.panel;
     });
 });
 
 // -------------------- MailerLite --------------------
-// The selected scope: "" = global default, else an Amazon Ads account_id (publisher).
-let mlScope = '';
+// This page edits the global default config. Per-publisher overrides still
+// exist server-side (keyed by publication) but have no picker here.
+const mlScope = '';
 
 function mlQS() { return mlScope ? ('?account_id=' + encodeURIComponent(mlScope)) : ''; }
-
-// Populate the scope dropdown from the configured companies.
-async function loadMlScopes() {
-    try {
-        const a = await fetch('/api/amazon-ads/accounts').then(r => r.json());
-        const sel = $('#ml-scope');
-        const cur = sel.value;
-        sel.innerHTML = '<option value="">Global default (all publishers)</option>';
-        (a.accounts || []).forEach(acct => {
-            const o = document.createElement('option');
-            o.value = acct.id;
-            o.textContent = acct.label || acct.id;
-            sel.appendChild(o);
-        });
-        sel.value = cur;  // preserve selection across reloads
-    } catch (e) { /* companies are optional; global still works */ }
-}
 
 async function loadMlSettings() {
     try {
@@ -385,9 +233,6 @@ async function loadMlSettings() {
         $('#ml-api-sub').textContent = company
             ? 'This publisher’s own MailerLite key. Leave blank to inherit the global key.'
             : 'MailerLite → Integrations → API. Stored server-side; never shown back.';
-        $('#ml-scope-sub').textContent = company
-            ? 'This publisher’s MailerLite account. Blank fields inherit the global default.'
-            : 'Global default — used by every publisher unless that publisher has its own config.';
 
         const st = $('#ml-status');
         if (d.configured) {
@@ -461,286 +306,6 @@ async function testMl() {
     finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-plug mr-1"></i> Test connection'; }
 }
 
-// -------------------- Amazon Ads: app credentials check --------------------
-async function loadAppCredentials() {
-    // Always show the correct callback URL (independent of .env)
-    const callbackUrl = window.location.origin + '/api/amazon-ads/oauth/callback';
-    const displayEl = document.getElementById('oauth-callback-display');
-    if (displayEl) displayEl.textContent = callbackUrl;
-
-    try {
-        const d = await fetch('/api/amazon-ads/app-config').then(r => r.json());
-        const wrap = $('#app-creds-status');
-        const row = (label, ok, extra='') => `
-            <div style="display:flex;align-items:center;gap:8px;font-size:12.5px;">
-                <span style="color:${ok ? 'var(--ok)' : 'var(--err)'}">
-                    <i class="fas ${ok ? 'fa-check-circle' : 'fa-times-circle'}"></i>
-                </span>
-                <span style="font-weight:600;min-width:160px;">${label}</span>
-                <span style="color:${ok ? 'var(--ok)' : 'var(--err)'};font-weight:500;">${ok ? 'Set ✓' : 'Not set'}</span>
-                ${extra}
-            </div>`;
-        wrap.innerHTML =
-            row('LWA_CLIENT_ID', d.client_id_set) +
-            row('LWA_CLIENT_SECRET', d.client_secret_set);
-
-        // Show warning on the OAuth button if creds aren't ready
-        const warnEl = document.getElementById('oauth-prereq-warning');
-        if (warnEl) warnEl.style.display = d.ready ? 'none' : 'block';
-        const oauthBtn = document.getElementById('connect-amazon-btn');
-        if (oauthBtn) oauthBtn.disabled = !d.ready;
-    } catch(e) {
-        $('#app-creds-status').innerHTML = `<div class="row-sub" style="color:var(--err)">Could not check — ${esc(e.message||e)}</div>`;
-    }
-}
-
-// -------------------- Amazon Ads: OAuth login flow --------------------
-async function startAmazonOAuth() {
-    const btn = document.getElementById('connect-amazon-btn');
-    const statusEl = document.getElementById('oauth-status');
-
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-1.5"></i> Opening Amazon…';
-    statusEl.style.display = 'none';
-
-    try {
-        const res = await fetch('/api/amazon-ads/oauth/start', { method: 'POST' });
-        const d = await res.json();
-        if (!res.ok || !d.auth_url) {
-            throw new Error(d.error || 'Could not generate authorization URL.');
-        }
-        // Open Amazon auth in a new tab
-        window.open(d.auth_url, '_blank', 'noopener');
-        statusEl.textContent = '✓ Amazon authorization tab opened. Complete the login there, then return here.';
-        statusEl.style.display = 'inline';
-    } catch(err) {
-        statusEl.textContent = '✗ ' + (err.message || String(err));
-        statusEl.style.display = 'inline';
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fab fa-amazon mr-1.5"></i> Grant Access to Amazon Ads';
-    }
-}
-
-// -------------------- Amazon Ads: connected accounts --------------------
-async function loadAccountsList() {
-    const list = $('#accounts-list');
-    list.innerHTML = '<div class="row-sub"><i class="fas fa-circle-notch fa-spin"></i> Loading…</div>';
-    let accounts = [], perAccountProfiles = {};
-    try {
-        const [a, s] = await Promise.all([
-            fetch('/api/amazon-ads/accounts').then(r => r.json()),
-            fetch('/api/amazon-ads/status').then(r => r.json()),
-        ]);
-        accounts = a.accounts || [];
-        for (const acct of (s.accounts || [])) perAccountProfiles[acct.id] = acct.profiles || {};
-    } catch (e) {
-        list.innerHTML = `<div class="row-sub" style="color:var(--err)">Failed to load: ${esc(e.message || e)}</div>`;
-        return;
-    }
-
-    // Update global header badge
-    const globalBadge = $('#acct-global-status');
-    if (accounts.length) {
-        globalBadge.className = 'pill pill-on';
-        globalBadge.innerHTML = `<i class="fas fa-circle" style="font-size:7px;"></i> ${accounts.length} connected`;
-    } else {
-        globalBadge.className = 'pill pill-off';
-        globalBadge.innerHTML = '<i class="fas fa-circle" style="font-size:7px;"></i> Not connected';
-    }
-
-    if (!accounts.length) {
-        list.innerHTML = `
-            <div style="border:1px dashed #d1d5db;border-radius:11px;padding:24px;text-align:center;color:var(--txt-dim);">
-                <i class="fab fa-amazon" style="font-size:28px;display:block;margin-bottom:8px;opacity:.3;"></i>
-                <div style="font-size:13px;font-weight:600;">No accounts connected yet</div>
-                <div style="font-size:12px;margin-top:4px;">Follow Step 3 below to connect your first account.</div>
-            </div>`;
-        return;
-    }
-
-    list.innerHTML = accounts.map((acct, idx) => {
-        const profs = perAccountProfiles[acct.id] || {};
-        const mpChips = ['US','UK','CA','AU'].map(mp => {
-            const arr = profs[mp];
-            const n = Array.isArray(arr) ? arr.length : null;
-            const err = arr && !Array.isArray(arr) && arr.error;
-            if (n === null && !err) return `<span style="background:#f9fafb;border:1px solid #e5e7eb;color:#9ca3af;padding:2px 7px;border-radius:6px;font-size:11px;font-weight:600;">${mp} <span style="opacity:.5">—</span></span>`;
-            if (err || n === null) return `<span style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;padding:2px 7px;border-radius:6px;font-size:11px;font-weight:600;" title="${esc(err||'error')}">${mp} <i class="fas fa-times" style="font-size:9px;"></i></span>`;
-            if (n === 0) return `<span style="background:#f9fafb;border:1px solid #e5e7eb;color:#6b7280;padding:2px 7px;border-radius:6px;font-size:11px;font-weight:600;">${mp} 0</span>`;
-            return `<span style="background:#ecfdf5;border:1px solid #a7f3d0;color:#047857;padding:2px 7px;border-radius:6px;font-size:11px;font-weight:600;">${mp} <i class="fas fa-check" style="font-size:9px;"></i> ${n}</span>`;
-        }).join(' ');
-
-        const hasAnyProfiles = Object.values(profs).some(v => Array.isArray(v) && v.length > 0);
-        const dotCol = hasAnyProfiles ? 'var(--ok)' : '#d97706';
-        const dotTitle = hasAnyProfiles ? 'Connected' : 'Connected but no profiles found yet';
-        const isDefault = idx === 0;
-        const notes = acct.notes ? `<div class="row-sub mt-1">${esc(acct.notes)}</div>` : '';
-
-        // Credential source badge
-        const credBadge = (acct.has_own_client_id && acct.has_own_client_secret)
-            ? `<span style="font-size:10px;font-weight:600;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:999px;padding:1px 7px;" title="This account uses its own LWA Client ID &amp; Secret">Own LWA app</span>`
-            : (acct.has_own_client_id || acct.has_own_client_secret)
-            ? `<span style="font-size:10px;font-weight:600;background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:999px;padding:1px 7px;" title="Partial — one credential is from .env">Partial credentials</span>`
-            : `<span style="font-size:10px;font-weight:600;background:#f1f5f9;color:#6b7280;border:1px solid #e2e8f0;border-radius:999px;padding:1px 7px;" title="Using LWA_CLIENT_ID &amp; LWA_CLIENT_SECRET from .env">Using .env creds</span>`;
-
-        return `
-        <div style="border:1px solid var(--field-border);border-radius:13px;padding:14px 16px;background:var(--field-bg);">
-            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
-                <div style="flex:1;min-width:0;">
-                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                        <span style="width:9px;height:9px;border-radius:50%;background:${dotCol};display:inline-block;flex-shrink:0;" title="${esc(dotTitle)}"></span>
-                        <span class="row-label" style="font-size:15px;">${esc(acct.label)}</span>
-                        ${isDefault ? '<span class="pill pill-on" style="font-size:10px;">DEFAULT</span>' : ''}
-                        <span class="pill ${acct.env === 'sandbox' ? 'pill-off' : ''}" style="font-size:10px;${acct.env !== 'sandbox' ? 'background:#f0fdf4;color:#166534;border-color:#bbf7d0;' : ''}">${esc(acct.env || 'production')}</span>
-                        ${credBadge}
-                    </div>
-                    <div style="margin-top:8px;display:flex;gap:5px;flex-wrap:wrap;">${mpChips}</div>
-                    <div class="row-sub mt-2" style="font-size:11px;color:#9ca3af;">Account ID: <code>${esc(acct.id)}</code></div>
-                    ${notes}
-                </div>
-                <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;">
-                    <button data-acct-test="${esc(acct.id)}" class="btn btn-outline" style="font-size:12px;padding:6px 10px;" title="Test connection">
-                        <i class="fas fa-plug"></i> Test
-                    </button>
-                    <button data-acct-edit="${esc(acct.id)}" data-acct-label="${esc(acct.label)}" class="btn btn-outline" style="font-size:12px;padding:6px 10px;" title="Edit credentials">
-                        <i class="fas fa-key"></i> Credentials
-                    </button>
-                    <button data-acct-delete="${esc(acct.id)}" data-acct-label="${esc(acct.label)}" class="btn btn-danger" style="font-size:12px;padding:6px 10px;" title="Remove account">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                </div>
-            </div>
-            <div id="test-result-${esc(acct.id)}" class="hidden" style="margin-top:10px;font-size:12px;"></div>
-        </div>`;
-    }).join('');
-
-    $$('[data-acct-delete]').forEach(b => b.addEventListener('click', () => deleteAccount(b.dataset.acctDelete, b.dataset.acctLabel)));
-    $$('[data-acct-test]').forEach(b => b.addEventListener('click', () => testAccount(b.dataset.acctTest, b)));
-    $$('[data-acct-edit]').forEach(b => b.addEventListener('click', () => openEditPanel(b.dataset.acctEdit, b.dataset.acctLabel)));
-}
-
-async function testAccount(id, btn) {
-    const result = document.getElementById('test-result-' + id);
-    if (!result) return;
-    const origHtml = btn.innerHTML;
-    btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>';
-    result.classList.remove('hidden');
-    result.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Testing connection…';
-    result.style.cssText = 'color:var(--txt-dim);';
-    try {
-        const d = await fetch(`/api/amazon-ads/accounts/${encodeURIComponent(id)}/test`).then(r => r.json());
-        if (d.connected) {
-            const mpRows = Object.entries(d.by_marketplace || {}).map(([mp, v]) =>
-                `<span style="color:${v.ok ? 'var(--ok)' : 'var(--err)'};">${mp}: ${v.ok ? v.count + ' profile(s)' : v.error}</span>`
-            ).join(' &middot; ');
-            result.innerHTML = `<i class="fas fa-check-circle" style="color:var(--ok);"></i> <strong style="color:var(--ok);">Connected</strong> — ${d.total_profiles} total profiles found. ${mpRows}`;
-            result.style.cssText = '';
-        } else {
-            const err = Object.values(d.by_marketplace || {}).map(v => v.error).filter(Boolean).join('; ');
-            result.innerHTML = `<i class="fas fa-times-circle" style="color:var(--err);"></i> <strong style="color:var(--err);">Connection failed</strong> — ${esc(err || 'No profiles found')}`;
-            result.style.cssText = '';
-        }
-    } catch(e) {
-        result.innerHTML = `<i class="fas fa-times-circle" style="color:var(--err);"></i> ${esc(e.message||e)}`;
-    } finally {
-        btn.disabled = false; btn.innerHTML = origHtml;
-    }
-}
-
-async function deleteAccount(id, label) {
-    if (!confirm(`Remove "${label || id}"?\n\nPublications already linked to this account will keep their campaign records, but OpenClaw will no longer be able to launch or check ads through it.`)) return;
-    const r = await fetch('/api/amazon-ads/accounts/' + encodeURIComponent(id), { method: 'DELETE' });
-    if (!r.ok) { alert('Delete failed (' + r.status + ')'); return; }
-    loadAccountsList();
-}
-
-async function submitAddAccount() {
-    const label = $('#acct-label').value.trim();
-    const token = $('#acct-token').value.trim();
-    const env = $('#acct-env').value;
-    const notes = $('#acct-notes').value.trim();
-    const err = $('#acct-error'); err.classList.add('hidden');
-    const status = $('#acct-add-status'); status.classList.add('hidden');
-    if (!label) { flash(err, 'err', 'Account label is required.'); return; }
-    if (!token) { flash(err, 'err', 'Paste your refresh token (starts with Atzr|).'); return; }
-    if (!token.startsWith('Atzr|') && !token.startsWith('Atza|')) {
-        flash(err, 'err', 'That doesn\'t look like a valid refresh token — it should start with "Atzr|".');
-        return;
-    }
-    const btn = $('#acct-add'); btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-1"></i> Connecting…';
-    try {
-        const r = await fetch('/api/amazon-ads/accounts', {
-            method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ label, lwa_refresh_token: token, env, notes }),
-        });
-        const data = await r.json();
-        if (!r.ok && r.status !== 201) {
-            flash(err, 'err', data.error || ('Failed (' + r.status + ')'));
-            return;
-        }
-        if (data.warning) {
-            flash(err, 'err', '⚠ ' + data.warning);
-        } else {
-            $('#acct-label').value = '';
-            $('#acct-token').value = '';
-            $('#acct-notes').value = '';
-            status.classList.remove('hidden');
-            status.textContent = '✓ Account connected!';
-        }
-        loadAccountsList();
-    } catch (e) {
-        flash(err, 'err', e.message || String(e));
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-plug mr-1.5"></i> Connect account';
-    }
-}
-
-// -------------------- Edit credentials panel --------------------
-function openEditPanel(id, label) {
-    $('#edit-acct-id').value = id;
-    $('#edit-panel-label').textContent = label || id;
-    $('#edit-token').value = '';
-    $('#edit-error').classList.add('hidden');
-    $('#edit-panel').classList.remove('hidden');
-    $('#edit-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-$('#edit-cancel').addEventListener('click', () => {
-    $('#edit-panel').classList.add('hidden');
-});
-
-$('#edit-save').addEventListener('click', async () => {
-    const id = $('#edit-acct-id').value;
-    const token = $('#edit-token').value.trim();
-    const err = $('#edit-error'); err.classList.add('hidden');
-
-    if (!id) { flash(err, 'err', 'No account selected.'); return; }
-    if (token && !token.startsWith('Atzr|') && !token.startsWith('Atza|')) {
-        flash(err, 'err', 'Refresh token should start with "Atzr|".'); return;
-    }
-
-    const body = {};
-    if (token) body.lwa_refresh_token = token;
-
-    const btn = $('#edit-save'); btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-1"></i> Saving…';
-    try {
-        const r = await fetch('/api/amazon-ads/accounts/' + encodeURIComponent(id), {
-            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-        });
-        const data = await r.json();
-        if (!r.ok) { flash(err, 'err', data.error || ('Save failed (' + r.status + ')')); return; }
-        $('#edit-panel').classList.add('hidden');
-        loadAccountsList();
-    } catch (e) {
-        flash(err, 'err', e.message || String(e));
-    } finally {
-        btn.disabled = false; btn.innerHTML = '<i class="fas fa-save mr-1"></i> Save changes';
-    }
-});
-
 // -------------------- Webhook --------------------
 async function loadWebhook() {
     $('#wh-url').value = window.location.origin + '/api/webhooks/mailerlite';
@@ -768,25 +333,20 @@ async function saveWebhook() {
 $('#ml-save').addEventListener('click', saveMl);
 $('#ml-test').addEventListener('click', testMl);
 $('#ml-load-groups').addEventListener('click', loadGroups);
-$('#ml-scope').addEventListener('change', (e) => { mlScope = e.target.value || ''; loadMlSettings(); });
-$('#acct-add').addEventListener('click', submitAddAccount);
 $('#wh-save').addEventListener('click', saveWebhook);
 $('#wh-copy').addEventListener('click', () => { navigator.clipboard.writeText($('#wh-url').value); flash($('#wh-msg'), 'ok', 'Webhook URL copied.'); });
 
 // Open the panel named in the hash, if any
 (function initHash() {
     const h = (location.hash || '').replace('#', '');
-    if (h && ['mailerlite','amazon','webhook'].includes(h)) {
+    if (h && ['mailerlite','webhook'].includes(h)) {
         const item = $(`#settings-nav .nav-item[data-panel="${h}"]`);
         if (item) item.click();
     }
 })();
 
-loadMlScopes();
 loadMlSettings();
 loadWebhook();
-// Pre-load Amazon panel data if hash points to it, so status shows on arrival
-if ((location.hash || '').replace('#','') === 'amazon') { loadAppCredentials(); loadAccountsList(); }
 </script>
 </body>
 </html>

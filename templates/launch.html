@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Launch — OpenClaw Book Writer</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -103,40 +102,6 @@
         .doc-page [contenteditable].bke-li-number { position: relative; padding-left: 1.4em; }
         .doc-page [contenteditable].bke-li-number::before { content: "•"; position: absolute; left: 0.4em; color: #888; }
 
-        /* ---- Analytics dashboard ---- */
-        .stat-card {
-            position:relative; overflow:hidden;
-            background:#fff; border:1px solid rgba(15,23,42,.06); border-radius:16px; padding:18px 20px;
-            box-shadow:0 1px 2px rgba(15,23,42,.04), 0 12px 30px -16px rgba(15,23,42,.14);
-            transition:transform .2s ease, box-shadow .2s ease;
-        }
-        .stat-card::before {
-            content:""; position:absolute; top:0; left:0; right:0; height:4px;
-            background:linear-gradient(90deg,#94a3b8,#cbd5e1);
-        }
-        .stat-card:hover { transform:translateY(-3px); box-shadow:0 1px 2px rgba(15,23,42,.04), 0 18px 38px -16px rgba(15,23,42,.22); }
-        /* Color-coded top accents: Spend · Sales · Orders · ACoS · ROAS */
-        .stat-card:nth-child(1)::before { background:linear-gradient(90deg,#6366f1,#818cf8); }
-        .stat-card:nth-child(2)::before { background:linear-gradient(90deg,#059669,#34d399); }
-        .stat-card:nth-child(3)::before { background:linear-gradient(90deg,#0ea5e9,#38bdf8); }
-        .stat-card:nth-child(4)::before { background:linear-gradient(90deg,#d97706,#fbbf24); }
-        .stat-card:nth-child(5)::before { background:linear-gradient(90deg,#7c3aed,#c084fc); }
-        .stat-card .stat-val { font-size:1.85rem; font-weight:800; line-height:1; margin-top:8px; letter-spacing:-.02em; }
-        .stat-card .stat-lbl { font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:.05em; }
-        .stat-card .stat-sub { font-size:11px; color:#9ca3af; margin-top:5px; }
-        .acos-green { color:#059669; }
-        .acos-amber { color:#d97706; }
-        .acos-red   { color:#dc2626; }
-        .analytics-section { margin-bottom:2.5rem; }
-        .analytics-table th { padding:10px 12px; font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:.04em; border-bottom:2px solid #eef2f7; white-space:nowrap; background:#fbfbfe; position:sticky; top:0; }
-        .analytics-table td { padding:9px 12px; font-size:12.5px; border-bottom:1px solid #f1f5f9; }
-        .analytics-table tbody tr { transition:background .12s ease; }
-        .analytics-table tr:hover td { background:#f5f3ff; }
-        .acos-bar-wrap { display:flex; align-items:center; gap:8px; }
-        .acos-bar-bg { flex:1; height:6px; background:#f1f5f9; border-radius:999px; overflow:hidden; }
-        .acos-bar-fill { height:100%; border-radius:999px; transition:width .4s ease; }
-        .pub-acos-chip { display:inline-flex; align-items:center; gap:3px; font-size:10px; font-weight:700; padding:1px 7px; border-radius:999px; border:1px solid; }
-
         /* ---- Detail-modal tabs ---- */
         .dm-tabs { display:flex; gap:4px; padding:0 18px; border-bottom:1px solid #e5e7eb; background:#fff; overflow-x:auto; }
         .dm-tab-btn { padding:13px 14px; font-size:13px; font-weight:600; color:#6b7280; border:none; background:none; border-bottom:2px solid transparent; cursor:pointer; display:inline-flex; align-items:center; gap:7px; white-space:nowrap; transition:color .12s, border-color .12s; }
@@ -184,19 +149,12 @@
                     <a href="/launch" class="px-3 py-1.5 text-sm font-semibold bg-pink-50 text-pink-700 border border-pink-100 rounded-lg flex items-center gap-1.5">
                         <i class="fas fa-rocket text-xs"></i> Launch
                     </a>
-                    <a href="/analytics" class="px-3 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-1.5 transition">
-                        <i class="fas fa-chart-bar text-xs"></i> Analytics
-                    </a>
                     <a href="/settings" class="px-3 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-1.5 transition">
                         <i class="fas fa-sliders text-xs"></i> Settings
                     </a>
                 </nav>
             </div>
             <div class="flex items-center gap-2">
-                <span id="ads-conn" class="text-xs text-gray-500"><i class="fas fa-circle-notch fa-spin"></i> Checking Amazon connection…</span>
-                <a href="/settings#amazon" class="btn-ghost text-sm">
-                    <i class="fas fa-building mr-1 text-indigo-500"></i> Accounts
-                </a>
                 <button id="btn-new-pub" class="btn-primary text-sm">
                     <i class="fas fa-plus mr-1"></i> New publication
                 </button>
@@ -205,121 +163,6 @@
     </header>
 
     <main class="max-w-7xl mx-auto px-6 py-8">
-
-        <!-- ===================== Analytics Dashboard ===================== -->
-        <section class="analytics-section">
-            <!-- Header row -->
-            <div class="flex items-center justify-between mb-5">
-                <div>
-                    <h2 class="text-lg font-bold text-gray-900 flex items-center gap-2">
-                        <i class="fas fa-chart-bar text-orange-500"></i> Campaign Analytics
-                        <span id="dash-acos-badge" class="hidden pub-acos-chip ml-1"></span>
-                    </h2>
-                    <p id="dash-status" class="text-xs text-gray-400 mt-0.5">Loading…</p>
-                </div>
-                <div class="flex items-center gap-2">
-                    <div class="flex rounded-lg border border-gray-200 overflow-hidden bg-white text-xs font-semibold">
-                        <button data-win="7"  class="dash-win-btn px-3 py-1.5 text-gray-500 hover:bg-gray-50 border-r border-gray-200">7d</button>
-                        <button data-win="14" class="dash-win-btn px-3 py-1.5 text-white bg-orange-500">14d</button>
-                        <button data-win="30" class="dash-win-btn px-3 py-1.5 text-gray-500 hover:bg-gray-50 border-l border-gray-200">30d</button>
-                    </div>
-                    <button id="dash-pull" class="btn-ghost text-sm">
-                        <i class="fas fa-sync-alt mr-1 text-orange-500"></i> Pull data
-                    </button>
-                </div>
-            </div>
-
-            <!-- 5 summary stat cards -->
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
-                <div class="stat-card">
-                    <div class="stat-lbl">Total Spend</div>
-                    <div id="dash-stat-spend" class="stat-val text-gray-900">—</div>
-                    <div class="stat-sub">Ad cost</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-lbl">Total Sales</div>
-                    <div id="dash-stat-sales" class="stat-val acos-green">—</div>
-                    <div class="stat-sub">Ad-attributed</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-lbl">Orders</div>
-                    <div id="dash-stat-orders" class="stat-val text-gray-900">—</div>
-                    <div class="stat-sub">Conversions</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-lbl">ACoS</div>
-                    <div id="dash-stat-acos" class="stat-val">—</div>
-                    <div class="stat-sub">Spend ÷ Sales</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-lbl">ROAS</div>
-                    <div id="dash-stat-roas" class="stat-val text-indigo-600">—</div>
-                    <div class="stat-sub">Sales ÷ Spend</div>
-                </div>
-            </div>
-
-            <!-- Chart + Top campaigns side by side -->
-            <div class="grid grid-cols-1 xl:grid-cols-5 gap-5 mb-5">
-                <!-- Bar chart: Spend vs Sales by marketplace -->
-                <div class="card p-5 xl:col-span-3">
-                    <div class="flex items-center justify-between mb-1">
-                        <h3 class="text-sm font-bold text-gray-800 flex items-center gap-2"><i class="fas fa-globe-americas text-indigo-400"></i> Spend vs Sales by Marketplace</h3>
-                        <div class="flex items-center gap-3 text-[11px] font-semibold">
-                            <span class="inline-flex items-center gap-1.5 text-gray-500"><span class="w-2.5 h-2.5 rounded-full" style="background:#f97316"></span> Spend</span>
-                            <span class="inline-flex items-center gap-1.5 text-gray-500"><span class="w-2.5 h-2.5 rounded-full" style="background:#10b981"></span> Sales</span>
-                        </div>
-                    </div>
-                    <p class="text-[11px] text-gray-400 mb-3">Where your ad money goes vs. what it earns back, per country. Taller green than orange = profitable.</p>
-                    <div style="position:relative; height:230px;">
-                        <canvas id="dash-mp-chart"></canvas>
-                    </div>
-                </div>
-                <!-- ACoS by campaign (top 8) -->
-                <div class="card p-5 xl:col-span-2">
-                    <div class="flex items-center justify-between mb-1">
-                        <h3 class="text-sm font-bold text-gray-800 flex items-center gap-2"><i class="fas fa-bullseye text-orange-400"></i> ACoS by Campaign</h3>
-                        <span class="text-[10px] text-gray-400">best first</span>
-                    </div>
-                    <p class="text-[11px] text-gray-400 mb-3">Ad spend as a % of sales — <span class="text-emerald-600 font-semibold">lower is better</span>.</p>
-                    <div id="dash-acos-bars" class="space-y-3 text-xs"></div>
-                    <div class="flex items-center gap-3 mt-3 pt-3 border-t border-gray-100 text-[10px] font-semibold text-gray-400">
-                        <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full" style="background:#059669"></span> ≤30% great</span>
-                        <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full" style="background:#d97706"></span> 30–60% ok</span>
-                        <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full" style="background:#dc2626"></span> &gt;60% high</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Full campaign table -->
-            <div class="card overflow-hidden">
-                <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-                    <h3 class="text-sm font-bold text-gray-700"><i class="fas fa-table mr-1 text-gray-400"></i> All Campaigns</h3>
-                    <span id="dash-table-status" class="text-[10px] text-gray-400"></span>
-                </div>
-                <div class="overflow-x-auto">
-                    <table class="w-full analytics-table" id="dash-table">
-                        <thead>
-                            <tr>
-                                <th class="text-left">Publication</th>
-                                <th class="text-left">Campaign</th>
-                                <th>MP</th>
-                                <th>Type</th>
-                                <th class="text-right">Spend</th>
-                                <th class="text-right">Sales</th>
-                                <th class="text-right">ACoS</th>
-                                <th class="text-right">ROAS</th>
-                                <th class="text-right">Clicks</th>
-                                <th>State</th>
-                            </tr>
-                        </thead>
-                        <tbody id="dash-tbody">
-                            <tr><td colspan="10" class="text-center text-gray-400 py-8">No campaign data yet — click <strong>Pull data</strong></td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </section>
-        <!-- ============================================================== -->
 
         <div id="pub-list" class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
             <div id="pub-empty" class="hidden col-span-full text-center py-20 text-gray-400">
@@ -385,7 +228,6 @@
             <div class="dm-tabs">
                 <button type="button" class="dm-tab-btn active" data-tab="overview"><i class="fas fa-info-circle"></i> Overview</button>
                 <button type="button" class="dm-tab-btn" data-tab="marketplaces"><i class="fas fa-globe-americas"></i> Marketplaces <span id="dm-tabbadge-mp" class="dm-tab-badge hidden"></span></button>
-                <button type="button" class="dm-tab-btn" data-tab="ads"><i class="fab fa-amazon"></i> Amazon Ads <span id="dm-tabbadge-ads" class="dm-tab-badge hidden"></span></button>
                 <button type="button" class="dm-tab-btn" data-tab="reviews"><i class="fas fa-star"></i> Review Emails <span id="dm-tabbadge-rv" class="dm-tab-badge hidden"></span></button>
             </div>
             <div class="flex-1 overflow-y-auto scrollx px-6 py-5">
@@ -398,7 +240,7 @@
                         <div><label class="label">Title</label>      <input id="dm-input-title"    class="input" /></div>
                         <div><label class="label">Subtitle</label>   <input id="dm-input-subtitle" class="input" /></div>
                         <div class="col-span-2">
-                            <label class="label">Publisher / company <span class="font-normal text-gray-400">— the Amazon Ads + MailerLite account this book is published under</span></label>
+                            <label class="label">Publisher / company <span class="font-normal text-gray-400">— the MailerLite account this book is published under</span></label>
                             <select id="dm-input-account" class="input">
                                 <option value="">Default</option>
                             </select>
@@ -437,119 +279,6 @@
                     </p>
                 </section>
                 </div><!-- /marketplaces panel -->
-
-                <!-- ===== Amazon Ads tab ===== -->
-                <div class="dm-panel space-y-6" data-panel="ads">
-                <!-- Action: Launch ads -->
-                <section>
-                    <h4 class="text-xs uppercase tracking-wider font-bold text-gray-500 mb-2 flex items-center gap-2">
-                        <i class="fab fa-amazon text-orange-500"></i> Launch Amazon Ads (multi-marketplace)
-                    </h4>
-                    <div class="flex items-start gap-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
-                        <i class="fas fa-clock mt-0.5"></i>
-                        <span>Separate step from the MailerLite / review emails below — run on its own timeline. Best practice: wait until the book has <strong>~20–40 reviews</strong> before launching. Campaigns are created <strong>PAUSED</strong> by default, so nothing spends until you enable them in Amazon's console.</span>
-                    </div>
-                    <div class="space-y-4">
-                        <!-- Type + state + bidding -->
-                        <div class="grid grid-cols-3 gap-3">
-                            <div>
-                                <label class="label">Campaign type</label>
-                                <select id="dm-ads-type" class="input">
-                                    <option value="auto">Automatic targeting</option>
-                                    <option value="keyword">Keyword targeting</option>
-                                    <option value="asin">ASIN / product targeting</option>
-                                    <option value="category" disabled>Category (coming soon)</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="label">Bidding strategy</label>
-                                <select id="dm-ads-bidding" class="input">
-                                    <option value="LEGACY_FOR_SALES">Down only (recommended)</option>
-                                    <option value="AUTO_FOR_SALES">Up and down</option>
-                                    <option value="MANUAL">Fixed</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="label">Initial state</label>
-                                <select id="dm-ads-state" class="input">
-                                    <option value="PAUSED">PAUSED (safe)</option>
-                                    <option value="ENABLED">ENABLED (live)</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <!-- Per-marketplace bid + budget slots -->
-                        <div>
-                            <div class="flex items-center justify-between mb-1.5">
-                                <label class="label mb-0">Marketplaces — set bid &amp; daily budget (in local currency)</label>
-                                <button id="dm-suggest-bids" class="text-[11px] text-orange-600 hover:underline font-semibold">
-                                    <i class="fas fa-wand-magic-sparkles mr-1"></i> Get suggested bids
-                                </button>
-                            </div>
-                            <div id="dm-mp-rows" class="space-y-2"></div>
-                            <p class="text-[10px] text-gray-400 mt-1">Bids and budgets are in each marketplace's own currency (US $ · UK £ · CA $ · AU $). Suggested ranges come from Amazon when available.</p>
-                        </div>
-
-                        <!-- Keyword targeting panel -->
-                        <div id="dm-kw-row" class="hidden space-y-2 border border-gray-200 rounded-lg p-3 bg-gray-50">
-                            <div class="flex items-center justify-between">
-                                <label class="label mb-0">Keywords <span id="dm-kw-count" class="font-normal text-gray-400"></span></label>
-                                <div class="flex items-center gap-3 text-[11px]">
-                                    <span class="text-gray-500">Match types:</span>
-                                    <label class="inline-flex items-center gap-1 cursor-pointer"><input type="checkbox" class="dm-mt" value="EXACT" checked /> Exact</label>
-                                    <label class="inline-flex items-center gap-1 cursor-pointer"><input type="checkbox" class="dm-mt" value="PHRASE" checked /> Phrase</label>
-                                    <label class="inline-flex items-center gap-1 cursor-pointer"><input type="checkbox" class="dm-mt" value="BROAD" /> Broad</label>
-                                </div>
-                            </div>
-                            <textarea id="dm-keywords" rows="10" class="input font-mono text-xs" style="min-height:160px; max-height:340px;" placeholder="One keyword per line (up to 1000+). Optional per-keyword bid after a comma:&#10;self help&#10;productivity habits, 0.85&#10;morning routine, 1.20"></textarea>
-                            <p class="text-[10px] text-gray-500">
-                                One keyword per line. Add <code>, 0.85</code> after a keyword to set its own bid; lines without a bid use that marketplace's bid slot above.
-                                Each keyword fans out across the ticked match types, in every selected marketplace.
-                            </p>
-                        </div>
-
-                        <!-- ASIN targeting panel -->
-                        <div id="dm-asin-row" class="hidden">
-                            <label class="label">Target competitor ASINs (space or comma-separated)</label>
-                            <input id="dm-target-asins" class="input" placeholder="B0AAAAAAAA B0BBBBBBBB" />
-                        </div>
-
-                        <div class="flex items-center gap-2">
-                            <button id="dm-dryrun-ads" class="btn-ghost text-sm">
-                                <i class="fas fa-eye mr-1 text-gray-500"></i> Preview (dry run)
-                            </button>
-                            <button id="dm-launch-ads" class="btn-orange text-sm">
-                                <i class="fas fa-rocket mr-1"></i> Launch on selected marketplaces
-                            </button>
-                        </div>
-                        <div id="dm-ads-result" class="text-xs space-y-1"></div>
-                    </div>
-                </section>
-
-                <!-- Campaign history + ACoS -->
-                <section>
-                    <div class="flex items-center justify-between mb-2">
-                        <h4 class="text-xs uppercase tracking-wider font-bold text-gray-500 flex items-center gap-2">
-                            <i class="fas fa-chart-line mr-1"></i> Campaigns &amp; ACoS
-                            <span id="dm-acos-badge" class="hidden text-xs font-bold bg-orange-50 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-full normal-case tracking-normal"></span>
-                        </h4>
-                        <div class="flex items-center gap-2">
-                            <span id="dm-acos-status" class="text-[10px] text-gray-400"></span>
-                            <select id="dm-acos-window" class="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
-                                <option value="7">7-day</option>
-                                <option value="14" selected>14-day</option>
-                                <option value="30">30-day</option>
-                            </select>
-                            <button id="dm-acos-pull" class="btn-ghost text-xs">
-                                <i class="fas fa-cloud-download-alt mr-1 text-orange-500"></i> Pull data
-                            </button>
-                        </div>
-                    </div>
-                    <!-- ACoS summary bar (hidden until data arrives) -->
-                    <div id="dm-acos-summary" class="hidden mb-3 grid grid-cols-4 gap-2"></div>
-                    <div id="dm-history" class="text-sm text-gray-600"></div>
-                </section>
-                </div><!-- /ads panel -->
 
                 <!-- ===== Review Emails tab ===== -->
                 <div class="dm-panel space-y-6" data-panel="reviews">
@@ -703,87 +432,19 @@
 <script src="/static/book_editor.js"></script>
 <script>
 const MARKETPLACES = [
-    { code: 'US', name: 'United States', domain: 'amazon.com',    currency: 'USD', symbol: '$', defaultBid: 0.50, defaultBudget: 100 },
-    { code: 'UK', name: 'United Kingdom', domain: 'amazon.co.uk',  currency: 'GBP', symbol: '£', defaultBid: 0.40, defaultBudget: 100 },
-    { code: 'CA', name: 'Canada',         domain: 'amazon.ca',     currency: 'CAD', symbol: '$', defaultBid: 0.70, defaultBudget: 100 },
-    { code: 'AU', name: 'Australia',      domain: 'amazon.com.au', currency: 'AUD', symbol: '$', defaultBid: 0.80, defaultBudget: 100 },
+    { code: 'US', name: 'United States',  domain: 'amazon.com' },
+    { code: 'UK', name: 'United Kingdom', domain: 'amazon.co.uk' },
+    { code: 'CA', name: 'Canada',         domain: 'amazon.ca' },
+    { code: 'AU', name: 'Australia',      domain: 'amazon.com.au' },
 ];
 const MP_BY_CODE = Object.fromEntries(MARKETPLACES.map(m => [m.code, m]));
 
-// Adjustable default bids per ad type, per marketplace (local currency).
-// These pre-fill the per-marketplace bid slots when you switch campaign type;
-// whatever you set is remembered (localStorage) and becomes your new default.
-const TYPE_BID_DEFAULTS = {
-    auto:     { US: 0.50, UK: 0.40, CA: 0.70, AU: 0.80 },
-    keyword:  { US: 0.75, UK: 0.60, CA: 0.95, AU: 1.05 },
-    category: { US: 0.65, UK: 0.55, CA: 0.85, AU: 0.95 },
-    asin:     { US: 0.65, UK: 0.55, CA: 0.85, AU: 0.95 },
-};
-function _bidStoreKey(type) { return 'ocbw_addefaults_' + type; }
-function loadTypeDefaults(type) {
-    try { return JSON.parse(localStorage.getItem(_bidStoreKey(type)) || '{}'); }
-    catch (e) { return {}; }
-}
-function saveTypeDefaults(type) {
-    const data = {};
-    MARKETPLACES.forEach(mp => {
-        const bidInp = document.querySelector(`#dm-mp-rows .mp-bid[data-mp="${mp.code}"]`);
-        const budInp = document.querySelector(`#dm-mp-rows .mp-budget[data-mp="${mp.code}"]`);
-        data[mp.code] = {
-            bid: bidInp ? bidInp.value : undefined,
-            budget: budInp ? budInp.value : undefined,
-        };
-    });
-    try { localStorage.setItem(_bidStoreKey(type), JSON.stringify(data)); } catch (e) {}
-}
-// Fill the per-MP bid + budget slots from saved defaults, falling back to the
-// per-type constant bid and the 100/day budget default.
-function applyTypeBidDefaults() {
-    const sel = document.querySelector('#dm-ads-type');
-    if (!sel) return;
-    const type = sel.value;
-    const saved = loadTypeDefaults(type);
-    MARKETPLACES.forEach(mp => {
-        const bidInp = document.querySelector(`#dm-mp-rows .mp-bid[data-mp="${mp.code}"]`);
-        const budInp = document.querySelector(`#dm-mp-rows .mp-budget[data-mp="${mp.code}"]`);
-        if (bidInp) {
-            const def = (TYPE_BID_DEFAULTS[type] || {})[mp.code];
-            const fallback = (def != null ? def : mp.defaultBid).toFixed(2);
-            bidInp.value = (saved[mp.code] && saved[mp.code].bid) ? saved[mp.code].bid : fallback;
-        }
-        if (budInp) {
-            budInp.value = (saved[mp.code] && saved[mp.code].budget) ? saved[mp.code].budget : mp.defaultBudget;
-        }
-    });
-}
-
-const $ = sel => document.querySelector(sel);
-const $$ = sel => Array.from(document.querySelectorAll(sel));
-const esc = s => String(s == null ? '' : s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-
-let publications = [];
-let currentPub = null;        // detail-modal target
-let adsStatus = null;         // { configured, env, profiles }
-let adsAccounts = [];         // [{id, label, ...}] companies / publishers
-
-async function loadAdsAccounts() {
-    try {
-        const d = await fetch('/api/amazon-ads/accounts').then(r => r.json());
-        adsAccounts = d.accounts || [];
-    } catch (e) { adsAccounts = []; }
-}
-function accountLabel(id) {
-    if (!id) return 'Default';
-    const a = adsAccounts.find(x => x.id === id);
-    return a ? (a.label || a.id) : id;
-}
+function accountLabel(id) { return id || 'Default'; }
 
 // -------------------- Modal helpers --------------------
 function openModal(id) { $('#' + id).classList.remove('hidden'); }
 function closeModal(id) {
     $('#' + id).classList.add('hidden');
-    if (id === 'detail-modal') { clearTimeout(acosPollTimer); clearInterval(acosAutoTimer); }
 }
 $$('[data-close]').forEach(b => b.addEventListener('click', () => closeModal(b.dataset.close)));
 ['new-modal', 'detail-modal', 'book-modal'].forEach(id => {
@@ -812,34 +473,6 @@ $('#dm-view-edit').addEventListener('click', () => {
     openModal('book-modal');
     ensureBookWidget().load(currentPub.id, which, currentPub.title);
 });
-
-// -------------------- Status / connection --------------------
-async function loadAdsStatus() {
-    try {
-        const r = await fetch('/api/amazon-ads/status');
-        adsStatus = await r.json();
-        const el = $('#ads-conn');
-        if (adsStatus.configured) {
-            const count = Object.values(adsStatus.profiles || {}).reduce((n, v) => n + (Array.isArray(v) ? v.length : 0), 0);
-            el.innerHTML = `<i class="fas fa-check-circle text-green-500"></i> Amazon connected (${adsStatus.env}, ${count} profile${count !== 1 ? 's' : ''})`;
-            el.className = 'text-xs text-green-700';
-        } else {
-            el.innerHTML = `<i class="fas fa-exclamation-triangle text-amber-500"></i> Amazon not configured`;
-            el.className = 'text-xs text-amber-700';
-        }
-    } catch (e) {
-        $('#ads-conn').textContent = 'Status check failed';
-    }
-}
-
-function profileForMarketplace(mp) {
-    if (!adsStatus || !adsStatus.profiles) return null;
-    const arr = adsStatus.profiles[mp];
-    if (!Array.isArray(arr) || arr.length === 0) return null;
-    // Pick the profile whose countryCode matches the marketplace
-    const want = mp === 'UK' ? 'GB' : mp;
-    return arr.find(p => (p.countryCode || '').toUpperCase() === want) || arr[0];
-}
 
 // -------------------- List view --------------------
 async function loadPublications() {
@@ -880,17 +513,6 @@ function renderCard(p) {
                 </span>`;
     }).join('');
 
-    // One quiet metrics line, only when we have data
-    const pubAcos = dashPubAcosMap[p.id];
-    const acosColor = pubAcos && pubAcos.acos != null
-        ? (pubAcos.acos <= 30 ? 'text-emerald-600' : pubAcos.acos <= 60 ? 'text-amber-600' : 'text-red-600') : '';
-    const metricsLine = pubAcos && pubAcos.acos != null
-        ? `<div class="flex items-center gap-3 mt-2 text-[11px] text-gray-500">
-               <span class="font-semibold ${acosColor}">ACoS ${pubAcos.acos}%</span>
-               ${pubAcos.roas != null ? `<span>ROAS <span class="font-semibold text-gray-700">${pubAcos.roas}x</span></span>` : ''}
-               ${pubAcos.sales != null ? `<span>Sales <span class="font-semibold text-gray-700">$${pubAcos.sales.toFixed(0)}</span></span>` : ''}
-           </div>` : '';
-
     // Cover thumbnail, or a gradient placeholder with the title initials
     const initials = (p.title || 'Book').replace(/[^A-Za-z0-9 ]/g, '').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || 'BK';
     const cover = p.front_cover_path
@@ -907,7 +529,7 @@ function renderCard(p) {
                     <span class="chip ${statusClass} flex-shrink-0 capitalize">${esc(p.status)}</span>
                 </div>
                 ${p.subtitle ? `<p class="text-xs text-gray-500 truncate mt-0.5">${esc(p.subtitle)}</p>` : ''}
-                ${metricsLine}
+                
                 <div class="flex items-center gap-3 mt-auto pt-3">${mpDots}</div>
             </div>
         </div>
@@ -1011,10 +633,9 @@ function renderDetail() {
     $('#dm-input-subtitle').value = p.subtitle || '';
     $('#dm-input-description').value = p.description || '';
 
-    // Publisher / company dropdowns (drive both Amazon Ads + MailerLite account).
+    // Publisher / company dropdowns (drive the MailerLite account).
     // Two locations stay in sync: Metadata section + Review automation section.
-    const acctOpts = '<option value="">Default</option>' +
-        adsAccounts.map(a => `<option value="${esc(a.id)}">${esc(a.label || a.id)}</option>`).join('');
+    const acctOpts = '<option value="">Default</option>';
     ['#dm-input-account', '#dm-rv-account'].forEach(sel => {
         const el = $(sel);
         if (el) { el.innerHTML = acctOpts; el.value = p.amazon_account_id || ''; }
@@ -1040,468 +661,24 @@ function renderDetail() {
     // Tab count badges
     const mpLive = MARKETPLACES.filter(mp => ((p.marketplaces || {})[mp.code] || {}).asin).length;
     setTabBadge('#dm-tabbadge-mp', mpLive);
-    setTabBadge('#dm-tabbadge-ads', (p.campaigns || []).length);
 
     // Marketplaces
     const mpWrap = $('#dm-marketplaces');
     mpWrap.innerHTML = MARKETPLACES.map(mp => {
         const info = (p.marketplaces || {})[mp.code] || {};
-        const prof = profileForMarketplace(mp.code);
         return `
         <div class="mp-cell ${info.asin ? 'live' : ''}" data-mp="${mp.code}">
             <div class="flex items-center justify-between mb-2">
                 <span class="text-xs font-bold text-gray-700">${mp.code} <span class="font-normal text-gray-500">· ${esc(mp.name)}</span></span>
-                <span class="text-[10px] ${prof ? 'text-emerald-700' : 'text-gray-400'} font-semibold">
-                    ${prof ? '<i class="fas fa-plug"></i> profile ' + esc(prof.profileId) : 'no ads profile'}
-                </span>
             </div>
             <input class="input mp-asin text-sm mb-1" placeholder="ASIN" value="${esc(info.asin || '')}" />
             <input class="input mp-url text-xs"  placeholder="https://${mp.domain}/dp/…" value="${esc(info.url || '')}" />
         </div>`;
     }).join('');
 
-    // Per-marketplace bid + budget rows
-    const rows = $('#dm-mp-rows');
-    rows.innerHTML = MARKETPLACES.map(mp => {
-        const info = (p.marketplaces || {})[mp.code] || {};
-        const has = !!info.asin;
-        const prof = profileForMarketplace(mp.code);
-        const ready = has && prof;
-        const reason = !has ? 'no ASIN set' : (!prof ? 'no ads profile' : '');
-        return `
-        <div class="flex items-center gap-2 px-3 py-2 border rounded-lg ${ready ? 'border-emerald-200 bg-emerald-50' : 'border-gray-200 bg-gray-50 opacity-80'}" data-mp="${mp.code}">
-            <input type="checkbox" class="mp-check" data-mp="${mp.code}" ${ready ? '' : 'disabled'} ${ready ? 'checked' : ''} />
-            <div class="w-20 flex-shrink-0">
-                <div class="text-sm font-semibold">${mp.code} <span class="text-[10px] text-gray-400 font-normal">${esc(mp.currency)}</span></div>
-                ${reason ? `<div class="text-[10px] text-red-500">${reason}</div>` : `<div class="text-[10px] text-gray-400 font-mono truncate" title="${esc(info.asin)}">${esc(info.asin)}</div>`}
-            </div>
-            <div class="flex-1 grid grid-cols-2 gap-2">
-                <div>
-                    <div class="relative">
-                        <span class="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">${mp.symbol}</span>
-                        <input type="number" step="0.01" min="0.02" class="input mp-bid text-sm pl-5" data-mp="${mp.code}" value="${mp.defaultBid.toFixed(2)}" ${ready ? '' : 'disabled'} title="Bid" />
-                    </div>
-                    <div class="mp-bid-hint text-[10px] text-gray-400 mt-0.5 h-3" data-mp="${mp.code}"></div>
-                </div>
-                <div>
-                    <div class="relative">
-                        <span class="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">${mp.symbol}</span>
-                        <input type="number" step="1" min="1" class="input mp-budget text-sm pl-5" data-mp="${mp.code}" value="${mp.defaultBudget}" ${ready ? '' : 'disabled'} title="Daily budget" />
-                    </div>
-                    <div class="text-[10px] text-gray-400 mt-0.5 h-3">daily budget</div>
-                </div>
-            </div>
-        </div>`;
-    }).join('');
-
-    // Campaign history — rendered by loadAcos() below
-    renderHistory(null);
-    loadAcos(false);
-    startAcosAutoRefresh();
-
-    // Reset ads result
-    $('#dm-ads-result').textContent = '';
-    syncAdsTypeUI();
-
     // Load review automation panel (defined below)
     if (typeof loadReviewState === 'function') loadReviewState();
 }
-
-// ==================== ACoS data ====================
-let acosData = null;
-let acosPollTimer = null;
-let acosAutoTimer = null;
-
-function _acosColor(v) {
-    if (v == null) return 'text-gray-400';
-    if (v <= 30) return 'text-green-700';
-    if (v <= 60) return 'text-amber-700';
-    return 'text-red-700';
-}
-
-function renderHistory(acosMap) {
-    const p = currentPub;
-    const win = parseInt(($('#dm-acos-window') || {}).value) || 14;
-    const history = $('#dm-history');
-    if (!p || !p.campaigns || p.campaigns.length === 0) {
-        history.innerHTML = '<p class="text-xs text-gray-400">No campaigns yet.</p>';
-        return;
-    }
-    const haveAcos = acosMap && Object.keys(acosMap).length > 0;
-    history.innerHTML = `
-        <div class="overflow-x-auto">
-          <table class="w-full text-xs">
-            <thead><tr class="text-left text-gray-500 border-b border-gray-200">
-                <th class="py-1.5 pr-2">When</th>
-                <th class="pr-2">Type</th>
-                <th class="pr-2">MP</th>
-                <th class="pr-2">Name</th>
-                <th class="pr-2">Budget</th>
-                <th class="pr-2">State</th>
-                ${haveAcos ? `
-                <th class="pr-2 text-right">Spend</th>
-                <th class="pr-2 text-right">Sales&nbsp;(${win}d)</th>
-                <th class="pr-2 text-right">ACoS</th>
-                <th class="pr-2 text-right">ROAS</th>` : ''}
-                <th>Campaign ID</th>
-            </tr></thead>
-            <tbody>${p.campaigns.map(c => {
-                const a = acosMap ? acosMap[c.campaign_id] : null;
-                return `
-                <tr class="border-b border-gray-50 hover:bg-gray-50">
-                    <td class="py-1.5 pr-2 text-gray-500 whitespace-nowrap">${new Date(c.created_at*1000).toLocaleDateString()}</td>
-                    <td class="pr-2">${esc(c.campaign_type)}</td>
-                    <td class="pr-2 font-semibold">${esc(c.marketplace)}</td>
-                    <td class="pr-2 truncate max-w-[160px]" title="${esc(c.name)}">${esc(c.name)}</td>
-                    <td class="pr-2 font-mono">${esc(String(c.daily_budget))}</td>
-                    <td class="pr-2"><span class="chip ${c.state === 'ENABLED' ? 'chip-live' : 'chip-draft'}">${esc(c.state)}</span></td>
-                    ${haveAcos ? `
-                    <td class="pr-2 text-right font-mono">${a && a.ads_spend != null ? '$'+a.ads_spend.toFixed(2) : '—'}</td>
-                    <td class="pr-2 text-right font-mono text-emerald-700">${a && a.ads_sales != null ? '$'+a.ads_sales.toFixed(2) : '—'}</td>
-                    <td class="pr-2 text-right font-bold ${a && a.ads_acos != null ? _acosColor(a.ads_acos) : 'text-gray-400'}">${a && a.ads_acos != null ? a.ads_acos+'%' : '—'}</td>
-                    <td class="pr-2 text-right font-mono text-indigo-700">${a && a.ads_roas != null ? a.ads_roas+'x' : '—'}</td>` : ''}
-                    <td class="font-mono text-gray-400 text-[10px]">${esc(c.campaign_id)}</td>
-                </tr>`;
-            }).join('')}
-            </tbody>
-          </table>
-        </div>`;
-}
-
-async function loadAcos(force) {
-    if (!currentPub) return;
-    const win = parseInt(($('#dm-acos-window') || {}).value) || 14;
-    clearTimeout(acosPollTimer);
-
-    if (force) {
-        $('#dm-acos-status').innerHTML = '<i class="fas fa-circle-notch fa-spin text-orange-400"></i> Pulling from Amazon…';
-        try {
-            await fetch(`/api/publications/${currentPub.id}/acos/refresh`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ window_days: win }),
-            });
-        } catch (_) {}
-    }
-
-    try {
-        const r = await fetch(`/api/publications/${currentPub.id}/acos?window=${win}`);
-        if (!r.ok) return;
-        const data = await r.json();
-        acosData = data;
-
-        // Build campaign_id → enriched-row map
-        const acosMap = {};
-        (data.campaigns || []).forEach(c => {
-            if (c.ads_spend !== undefined) acosMap[c.campaign_id] = c;
-        });
-
-        // Status indicator
-        const st = data.status;
-        const statusEl = $('#dm-acos-status');
-        if (st === 'fetching') {
-            statusEl.innerHTML = '<i class="fas fa-circle-notch fa-spin text-orange-400"></i> Fetching…';
-            acosPollTimer = setTimeout(() => loadAcos(false), 10000);
-        } else if (st === 'ready') {
-            const fat = data.fetched_at;
-            const ago = fat ? Math.round((Date.now()/1000 - fat) / 60) : null;
-            statusEl.textContent = ago !== null ? `Updated ${ago}m ago` : 'Ready';
-        } else if (st === 'error') {
-            statusEl.innerHTML = '<span class="text-red-600"><i class="fas fa-exclamation-triangle mr-1"></i>Fetch error</span>';
-        } else {
-            statusEl.textContent = '';
-        }
-
-        // ACoS headline badge (next to section title)
-        const badge = $('#dm-acos-badge');
-        const s = data.summary || {};
-        if (s.acos != null) {
-            badge.textContent = `ACoS ${s.acos}%`;
-            badge.className = `text-xs font-bold px-2 py-0.5 rounded-full border ${_acosColor(s.acos).replace('text-', 'text-').replace('700', '700')} bg-orange-50 border-orange-200`;
-            badge.classList.remove('hidden');
-        } else {
-            badge.classList.add('hidden');
-        }
-
-        // Summary bar (spend / sales / orders / ACoS)
-        const summaryEl = $('#dm-acos-summary');
-        if (s.total_spend > 0 || s.total_sales > 0) {
-            summaryEl.classList.remove('hidden');
-            summaryEl.innerHTML = [
-                { label: 'Spend',              val: '$'+(s.total_spend||0).toFixed(2),  cls: 'text-gray-900' },
-                { label: `Sales (${win}d)`,    val: '$'+(s.total_sales||0).toFixed(2),  cls: 'text-emerald-700' },
-                { label: 'Orders',             val: s.total_purchases||0,               cls: 'text-gray-900' },
-                { label: 'ACoS',               val: s.acos != null ? s.acos+'%' : '—', cls: _acosColor(s.acos) },
-            ].map(item => `
-                <div class="bg-gray-50 border border-gray-200 rounded-lg p-2 text-center">
-                    <div class="text-[10px] text-gray-500 mb-0.5">${item.label}</div>
-                    <div class="font-bold text-sm ${item.cls}">${item.val}</div>
-                </div>`).join('');
-        } else {
-            summaryEl.classList.add('hidden');
-        }
-
-        renderHistory(Object.keys(acosMap).length ? acosMap : null);
-    } catch (e) {
-        console.warn('ACoS load error:', e);
-    }
-}
-
-function startAcosAutoRefresh() {
-    clearInterval(acosAutoTimer);
-    acosAutoTimer = setInterval(() => loadAcos(false), 5 * 60 * 1000);
-}
-
-$('#dm-acos-pull').addEventListener('click', () => loadAcos(true));
-$('#dm-acos-window').addEventListener('change', () => loadAcos(false));
-
-function syncAdsTypeUI() {
-    const t = $('#dm-ads-type').value;
-    $('#dm-kw-row').classList.toggle('hidden', t !== 'keyword');
-    $('#dm-asin-row').classList.toggle('hidden', t !== 'asin');
-    applyTypeBidDefaults();   // re-fill bid slots with this type's adjustable defaults
-}
-$('#dm-ads-type').addEventListener('change', syncAdsTypeUI);
-
-// Remember adjusted bids/budgets per ad type so they become the new defaults.
-$('#dm-mp-rows').addEventListener('input', (e) => {
-    if (e.target.classList.contains('mp-bid') || e.target.classList.contains('mp-budget')) {
-        saveTypeDefaults($('#dm-ads-type').value);
-    }
-});
-
-// Live keyword count
-function updateKwCount() {
-    const lines = $('#dm-keywords').value.split('\n').map(s => s.trim()).filter(Boolean);
-    $('#dm-kw-count').textContent = lines.length ? `(${lines.length} line${lines.length !== 1 ? 's' : ''})` : '';
-}
-$('#dm-keywords').addEventListener('input', updateKwCount);
-
-// Parse keyword textarea -> [{keywordText, bid?}]. Each line: "keyword" or "keyword, 0.85"
-function parseKeywords() {
-    return $('#dm-keywords').value.split('\n').map(line => {
-        const raw = line.trim();
-        if (!raw) return null;
-        // Split off a trailing ", <number>" as the per-keyword bid
-        const m = raw.match(/^(.*?)[,\t]\s*(\d+(?:\.\d+)?)\s*$/);
-        if (m && m[1].trim()) {
-            return { keywordText: m[1].trim(), bid: parseFloat(m[2]) };
-        }
-        return { keywordText: raw };
-    }).filter(Boolean);
-}
-
-function selectedMatchTypes() {
-    return $$('.dm-mt:checked').map(c => c.value);
-}
-
-// Collect the per-marketplace structured list from the checked rows
-function collectMarketplaceEntries() {
-    return $$('#dm-mp-rows .mp-check:checked').map(c => {
-        const mp = c.dataset.mp;
-        const bid = parseFloat($(`#dm-mp-rows .mp-bid[data-mp="${mp}"]`).value);
-        const budget = parseFloat($(`#dm-mp-rows .mp-budget[data-mp="${mp}"]`).value);
-        const mpInfo = MP_BY_CODE[mp] || {};
-        return {
-            country: mp,
-            default_bid: isNaN(bid) ? mpInfo.defaultBid : bid,
-            daily_budget: isNaN(budget) ? mpInfo.defaultBudget : budget,
-        };
-    });
-}
-
-// Build the launch/preview payload shared by dry-run and live launch
-function buildAdsPayload(dryRun) {
-    const t = $('#dm-ads-type').value;
-    const marketplaces = collectMarketplaceEntries();
-    if (marketplaces.length === 0) { alert('Select at least one marketplace.'); return null; }
-
-    const body = {
-        type: t,
-        state: $('#dm-ads-state').value,
-        bidding_strategy: $('#dm-ads-bidding').value,
-        marketplaces,
-        dry_run: !!dryRun,
-    };
-    if (t === 'keyword') {
-        const kws = parseKeywords();
-        if (kws.length === 0) { alert('Enter at least one keyword.'); return null; }
-        const mts = selectedMatchTypes();
-        if (mts.length === 0) { alert('Tick at least one match type (Exact / Phrase / Broad).'); return null; }
-        body.keywords = kws;
-        body.match_types = mts;
-    } else if (t === 'asin') {
-        body.target_asins = $('#dm-target-asins').value.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
-        if (body.target_asins.length === 0) { alert('Enter at least one target ASIN.'); return null; }
-    }
-    return body;
-}
-
-function renderAdsResults(data) {
-    const lines = (data.results || []).map(res => {
-        if (res.ok && res.dry_run && res.preview) {
-            const pv = res.preview;
-            return `<div class="text-gray-700"><i class="fas fa-eye mr-1 text-gray-400"></i> <strong>${esc(res.marketplace)}</strong> → "${esc(pv.name)}" · bid ${esc(String(pv.default_bid))} · budget ${esc(String(pv.daily_budget))} · ${esc(pv.bidding_strategy)} · ${esc(pv.state)} · profile ${esc(pv.profile_id)}</div>`;
-        }
-        if (res.ok) {
-            return `<div class="text-emerald-700"><i class="fas fa-check-circle mr-1"></i> ${esc(res.marketplace)} → campaign ${esc(res.campaign.campaignId)}</div>`;
-        }
-        return `<div class="text-red-700"><i class="fas fa-times-circle mr-1"></i> ${esc(res.marketplace)} → ${esc(res.error)}</div>`;
-    });
-    $('#dm-ads-result').innerHTML = lines.join('') || '<span class="text-gray-400">No results.</span>';
-}
-
-// Get suggested bids — fills the hint under each bid slot. Never blocks.
-$('#dm-suggest-bids').addEventListener('click', async () => {
-    if (!currentPub) return;
-    const t = $('#dm-ads-type').value;
-    const marketplaces = $$('#dm-mp-rows .mp-check:checked').map(c => c.dataset.mp);
-    if (marketplaces.length === 0) { alert('Select at least one marketplace first.'); return; }
-
-    // Reset hints to a loading state
-    marketplaces.forEach(mp => {
-        const el = $(`#dm-mp-rows .mp-bid-hint[data-mp="${mp}"]`);
-        if (el) el.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>';
-    });
-
-    const body = { type: t, bidding_strategy: $('#dm-ads-bidding').value, marketplaces };
-    if (t === 'keyword') {
-        body.keywords = parseKeywords().map(k => k.keywordText);
-        body.match_types = selectedMatchTypes();
-    }
-    try {
-        const r = await fetch('/api/publications/' + currentPub.id + '/amazon-ads/suggested-bids', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-        });
-        const data = await r.json();
-        (data.results || []).forEach(res => {
-            const el = $(`#dm-mp-rows .mp-bid-hint[data-mp="${res.marketplace}"]`);
-            if (!el) return;
-            if (res.available && res.overall) {
-                const sym = (MP_BY_CODE[res.marketplace] || {}).symbol || '';
-                el.innerHTML = `<span class="text-orange-600">sugg ${sym}${res.overall.low}–${sym}${res.overall.high}</span>`;
-                el.title = `Amazon suggested: low ${res.overall.low} · median ${res.overall.median} · high ${res.overall.high}`;
-            } else {
-                el.textContent = 'no suggestion';
-            }
-        });
-        // Clear any leftover spinners for MPs not in the response
-        marketplaces.forEach(mp => {
-            const el = $(`#dm-mp-rows .mp-bid-hint[data-mp="${mp}"]`);
-            if (el && el.querySelector('.fa-spin')) el.textContent = 'no suggestion';
-        });
-    } catch (e) {
-        marketplaces.forEach(mp => {
-            const el = $(`#dm-mp-rows .mp-bid-hint[data-mp="${mp}"]`);
-            if (el) el.textContent = '';
-        });
-    }
-});
-
-// Save metadata + marketplaces
-$('#dm-save').addEventListener('click', async () => {
-    if (!currentPub) return;
-    const marketplaces = {};
-    $$('#dm-marketplaces .mp-cell').forEach(c => {
-        const mp = c.dataset.mp;
-        const asin = c.querySelector('.mp-asin').value.trim();
-        const url  = c.querySelector('.mp-url').value.trim();
-        marketplaces[mp] = asin ? { asin, url } : null;
-    });
-    const body = {
-        title: $('#dm-input-title').value.trim(),
-        subtitle: $('#dm-input-subtitle').value.trim(),
-        description: $('#dm-input-description').value,
-        amazon_account_id: $('#dm-input-account').value || '',
-        marketplaces,
-    };
-    const r = await fetch('/api/publications/' + currentPub.id, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
-    const data = await r.json();
-    if (!r.ok) { alert('Save failed: ' + (data.error || r.status)); return; }
-    currentPub = data.publication;
-    renderDetail();
-    await loadPublications();
-});
-
-// Publisher / company: reflect choice in the hint + persist immediately so the
-// MailerLite push and ads launch both use the right account without a full Save.
-function updateAccountHint() {
-    const id = ($('#dm-input-account').value) || '';
-    $('#dm-account-hint').innerHTML =
-        `<i class="fas fa-envelope-open-text text-indigo-400 mr-1"></i> MailerLite drafts &amp; review emails use <strong>${esc(accountLabel(id))}</strong>'s account · ads launch from the same company.`;
-}
-// Single source of truth: sync both dropdowns, update hint, persist immediately.
-async function setPubAccount(account_id) {
-    account_id = account_id || '';
-    ['#dm-input-account', '#dm-rv-account'].forEach(sel => {
-        const el = $(sel); if (el && el.value !== account_id) el.value = account_id;
-    });
-    updateAccountHint();
-    if (!currentPub) return;
-    try {
-        const r = await fetch('/api/publications/' + currentPub.id, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ amazon_account_id: account_id }),
-        });
-        const data = await r.json();
-        if (r.ok && data.publication) currentPub = data.publication;
-    } catch (e) { /* non-fatal; main Save will persist too */ }
-}
-$('#dm-input-account').addEventListener('change', (e) => setPubAccount(e.target.value));
-$('#dm-rv-account').addEventListener('change', (e) => setPubAccount(e.target.value));
-
-// Delete
-$('#dm-delete').addEventListener('click', async () => {
-    if (!currentPub) return;
-    if (!confirm('Delete this publication? Campaign records will remain in the database.')) return;
-    const r = await fetch('/api/publications/' + currentPub.id, { method: 'DELETE' });
-    if (!r.ok) { alert('Delete failed'); return; }
-    closeModal('detail-modal');
-    await loadPublications();
-});
-
-// Launch ads (shared by dry-run preview + live launch)
-async function submitAds(dryRun) {
-    if (!currentPub) return;
-    const body = buildAdsPayload(dryRun);
-    if (!body) return;
-
-    if (!dryRun) {
-        const mpCount = body.marketplaces.length;
-        if (!confirm(`Create ${mpCount} ${body.type} campaign${mpCount !== 1 ? 's' : ''} (${body.state})? They start ${body.state === 'PAUSED' ? 'PAUSED so nothing spends yet' : 'ENABLED — this will spend money'}.`)) return;
-    }
-
-    const dryBtn = $('#dm-dryrun-ads'), liveBtn = $('#dm-launch-ads');
-    dryBtn.disabled = true; liveBtn.disabled = true;
-    $('#dm-ads-result').innerHTML = `<div class="text-gray-500"><i class="fas fa-circle-notch fa-spin"></i> ${dryRun ? 'Previewing…' : 'Launching…'}</div>`;
-    try {
-        const r = await fetch('/api/publications/' + currentPub.id + '/amazon-ads/launch', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-        });
-        const data = await r.json();
-        if (!r.ok) {
-            $('#dm-ads-result').innerHTML = '<span class="text-red-700">Error: ' + esc(data.error || r.status) + '</span>';
-            return;
-        }
-        renderAdsResults(data);
-        if (!dryRun) await openDetail(currentPub.id);  // refresh history
-    } catch (e) {
-        $('#dm-ads-result').innerHTML = '<span class="text-red-700">Error: ' + esc(e.message) + '</span>';
-    } finally {
-        dryBtn.disabled = false; liveBtn.disabled = false;
-    }
-}
-$('#dm-dryrun-ads').addEventListener('click', () => submitAds(true));
-$('#dm-launch-ads').addEventListener('click', () => submitAds(false));
 
 // ==================== Review automation ====================
 let rvSettings = null;
@@ -1810,293 +987,9 @@ $('#sm-send-now').addEventListener('click', async () => {
     loadReviewState();
 });
 
-// ==================== Dashboard ACoS ====================
-let dashWin = 14;
-let dashChart = null;
-let dashPubAcosMap = {};   // pub_id → {spend, sales, acos, roas}
-let dashAutoTimer = null;
-
-function _acosClass(v) {
-    if (v == null) return 'text-gray-400';
-    return v <= 30 ? 'acos-green' : v <= 60 ? 'acos-amber' : 'acos-red';
-}
-function _acosBarColor(v) {
-    if (v == null) return '#9ca3af';
-    return v <= 30 ? '#059669' : v <= 60 ? '#d97706' : '#dc2626';
-}
-function _fmt$(n) { return n != null ? '$' + Number(n).toFixed(2) : '—'; }
-function _fmtAcos(v) { return v != null ? v + '%' : '—'; }
-function _fmtRoas(v) { return v != null ? v + 'x' : '—'; }
-
-function _setWin(w) {
-    dashWin = w;
-    $$('.dash-win-btn').forEach(b => {
-        const active = parseInt(b.dataset.win) === w;
-        b.className = 'dash-win-btn px-3 py-1.5 ' + (active
-            ? 'text-white bg-orange-500'
-            : 'text-gray-500 hover:bg-gray-50' + (b.dataset.win === '7' ? ' border-r border-gray-200' : ' border-l border-gray-200'));
-    });
-}
-
-const MP_FULLNAME = { US: 'United States', UK: 'United Kingdom', CA: 'Canada', AU: 'Australia' };
-function _mkGradient(ctx, h, top, bottom) {
-    const g = ctx.createLinearGradient(0, 0, 0, h);
-    g.addColorStop(0, top);
-    g.addColorStop(1, bottom);
-    return g;
-}
-function _renderMpChart(byMp) {
-    const labels = Object.keys(byMp);
-    if (!labels.length) return;
-    const spends = labels.map(mp => byMp[mp].spend || 0);
-    const sales  = labels.map(mp => byMp[mp].sales || 0);
-    const canvas = $('#dash-mp-chart');
-    const ctx = canvas.getContext('2d');
-    const h = canvas.clientHeight || 220;
-    if (dashChart) dashChart.destroy();
-    dashChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: labels.map(l => MP_FULLNAME[l] ? `${l}` : l),
-            datasets: [
-                {
-                    label: 'Spend',
-                    data: spends,
-                    backgroundColor: _mkGradient(ctx, h, 'rgba(251,146,60,0.95)', 'rgba(234,88,12,0.80)'),
-                    borderWidth: 0,
-                    borderRadius: 8,
-                    borderSkipped: false,
-                    maxBarThickness: 46,
-                },
-                {
-                    label: 'Sales',
-                    data: sales,
-                    backgroundColor: _mkGradient(ctx, h, 'rgba(52,211,153,0.95)', 'rgba(5,150,105,0.80)'),
-                    borderWidth: 0,
-                    borderRadius: 8,
-                    borderSkipped: false,
-                    maxBarThickness: 46,
-                },
-            ],
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            layout: { padding: { top: 8 } },
-            plugins: {
-                legend: {
-                    position: 'top', align: 'end',
-                    labels: { font: { size: 11, weight: '600' }, boxWidth: 10, boxHeight: 10, usePointStyle: true, pointStyle: 'circle', padding: 14 },
-                },
-                tooltip: {
-                    backgroundColor: 'rgba(17,24,39,0.94)',
-                    padding: 11, cornerRadius: 9, titleFont: { size: 12, weight: '700' }, bodyFont: { size: 12 },
-                    displayColors: true, usePointStyle: true, boxPadding: 5,
-                    callbacks: {
-                        title: items => MP_FULLNAME[labels[items[0].dataIndex]] || labels[items[0].dataIndex],
-                        label: c => `  ${c.dataset.label}: $${c.parsed.y.toFixed(2)}`,
-                        afterBody: items => {
-                            const i = items[0].dataIndex;
-                            const sp = spends[i], sa = sales[i];
-                            if (!sp) return '';
-                            const acos = sa > 0 ? Math.round(sp / sa * 100) : null;
-                            return acos != null ? `\n  ACoS: ${acos}%` : '';
-                        },
-                    },
-                },
-            },
-            scales: {
-                x: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 12, weight: '700' }, color: '#374151' } },
-                y: {
-                    beginAtZero: true,
-                    grid: { color: '#eef2f7', drawTicks: false },
-                    border: { display: false },
-                    ticks: {
-                        font: { size: 10 }, color: '#9ca3af', padding: 6,
-                        callback: v => '$' + (v >= 1000 ? (v/1000).toFixed(1)+'k' : v),
-                    },
-                },
-            },
-        },
-    });
-}
-
-function _renderAcosBars(campaigns) {
-    const wrap = $('#dash-acos-bars');
-    const hasCampaigns = campaigns.filter(c => c.ads_acos != null);
-    if (!hasCampaigns.length) {
-        wrap.innerHTML = '<p class="text-gray-400 text-xs py-4 text-center">No ACoS data yet</p>';
-        return;
-    }
-    const sorted = [...hasCampaigns].sort((a, b) => (a.ads_acos || 0) - (b.ads_acos || 0)).slice(0, 8);
-    const maxAcos = Math.max(...sorted.map(c => c.ads_acos || 0), 100);
-    const grad = (color) => `linear-gradient(90deg, ${color}cc, ${color})`;
-    wrap.innerHTML = sorted.map((c, i) => {
-        const pct = Math.min(100, Math.max(5, Math.round((c.ads_acos / maxAcos) * 100)));
-        const color = _acosBarColor(c.ads_acos);
-        const shortName = (c.name || '').length > 26 ? c.name.slice(0, 26) + '…' : c.name;
-        return `
-        <div class="group">
-            <div class="flex items-center justify-between mb-1">
-                <span class="flex items-center gap-1.5 min-w-0">
-                    <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-100 text-gray-400 text-[9px] font-bold flex-shrink-0">${i + 1}</span>
-                    <span class="text-gray-600 truncate" style="max-width:150px" title="${esc(c.name)}">${esc(shortName)}</span>
-                    ${c.marketplace ? `<span class="text-[9px] font-bold text-gray-400 bg-gray-100 rounded px-1 flex-shrink-0">${esc(c.marketplace)}</span>` : ''}
-                </span>
-                <span class="font-extrabold ml-2 tabular-nums" style="color:${color}">${c.ads_acos}%</span>
-            </div>
-            <div class="acos-bar-bg" style="height:9px">
-                <div class="acos-bar-fill" style="width:${pct}%;background:${grad(color)}"></div>
-            </div>
-        </div>`;
-    }).join('');
-}
-
-function _renderDashTable(campaigns) {
-    const tbody = $('#dash-tbody');
-    const hasData = campaigns.some(c => c.ads_spend != null);
-    if (!campaigns.length) {
-        tbody.innerHTML = '<tr><td colspan="10" class="text-center text-gray-400 py-8">No campaigns found</td></tr>';
-        return;
-    }
-    // Sort by ACoS ascending (nulls last), then by spend descending
-    const sorted = [...campaigns].sort((a, b) => {
-        if (a.ads_acos == null && b.ads_acos == null) return 0;
-        if (a.ads_acos == null) return 1;
-        if (b.ads_acos == null) return -1;
-        return a.ads_acos - b.ads_acos;
-    });
-    // Find publication title from publications array
-    const pubTitle = id => { const p = publications.find(x => x.id === id); return p ? (p.title || 'Untitled') : id; };
-
-    tbody.innerHTML = sorted.map(c => {
-        const ac = c.ads_acos;
-        const acCls = _acosClass(ac);
-        const maxAcos = 100;
-        const pct = ac != null ? Math.min(100, Math.max(4, Math.round(ac / maxAcos * 100))) : 0;
-        const barColor = _acosBarColor(ac);
-        const enabled = c.state === 'ENABLED';
-        const typeLabel = ({ auto: 'Auto', keyword: 'Keyword', asin: 'ASIN', category: 'Category', sponsoredProducts: 'SP' })[c.campaign_type] || (c.campaign_type || '—');
-        return `<tr>
-            <td class="text-gray-700 max-w-[130px] truncate font-medium" title="${esc(pubTitle(c.publication_id))}">${esc(pubTitle(c.publication_id))}</td>
-            <td class="text-gray-600 max-w-[160px] truncate" title="${esc(c.name)}">${esc(c.name)}</td>
-            <td class="text-center"><span class="inline-block px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 font-bold text-[11px]">${esc(c.marketplace || '—')}</span></td>
-            <td><span class="inline-block px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-600 font-semibold text-[11px]">${esc(typeLabel)}</span></td>
-            <td class="text-right font-mono text-gray-800">${_fmt$(c.ads_spend)}</td>
-            <td class="text-right font-mono font-semibold acos-green">${_fmt$(c.ads_sales)}</td>
-            <td class="text-right">
-                ${ac != null ? `
-                <div class="acos-bar-wrap justify-end">
-                    <div class="acos-bar-bg" style="width:54px;height:7px">
-                        <div class="acos-bar-fill" style="width:${pct}%;background:linear-gradient(90deg,${barColor}cc,${barColor})"></div>
-                    </div>
-                    <span class="font-extrabold ${acCls} w-11 text-right tabular-nums">${ac}%</span>
-                </div>` : '<span class="text-gray-300">—</span>'}
-            </td>
-            <td class="text-right font-mono font-semibold text-indigo-600">${_fmtRoas(c.ads_roas)}</td>
-            <td class="text-right font-mono text-gray-600">${c.ads_clicks != null ? c.ads_clicks.toLocaleString() : '—'}</td>
-            <td><span class="chip ${enabled ? 'chip-live' : 'chip-draft'}">${enabled ? '<i class="fas fa-circle text-[6px] mr-1"></i>' : '<i class="far fa-circle text-[7px] mr-1"></i>'}${esc(c.state)}</span></td>
-        </tr>`;
-    }).join('');
-
-    if (!hasData) {
-        const notice = document.createElement('tr');
-        notice.innerHTML = '<td colspan="10" class="text-center text-[11px] text-amber-700 bg-amber-50 py-2">Click <strong>Pull data</strong> to fetch spend &amp; ACoS from Amazon</td>';
-        tbody.insertBefore(notice, tbody.firstChild);
-    }
-    $('#dash-table-status').textContent = `${sorted.length} campaign${sorted.length !== 1 ? 's' : ''}`;
-}
-
-async function loadDashboardAcos(force) {
-    if (force) {
-        $('#dash-status').innerHTML = '<i class="fas fa-circle-notch fa-spin text-orange-400 mr-1"></i> Pulling from Amazon…';
-        try {
-            await fetch('/api/acos/dashboard/refresh', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ window_days: dashWin }),
-            });
-        } catch (_) {}
-    }
-
-    try {
-        const r = await fetch(`/api/acos/dashboard?window=${dashWin}`);
-        if (!r.ok) return;
-        const data = await r.json();
-        const s = data.summary || {};
-        const byMp = data.by_marketplace || {};
-        const campaigns = data.campaigns || [];
-
-        // Update publication ACoS map for card badges
-        dashPubAcosMap = data.by_publication || {};
-
-        // Status line
-        const st = data.status;
-        if (st === 'fetching') {
-            $('#dash-status').innerHTML = '<i class="fas fa-circle-notch fa-spin text-orange-400 mr-1"></i> Fetching from Amazon…';
-            setTimeout(() => loadDashboardAcos(false), 10000);
-        } else if (st === 'ready') {
-            const fat = data.fetched_at;
-            const ago = fat ? Math.round((Date.now()/1000 - fat) / 60) : null;
-            $('#dash-status').textContent = ago !== null ? `Updated ${ago}m ago` : 'Up to date';
-        } else if (st === 'error') {
-            $('#dash-status').innerHTML = '<span class="text-red-500"><i class="fas fa-exclamation-triangle mr-1"></i>Fetch error — check your Amazon Ads connection</span>';
-        } else if (st === 'no_campaigns') {
-            $('#dash-status').textContent = 'No campaigns yet — launch some ads first';
-        } else {
-            $('#dash-status').textContent = '';
-        }
-
-        // Summary stat cards
-        const acosEl = $('#dash-stat-acos');
-        $('#dash-stat-spend').textContent  = s.total_spend  != null ? '$' + s.total_spend.toFixed(2)  : '—';
-        $('#dash-stat-sales').textContent  = s.total_sales  != null ? '$' + s.total_sales.toFixed(2)  : '—';
-        $('#dash-stat-orders').textContent = s.total_orders != null ? s.total_orders.toLocaleString() : '—';
-        acosEl.textContent  = s.acos  != null ? s.acos  + '%' : '—';
-        acosEl.className    = 'stat-val ' + _acosClass(s.acos);
-        $('#dash-stat-roas').textContent   = s.roas  != null ? s.roas  + 'x' : '—';
-
-        // Headline badge
-        const badge = $('#dash-acos-badge');
-        if (s.acos != null) {
-            badge.textContent = 'Avg ACoS ' + s.acos + '%';
-            const cls = s.acos <= 30 ? 'text-green-700 bg-green-50 border-green-200'
-                       : s.acos <= 60 ? 'text-amber-700 bg-amber-50 border-amber-200'
-                       : 'text-red-700 bg-red-50 border-red-200';
-            badge.className = 'pub-acos-chip ml-1 ' + cls;
-            badge.classList.remove('hidden');
-        } else {
-            badge.classList.add('hidden');
-        }
-
-        // Charts
-        if (Object.keys(byMp).length) _renderMpChart(byMp);
-        _renderAcosBars(campaigns);
-        _renderDashTable(campaigns);
-
-        // Refresh publication cards with ACoS badges
-        renderList();
-    } catch (e) {
-        console.warn('Dashboard ACoS error:', e);
-    }
-}
-
-function startDashAutoRefresh() {
-    clearInterval(dashAutoTimer);
-    dashAutoTimer = setInterval(() => loadDashboardAcos(false), 5 * 60 * 1000);
-}
-
-$$('.dash-win-btn').forEach(b => b.addEventListener('click', () => {
-    _setWin(parseInt(b.dataset.win));
-    loadDashboardAcos(false);
-}));
-$('#dash-pull').addEventListener('click', () => loadDashboardAcos(true));
-
 // -------------------- Boot --------------------
 (async function () {
-    await Promise.all([loadAdsStatus(), loadAdsAccounts(), loadPublications()]);
-    loadDashboardAcos(false);
-    startDashAutoRefresh();
+    await loadPublications();
 })();
 </script>
 </body>

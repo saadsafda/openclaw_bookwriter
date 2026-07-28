@@ -49,7 +49,7 @@ _ML_KEYS = {
 }
 
 # Per-company (publisher) MailerLite config lives under scoped keys so each
-# Amazon Ads account / publisher can point at its own MailerLite account or
+# publisher can point at its own MailerLite account or
 # draft-access sub-user. A book published under "Oak Harbor Press" uses Oak
 # Harbor's list; a different publisher uses its own — with the global keys
 # above acting as the shared default (today: everything runs on Oak Harbor as
@@ -87,10 +87,12 @@ def _ml_setting(field: str, account_id: str | None = None) -> str:
 
 
 def _account_for_pub(pub: dict) -> str:
-    """Which company (Amazon Ads account / publisher) owns this publication."""
-    return (str(pub.get("amazon_account_id") or "").strip()
-            or bookdb.get_default_amazon_ads_account_id()
-            or "")
+    """Which company (publisher) owns this publication.
+
+    Empty string means "no company pinned" — callers fall back to the global
+    MailerLite settings.
+    """
+    return str(pub.get("amazon_account_id") or "").strip()
 
 
 # ---------------------------------------------------------------------------
