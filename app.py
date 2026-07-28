@@ -82,6 +82,11 @@ DEFAULTS: dict[str, Any] = {
     "thinking": "off",
     "timeout": 180,
     "images": True,
+    # Skip the text cache and always generate fresh. Defaults to on, which
+    # matches the behavior before this was configurable (--no-cache was passed
+    # unconditionally). Turning it off reuses cached text for a heading whose
+    # prompt is unchanged, which is much cheaper on a re-run.
+    "skip_cache": True,
     "force": False,
     "image_prompt_variant": "rich-scene-no-text",
     "image_model": "gpt-image-1",
@@ -554,12 +559,16 @@ def _build_generation_cmd(job: Job, cfg: dict[str, Any], max_spend_usd: float) -
         str(input_doc),
         "--agent",
         str(cfg["agent"]),
-        "--no-cache",
         "--image-model",
         str(cfg["image_model"]),
         "--max-spend-usd",
         str(max_spend_usd),
     ]
+    # "Skip cache" on == always generate fresh. Off == reuse cached text when
+    # the heading's prompt is unchanged. Results are written to the cache
+    # either way, so turning it off later still finds something to reuse.
+    if cfg.get("skip_cache", True):
+        cmd.append("--no-cache")
     # Already-written book: never generate TEXT (--no-text). This is the fix
     # for a human-written book whose paragraph formatting confused the heading
     # detector into "filling in" content under real paragraphs (a 29k-word
@@ -1486,6 +1495,9 @@ def _build_cfg_from_form(form: Any) -> tuple[dict[str, Any] | None, str | None]:
         # HTML checkbox: unchecked sends nothing, checked sends a value. So
         # presence of the "images" form field == toggle is on.
         "images": form.get("images") is not None,
+        # Same checkbox-presence rule. The form always posts the whole config
+        # panel, so an absent field genuinely means the user unchecked it.
+        "skip_cache": form.get("skip_cache") is not None,
         "image_prompt_variant": (form.get("image_prompt_variant") or DEFAULTS["image_prompt_variant"]).strip() or DEFAULTS["image_prompt_variant"],
         "image_model": (form.get("image_model") or DEFAULTS["image_model"]).strip() or DEFAULTS["image_model"],
         "image_size": (form.get("image_size") or DEFAULTS["image_size"]).strip() or DEFAULTS["image_size"],
