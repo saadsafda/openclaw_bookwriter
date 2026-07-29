@@ -1088,6 +1088,49 @@ def delete_qr_endpoint(qr_id: str) -> Any:
     return jsonify({"ok": True})
 
 
+@app.post("/api/jobs/<job_id>/reapply-format")
+def reapply_format(job_id: str) -> Any:
+    """Re-run KDP formatting on the current final .docx, rebuilding both
+    deliverables in place.
+
+    Used after the final document changes (a manual edit in View/Edit, or a
+    formatter fix) so the Kindle and Paperback files pick it up without
+    regenerating any text. Nothing is written to the final doc itself.
+    """
+    job = _get_job(job_id)
+
+    with job.lock:
+        final_path = Path(job.final_docx or job.output_docx)
+        status = job.status
+
+    if status == "running":
+        return jsonify({"error": "Job is busy. Wait for the current task to finish."}), 409
+    if not str(final_path):
+        return jsonify({"error": "No final document for this book yet"}), 400
+    if not final_path.exists():
+        return jsonify({"error": "Final docx not found"}), 404
+
+    _append_log(job, "Re-applying KDP formatting (Kindle + Paperback)...")
+    try:
+        kindle_doc, paperback_doc = _run_kdp_formatting(job, final_path)
+    except Exception as exc:
+        _append_log(job, f"ERROR: re-format failed: {exc}")
+        return jsonify({"error": f"Re-format failed: {exc}"}), 500
+
+    with job.lock:
+        job.kindle_docx = str(kindle_doc)
+        job.paperback_docx = str(paperback_doc)
+    _append_log(job, "Re-format complete — Kindle + Paperback updated.")
+    _sync_job_to_db(job)
+
+    with job.lock:
+        return jsonify({
+            "ok": True,
+            "kindle_docx": job.kindle_docx,
+            "paperback_docx": job.paperback_docx,
+        })
+
+
 @app.post("/api/jobs/<job_id>/attach-qr")
 def attach_qr_to_book(job_id: str) -> Any:
     job = _get_job(job_id)

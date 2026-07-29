@@ -796,6 +796,9 @@
                     <button id="btn-view-edit" class="hidden btn-lift px-3.5 py-1.5 bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="View and edit the full book text">
                         <i class="fas fa-book-open"></i> View / Edit book
                     </button>
+                    <button id="btn-reapply-format" class="hidden btn-lift px-3.5 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-100 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="Re-run KDP formatting and rebuild the Kindle + Paperback files from the current book text">
+                        <i class="fas fa-wand-magic-sparkles"></i> Reapply format
+                    </button>
                 </div>
 
                 <div class="premium-card rounded-2xl p-3 flex flex-col gap-2.5 focus-glow transition-shadow hover:shadow-[0_1px_2px_rgba(15,23,42,0.06),0_12px_36px_rgba(15,23,42,0.08)]">
@@ -952,6 +955,7 @@
             const historySearchClear = document.getElementById("history-search-clear");
             const btnLandingQr = document.getElementById("btn-landing-qr");
             const btnViewEdit = document.getElementById("btn-view-edit");
+            const btnReapplyFormat = document.getElementById("btn-reapply-format");
 
             let currentLogBox = null;
 
@@ -1836,6 +1840,7 @@
                     btnGenerateListing.classList.add('hidden');
                     btnLandingQr.classList.add('hidden');
                     if (btnViewEdit) btnViewEdit.classList.add('hidden');
+                    if (btnReapplyFormat) btnReapplyFormat.classList.add('hidden');
                     return;
                 }
                 btnShowReplace.classList.remove('hidden');
@@ -1843,6 +1848,7 @@
                 btnGenerateListing.classList.remove('hidden');
                 btnLandingQr.classList.remove('hidden');
                 if (btnViewEdit) btnViewEdit.classList.remove('hidden');
+                if (btnReapplyFormat) btnReapplyFormat.classList.remove('hidden');
                 
                 const currentStr = JSON.stringify(headings);
                 if(currentStr === JSON.stringify(state.knownHeadings)) return;
@@ -3187,6 +3193,32 @@
                     btnLandingQr.disabled = false;
                 }
             });
+
+            // --- Reapply KDP formatting ---
+            // Rebuilds Kindle + Paperback from the current final .docx. No text
+            // is regenerated, so this is fast and costs nothing.
+            if (btnReapplyFormat) {
+                btnReapplyFormat.addEventListener("click", async () => {
+                    if (!state.jobId) { alert("Load or finish a book first."); return; }
+                    const original = btnReapplyFormat.innerHTML;
+                    btnReapplyFormat.disabled = true;
+                    btnReapplyFormat.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Formatting…';
+                    try {
+                        const r = await fetch(`/api/jobs/${state.jobId}/reapply-format`, { method: "POST" });
+                        const data = await r.json();
+                        if (!r.ok) throw new Error(data.error || `Request failed (${r.status})`);
+                        addMessage("bot", `<span class="text-emerald-600 font-semibold"><i class="fas fa-check-circle mr-1"></i> Formatting re-applied.</span><br><span class="text-xs text-gray-500">Kindle and Paperback files have been rebuilt — download again to get the updated copies.</span>`);
+                        const ts = Date.now();
+                        document.getElementById("downloadKindle").href = `/api/jobs/${state.jobId}/download/kindle?t=${ts}`;
+                        document.getElementById("downloadPaperback").href = `/api/jobs/${state.jobId}/download/paperback?t=${ts}`;
+                    } catch (e) {
+                        addMessage("bot", `<span class="text-red-500 font-bold">Error:</span> ${escapeHtml(e.message)}`);
+                    } finally {
+                        btnReapplyFormat.disabled = false;
+                        btnReapplyFormat.innerHTML = original;
+                    }
+                });
+            }
 
         });
     </script>

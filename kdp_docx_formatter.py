@@ -63,6 +63,13 @@ FRONT_BACK_EXTENDED_RE = re.compile(
 _MAX_HEADING_WORDS = 12
 _MAX_HEADING_CHARS = 80
 
+# Upper bound for text that arrives *already* carrying a heading style. Much
+# looser than the shape heuristic above, which only guesses at unstyled lines.
+# Real headings measure well under 100 chars; misstyled body paragraphs run
+# 1,600+. Anything past this is prose no matter what style it claims.
+_MAX_STYLED_HEADING_CHARS = 300
+_MAX_STYLED_HEADING_WORDS = 40
+
 
 def _is_all_bold(paragraph: Paragraph) -> bool:
     """True when every non-empty run in the paragraph is bold."""
@@ -94,10 +101,14 @@ def _looks_like_heading_by_format(paragraph: Paragraph, text: str) -> bool:
     words = text.split()
     if not (1 <= len(words) <= _MAX_HEADING_WORDS and len(text) <= _MAX_HEADING_CHARS):
         return False
-    # Already a heading style? Let Word's style decide.
+    # Already a heading style? Let Word's style decide — but only Heading 1.
+    # This function decides Heading 1 specifically, so accepting any "heading*"
+    # promotes existing Heading 2 subheadings up to chapter level.
     style_name = (paragraph.style.name or "").strip().lower()
-    if style_name.startswith("heading"):
+    if style_name.startswith("heading 1"):
         return True
+    if style_name.startswith("heading"):
+        return False
     # Short ALL-CAPS bold line
     if _is_all_caps_text(text) and _is_all_bold(paragraph):
         return True
@@ -136,6 +147,22 @@ def _ensure_run_font(run, font_name: str, size_pt: float) -> None:
     r_fonts.set(qn("w:ascii"), font_name)
     r_fonts.set(qn("w:hAnsi"), font_name)
     r_fonts.set(qn("w:cs"), font_name)
+
+
+def _clear_run_bold(run) -> None:
+    """Strip bold from a run, including any direct <w:b>/<w:bCs> formatting.
+
+    ``run.bold = False`` writes ``<w:b w:val="0"/>``, which is correct but keeps
+    an explicit override on the run. Removing the elements instead lets the run
+    simply inherit "not bold" from the Normal style.
+    """
+    run.bold = None
+    r_pr = run._r.find(qn("w:rPr"))
+    if r_pr is None:
+        return
+    for tag in ("w:b", "w:bCs"):
+        for el in r_pr.findall(qn(tag)):
+            r_pr.remove(el)
 
 
 def _apply_heading_one_run_style(run) -> None:
@@ -380,6 +407,20 @@ def _normalize_heading_text(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip())
 
 
+def _is_plausible_heading_length(text: str) -> bool:
+    """True if ``text`` is short enough to be a heading rather than a paragraph.
+
+    Deliberately loose: the point is to reject body prose, not to police heading
+    style. Real headings in practice run under ~100 characters, while the body
+    paragraphs that reach here wrongly styled run 1,600+. Anything between is
+    left alone.
+    """
+    stripped = (text or "").strip()
+    if not stripped:
+        return False
+    return len(stripped) <= _MAX_STYLED_HEADING_CHARS and len(stripped.split()) <= _MAX_STYLED_HEADING_WORDS
+
+
 def _canonical_title_key(text: str) -> str:
     cleaned = _normalize_heading_text(text or "")
     cleaned = cleaned.strip(":-_ ")
@@ -410,7 +451,97 @@ def load_outline_topics(outline_path: str) -> set[str]:
     return topics
 
 
-def _drop_duplicate_title_heading(headings: list[HeadingEntry], title_placeholder: str) -> list[HeadingEntry]:
+# Markers identifying front matter this formatter previously inserted. Matched
+# against the first handful of paragraphs only, so a chapter that happens to
+# mention "free bonus" mid-book is never touched.
+_FRONT_MATTER_MARKERS = (
+    "TABLE OF CONTENTS",
+    "FREE BONUS",
+    "GET OUR NEXT BOOK",
+    "ISBN:",
+    "COPYRIGHT 2025",
+    "ALL RIGHTS RESERVED",
+    "AWESOMEREADS",
+    "UPDATE THIS FIELD TO SEE TABLE OF CONTENTS",
+    "NO PART OF THIS BOOK MAY BE REPRODUCED",
+    "LOREM IPSUM DOLOR SIT AMET",
+    "BOOK TITLE PLACEHOLDER",
+    "AUTHOR NAME",
+)
+
+
+def _looks_like_front_matter(text: str) -> bool:
+    upper = (text or "").strip().upper()
+    if not upper:
+        return False
+    return any(marker in upper for marker in _FRONT_MATTER_MARKERS)
+
+
+def strip_existing_front_matter(doc: Document) -> int:
+    """Remove front matter left over from a previous formatting run.
+
+    Formatting is meant to be repeatable: running it twice on the same document
+    should not stack a second title page, copyright page, bonus page and TOC on
+    top of the first. Without this, re-formatting an already-formatted file
+    duplicates all of it and demotes the old copy into the body text.
+
+    Everything before the first real chapter heading is examined; a leading run
+    of paragraphs that match known front-matter markers (and any blanks or
+    page-break spacers between them) is deleted. Returns the number of
+    paragraphs removed. If no chapter heading is found, or the leading content
+    doesn't look like front matter, nothing is removed.
+    """
+    paragraphs = doc.paragraphs
+
+    # Find where the book proper starts: the first real chapter opener. The
+    # front matter we insert contains its own Heading 1 ("TABLE OF CONTENTS")
+    # and a prose bonus blurb, so "first heading" and "first non-marker line"
+    # both stop too early — only a chapter/part pattern reliably marks the end.
+    first_chapter_idx = None
+    for idx, para in enumerate(paragraphs):
+        text = (para.text or "").strip()
+        if not text:
+            continue
+        if CHAPTER_RE.match(text) or CHAPTER_WORD_RE.match(text) or PART_RE.match(text):
+            first_chapter_idx = idx
+            break
+
+    if first_chapter_idx is None or first_chapter_idx == 0:
+        return 0
+
+    # Require real evidence this leading block is ours before deleting it, so a
+    # book that simply opens with a preface keeps its text. The bonus blurb and
+    # similar prose don't match markers, hence a ratio rather than "all".
+    candidates = [p for p in paragraphs[:first_chapter_idx] if (p.text or "").strip()]
+    if not candidates:
+        return 0
+    marker_hits = sum(1 for p in candidates if _looks_like_front_matter(p.text))
+    if marker_hits < 3 or marker_hits < len(candidates) * 0.4:
+        return 0
+
+    removed = 0
+    for para in paragraphs[:first_chapter_idx]:
+        if paragraph_has_image(para):
+            continue  # never drop a cover or other image
+        parent = para._p.getparent()
+        if parent is not None:
+            parent.remove(para._p)
+            removed += 1
+    return removed
+
+
+def _drop_duplicate_title_heading(
+    headings: list[HeadingEntry],
+    title_placeholder: str,
+    anchor: Paragraph | None = None,
+) -> list[HeadingEntry]:
+    """Remove a leading heading that merely repeats the book title.
+
+    ``anchor`` is the paragraph the front matter is being inserted before. It is
+    never removed: for a manuscript with no title page the derived title is the
+    first chapter heading, and deleting that paragraph detaches the anchor —
+    every page inserted before it is then silently dropped from the document.
+    """
     if not headings:
         return headings
 
@@ -421,6 +552,9 @@ def _drop_duplicate_title_heading(headings: list[HeadingEntry], title_placeholde
     first = headings[0]
     first_key = _canonical_title_key(first.title)
     if first_key != title_key:
+        return headings
+
+    if anchor is not None and first.paragraph._p is anchor._p:
         return headings
 
     try:
@@ -482,6 +616,15 @@ def _set_heading_styles_and_collect_bookmarks(
         if not is_main_heading and _looks_like_heading_by_format(p, text):
             is_main_heading = True
 
+        # Same length guard as Heading 2 below: a pre-applied "Heading 1" on a
+        # full paragraph is a styling mistake upstream, not a chapter title.
+        # Demoting (not just skipping) is what strips the style it arrived with.
+        if is_main_heading and not _is_plausible_heading_length(text):
+            is_main_heading = False
+            pending_chapter_label = False
+            pending_chapter_label_text = ""
+            p.style = doc.styles["Normal"]
+
         if is_main_heading:
             p.style = doc.styles["Heading 1"]
             p.paragraph_format.page_break_before = len(entries) > 0
@@ -532,6 +675,16 @@ def _set_heading_styles_and_collect_bookmarks(
             or is_bare_topic
         )
 
+        # A heading is a short label, never a paragraph. Body text can reach
+        # here already carrying a Heading 2 style — an upstream stage styles
+        # what it writes, or a formatted file gets re-formatted — and the
+        # style check above would then preserve a 1,800-character "heading".
+        # Length is the one signal that stays true no matter how it was
+        # styled, so it overrides every rule above.
+        demote_to_body = is_sub_heading and not _is_plausible_heading_length(text)
+        if demote_to_body:
+            is_sub_heading = False
+
         if is_sub_heading:
             p.style = doc.styles["Heading 2"]
             title = _normalize_heading_text(text)
@@ -541,6 +694,12 @@ def _set_heading_styles_and_collect_bookmarks(
             entries.append(HeadingEntry(paragraph=p, title=title, bookmark=bookmark))
             pending_chapter_label = False
         else:
+            # Skipping is not enough when the paragraph arrived pre-styled:
+            # leaving it alone keeps the bogus heading (and its TOC entry).
+            # Actively put it back to body text.
+            if demote_to_body or style_name.startswith("heading"):
+                if not _is_plausible_heading_length(text):
+                    p.style = doc.styles["Normal"]
             pending_chapter_label = False
 
     return entries
@@ -590,6 +749,11 @@ def _apply_base_text_styles(doc: Document, body_start_idx: int, font_name: str, 
         p.paragraph_format.line_spacing = 1.2 if kindle_mode else 1.15
         for r in p.runs:
             _ensure_run_font(r, font_name, body_size_pt)
+            # Body text is never bold. Runs can carry bold as *direct*
+            # formatting — left behind when a wrongly-styled heading is demoted
+            # to body — and that survives the paragraph style change, so it has
+            # to be cleared explicitly here.
+            _clear_run_bold(r)
 
 
 def _resize_inline_images_to_fit(doc: Document, max_width_inches: float, max_height_inches: float = 0) -> None:
@@ -787,7 +951,7 @@ def _insert_front_matter_and_toc(
     author_run.bold = True
     p_title.add_run().add_break(WD_BREAK.PAGE)
 
-    # Page 2: copyright
+    # Page 3: copyright / support (rendered after the TOC below)
     copyright_content_lines = (
         5
         + _estimated_wrapped_lines(
@@ -801,6 +965,22 @@ def _insert_front_matter_and_toc(
         min_lines=2,
         max_lines=12,
     )
+
+    # Page 2: TOC — native Word TOC field (Smart Identification)
+    # Clickable hyperlinks, dot leaders, multi-level, auto-updated by Word
+    p_toc_heading = anchor.insert_paragraph_before("TABLE OF CONTENTS")
+    p_toc_heading.style = doc.styles["Heading 1"]
+    _apply_heading_one_paragraph_style(p_toc_heading)
+    # Exclude this heading from the TOC itself
+    _exclude_paragraph_from_toc(p_toc_heading)
+
+    _drop_duplicate_title_heading(headings, title_placeholder, anchor)
+
+    # Insert native TOC field — Word will populate from Heading 1-3 styles
+    p_toc = anchor.insert_paragraph_before("")
+    p_toc.style = doc.styles["Normal"]
+    _insert_toc_field(p_toc, levels="1-3")
+    p_toc.add_run().add_break(WD_BREAK.PAGE)
 
     p_copyright = anchor.insert_paragraph_before("")
     copyright_spacer = p_copyright.add_run("\n" * copyright_top_blank_lines)
@@ -830,7 +1010,7 @@ def _insert_front_matter_and_toc(
     p_copyright.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p_copyright.add_run().add_break(WD_BREAK.PAGE)
 
-    # Page 3: bonus page
+    # Page 4: bonus page
     bonus_content_lines = 5
     bonus_top_blank_lines = _leading_blank_lines(
         target_total_lines=26,
@@ -852,22 +1032,7 @@ def _insert_front_matter_and_toc(
     bonus_line3.font.size = Pt(20)
     p_bonus.style = doc.styles["Normal"]
     p_bonus.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    _add_next_page_section_break(p_bonus)
-
-    # TOC page — native Word TOC field (Smart Identification)
-    # Clickable hyperlinks, dot leaders, multi-level, auto-updated by Word
-    p_toc_heading = anchor.insert_paragraph_before("TABLE OF CONTENTS")
-    p_toc_heading.style = doc.styles["Heading 1"]
-    _apply_heading_one_paragraph_style(p_toc_heading)
-    # Exclude this heading from the TOC itself
-    _exclude_paragraph_from_toc(p_toc_heading)
-
-    _drop_duplicate_title_heading(headings, title_placeholder)
-
-    # Insert native TOC field — Word will populate from Heading 1-3 styles
-    p_toc = anchor.insert_paragraph_before("")
-    p_toc.style = doc.styles["Normal"]
-    _insert_toc_field(p_toc, levels="1-3")
+    p_bonus.add_run().add_break(WD_BREAK.PAGE)
 
     p_end = anchor.insert_paragraph_before("")
     if kindle_mode:
@@ -986,7 +1151,11 @@ def _derive_title_author(doc: Document) -> tuple[str, str]:
     for p in doc.paragraphs:
         t = (p.text or "").strip()
         if t:
-            title = t[:120]
+            # A title page previously written by this formatter is one paragraph
+            # holding title, subtitle and author separated by newlines. Keep only
+            # the first line so re-formatting doesn't fold the whole block into
+            # the title.
+            title = t.splitlines()[0].strip()[:120] or t[:120]
             break
 
     return title, author
@@ -1007,6 +1176,11 @@ def build_kdp_documents(
     # Kindle variant
     shutil.copy2(source_docx, kindle_output)
     kindle_doc = Document(str(kindle_output))
+    # Drop front matter from a previous run so re-formatting is repeatable
+    # instead of stacking a second title/copyright/bonus/TOC block.
+    removed = strip_existing_front_matter(kindle_doc)
+    if removed:
+        print(f"Removed {removed} paragraph(s) of existing front matter (Kindle).")
     if not kindle_doc.paragraphs:
         kindle_doc.add_paragraph("")
     kindle_anchor = kindle_doc.paragraphs[0]
@@ -1033,6 +1207,14 @@ def build_kdp_documents(
     # Paperback variant
     shutil.copy2(source_docx, paperback_output)
     paperback_doc = Document(str(paperback_output))
+    # Read the title BEFORE stripping: _derive_title_author takes the first
+    # non-empty paragraph, which is the old title page. Once that page is gone
+    # the first paragraph is Chapter 1, and the chapter heading would silently
+    # become the book title.
+    pre_strip_title, pre_strip_author = _derive_title_author(paperback_doc)
+    removed = strip_existing_front_matter(paperback_doc)
+    if removed:
+        print(f"Removed {removed} paragraph(s) of existing front matter (Paperback).")
     if not paperback_doc.paragraphs:
         paperback_doc.add_paragraph("")
     paperback_anchor = paperback_doc.paragraphs[0]
@@ -1040,7 +1222,7 @@ def build_kdp_documents(
     paperback_headings = _set_heading_styles_and_collect_bookmarks(paperback_doc, paperback_body_idx, outline_topics)
     _apply_base_text_styles(paperback_doc, paperback_body_idx, font_name="Times New Roman", body_size_pt=11, kindle_mode=False)
 
-    title, author = _derive_title_author(paperback_doc)
+    title, author = (pre_strip_title, pre_strip_author) if removed else _derive_title_author(paperback_doc)
     if title_placeholder and title_placeholder != "Book Title Placeholder":
         title = title_placeholder
     if author_placeholder and author_placeholder != "Author Name":
