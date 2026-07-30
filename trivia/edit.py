@@ -417,6 +417,13 @@ def regenerate_illustration(
         size=cfg.image_size,
         quality=cfg.image_quality,
     )
+    # Match the black-and-white interior, same as generation.
+    try:
+        from .image_edit import to_grayscale
+        to_grayscale(path)
+    except Exception:
+        pass
+
     ch.illustration_path = str(path)
     ch.illustration_prompt = prompt
     return ch
@@ -446,6 +453,12 @@ def set_illustration_from_upload(
             old.unlink(missing_ok=True)
     file_storage.save(str(target))
 
+    # Uploads join the same black-and-white interior as generated art.
+    try:
+        from .image_edit import to_grayscale
+        to_grayscale(target)
+    except Exception:
+        pass
     try:
         import openclaw_image_maker as image_maker
         image_maker.prepare_image_for_print(target)

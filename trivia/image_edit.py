@@ -41,9 +41,11 @@ ADJUST_LIMITS = {
 }
 
 SECTION9_CONSTRAINTS = (
-    " Absolutely no people, no human figures, no faces, no hands, and no body "
-    "parts of any kind. Absolutely no text, letters, numbers, words, labels, "
-    "captions, signatures, watermarks, frames, or borders anywhere in the image."
+    " Keep the result in strictly neutral grayscale: only deep black and a few "
+    "distinct shades of cool gray on a pure white background. No color of any "
+    "kind. Absolutely no people and no human figures. Absolutely no text, "
+    "letters, numbers, words, labels, captions, signatures, watermarks, "
+    "frames, or borders anywhere in the image."
 )
 
 
@@ -133,8 +135,28 @@ def undo(book: TriviaBook, chapter_number: int) -> ImageEditResult:
     )
 
 
-def _finalize(image_path: Path) -> None:
-    """Re-apply print DPI/metadata stripping after any modification."""
+def to_grayscale(image_path: Path) -> None:
+    """Force an image to true neutral gray.
+
+    The prompt asks for grayscale, but image models routinely return a slight
+    colour cast. Interiors print black and white, so convert rather than trust:
+    this is what actually guarantees a neutral page.
+    """
+    from PIL import Image
+
+    with Image.open(image_path) as src:
+        gray = src.convert("L").convert("RGB")
+    gray.save(image_path)
+
+
+def _finalize(image_path: Path, *, grayscale: bool = True) -> None:
+    """Re-apply grayscale and print DPI/metadata stripping after a change."""
+    if grayscale:
+        try:
+            to_grayscale(image_path)
+        except Exception:
+            # A conversion failure must not lose the edit itself.
+            pass
     try:
         import openclaw_image_maker as image_maker
         image_maker.prepare_image_for_print(image_path)

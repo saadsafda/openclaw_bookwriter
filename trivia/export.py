@@ -53,7 +53,7 @@ def to_markdown(book: TriviaBook) -> str:
                 lines.append("")
                 for letter in LETTERS:
                     if letter in q.choices:
-                        lines.append(f"- {letter}. {q.choices[letter]}")
+                        lines.append(f"{letter}. {q.choices[letter]}")
                 lines.append("")
 
         if chapter.facts:
@@ -65,7 +65,7 @@ def to_markdown(book: TriviaBook) -> str:
         if cfg.answer_key_position == ANSWER_KEY_END_OF_CHAPTER and chapter.trivia:
             lines += [f"### {ANSWER_KEY_TITLE} — Chapter {chapter.number}", ""]
             for i, q in enumerate(chapter.trivia, start=1):
-                lines.append(f"{i}. {q.correct_answer} — {q.correct_text()}")
+                lines.append(f"{i}. {q.correct_answer} - {q.correct_text()}")
             lines.append("")
 
     if book.config.answer_key_position == ANSWER_KEY_END_OF_BOOK:
@@ -75,7 +75,7 @@ def to_markdown(book: TriviaBook) -> str:
                 continue
             lines += [f"### Chapter {chapter.number} — {chapter.title}", ""]
             for i, q in enumerate(chapter.trivia, start=1):
-                lines.append(f"{i}. {q.correct_answer} — {q.correct_text()}")
+                lines.append(f"{i}. {q.correct_answer} - {q.correct_text()}")
             lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
@@ -104,7 +104,7 @@ def _add_answer_key_block(doc: Document, chapters: list[Chapter], *, heading_lev
             para = doc.add_paragraph()
             para.paragraph_format.space_after = Pt(2)
             para.add_run(f"{i}. ").bold = True
-            para.add_run(f"{q.correct_answer} — {q.correct_text()}")
+            para.add_run(f"{q.correct_answer} - {q.correct_text()}")
 
 
 def build_docx(book: TriviaBook, path: Path, *, image_width_in: float = 4.5) -> Path:
@@ -180,7 +180,7 @@ def build_docx(book: TriviaBook, path: Path, *, image_width_in: float = 4.5) -> 
                 para = doc.add_paragraph()
                 para.paragraph_format.space_after = Pt(2)
                 para.add_run(f"{i}. ").bold = True
-                para.add_run(f"{q.correct_answer} — {q.correct_text()}")
+                para.add_run(f"{q.correct_answer} - {q.correct_text()}")
 
         doc.add_page_break()
 

@@ -10,59 +10,59 @@
 
 **1. What was the original Japanese title of Pac-Man when it was first released by Namco in 1980?**
 
-- A. Pakku-Man
-- B. Paku-Paku
-- C. Puck Man
-- D. Pak Pak
+A. Pakku-Man
+B. Paku-Paku
+C. Puck Man
+D. Pak Pak
 
 **2. Who is credited as the lead designer and creator of Pac-Man?**
 
-- A. Shigeru Miyamoto
-- B. Toru Iwatani
-- C. Gunpei Yokoi
-- D. Masanobu Endō
+A. Shigeru Miyamoto
+B. Toru Iwatani
+C. Gunpei Yokoi
+D. Masanobu Endō
 
 **3. What happens when a player reaches Level 256 in the original Pac-Man arcade game?**
 
-- A. The game resets to Level 1 with faster ghosts
-- B. A special bonus cutscene plays and the score doubles
-- C. The game freezes and displays a 'CONGRATULATIONS' message
-- D. The right half of the screen becomes garbled and the level is unbeatable
+A. The game resets to Level 1 with faster ghosts
+B. A special bonus cutscene plays and the score doubles
+C. The game freezes and displays a 'CONGRATULATIONS' message
+D. The right half of the screen becomes garbled and the level is unbeatable
 
 **4. Which of the four ghosts in Pac-Man is programmed to move semi-randomly rather than directly pursuing the player?**
 
-- A. Clyde (orange)
-- B. Inky (cyan)
-- C. Blinky (red)
-- D. Pinky (pink)
+A. Clyde (orange)
+B. Inky (cyan)
+C. Blinky (red)
+D. Pinky (pink)
 
 **5. What was the sequel released in 1982 that introduced a female Pac-Man character named Sue among the ghosts?**
 
-- A. Pac-Land
-- B. Super Pac-Man
-- C. Ms. Pac-Man
-- D. Jr. Pac-Man
+A. Pac-Land
+B. Super Pac-Man
+C. Ms. Pac-Man
+D. Jr. Pac-Man
 
 **6. In the original Pac-Man, how many dots (pellets) must the player eat to clear a standard level?**
 
-- A. 200
-- B. 256
-- C. 240
-- D. 220
+A. 200
+B. 256
+C. 240
+D. 220
 
 **7. Which company developed and released Ms. Pac-Man before it was officially licensed by Namco?**
 
-- A. Williams Electronics
-- B. Midway Manufacturing
-- C. Atari Inc.
-- D. Coleco Industries
+A. Williams Electronics
+B. Midway Manufacturing
+C. Atari Inc.
+D. Coleco Industries
 
 **8. What is the first bonus fruit that appears in Level 1 of the original Pac-Man?**
 
-- A. Apple
-- B. Strawberry
-- C. Orange
-- D. Cherry
+A. Apple
+B. Strawberry
+C. Orange
+D. Cherry
 
 ### Did You Know
 
@@ -87,59 +87,59 @@
 
 **1. Who designed the original Donkey Kong arcade game, released by Nintendo in 1981?**
 
-- A. Gunpei Yokoi
-- B. Hiroshi Yamauchi
-- C. Shigeru Miyamoto
-- D. Satoru Iwata
+A. Gunpei Yokoi
+B. Hiroshi Yamauchi
+C. Shigeru Miyamoto
+D. Satoru Iwata
 
 **2. What was the original name of the player character in Donkey Kong before he became known as Mario?**
 
-- A. Jumpman
-- B. Hammerboy
-- C. Mr. Video
-- D. Ossan
+A. Jumpman
+B. Hammerboy
+C. Mr. Video
+D. Ossan
 
 **3. How many distinct screen levels does the original Donkey Kong arcade game contain before they repeat?**
 
-- A. 3
-- B. 5
-- C. 6
-- D. 4
+A. 3
+B. 5
+C. 6
+D. 4
 
 **4. Which company sued Nintendo over Donkey Kong, claiming the character infringed on their King Kong intellectual property?**
 
-- A. Atari Inc.
-- B. Universal City Studios
-- C. Columbia Pictures
-- D. Paramount Pictures
+A. Atari Inc.
+B. Universal City Studios
+C. Columbia Pictures
+D. Paramount Pictures
 
 **5. What is the primary tool the player can pick up to temporarily smash obstacles in the original Donkey Kong?**
 
-- A. A wrench
-- B. A fire extinguisher
-- C. A hammer
-- D. A shield
+A. A wrench
+B. A fire extinguisher
+C. A hammer
+D. A shield
 
 **6. In 2007, which player dethroned Billy Mitchell's long-standing Donkey Kong high-score record, igniting one of gaming's most famous rivalries?**
 
-- A. Todd Rogers
-- B. Walter Day
-- C. Hank Chien
-- D. Steve Wiebe
+A. Todd Rogers
+B. Walter Day
+C. Hank Chien
+D. Steve Wiebe
 
 **7. What was the name of the damsel in distress that the player must rescue in the original Donkey Kong?**
 
-- A. Peach
-- B. Pauline
-- C. Daisy
-- D. Lady
+A. Peach
+B. Pauline
+C. Daisy
+D. Lady
 
 **8. Nintendo originally intended Donkey Kong to be a licensed game based on which existing cartoon character before the deal fell through?**
 
-- A. Popeye
-- B. Astro Boy
-- C. Mighty Mouse
-- D. Felix the Cat
+A. Popeye
+B. Astro Boy
+C. Mighty Mouse
+D. Felix the Cat
 
 ### Did You Know
 
@@ -164,59 +164,59 @@
 
 **1. Who designed Space Invaders for Taito Corporation?**
 
-- A. Shigeru Miyamoto
-- B. Gunpei Yokoi
-- C. Tomohiro Nishikado
-- D. Toru Iwatani
+A. Shigeru Miyamoto
+B. Gunpei Yokoi
+C. Tomohiro Nishikado
+D. Toru Iwatani
 
 **2. In what year was Space Invaders originally released in Japanese arcades?**
 
-- A. 1978
-- B. 1979
-- C. 1980
-- D. 1977
+A. 1978
+B. 1979
+C. 1980
+D. 1977
 
 **3. Why do the aliens in Space Invaders speed up as the player destroys more of them?**
 
-- A. A timer in the code triggers a speed increase every 30 seconds
-- B. The hardware renders fewer sprites faster, causing the remaining aliens to move more quickly
-- C. Each alien type is programmed with a different base speed that becomes apparent as rows are cleared
-- D. The game reads a difficulty table that raises speed at preset kill thresholds
+A. A timer in the code triggers a speed increase every 30 seconds
+B. The hardware renders fewer sprites faster, causing the remaining aliens to move more quickly
+C. Each alien type is programmed with a different base speed that becomes apparent as rows are cleared
+D. The game reads a difficulty table that raises speed at preset kill thresholds
 
 **4. How many horizontal rows of alien invaders appear at the start of each round in the original Space Invaders?**
 
-- A. 4
-- B. 6
-- C. 3
-- D. 5
+A. 4
+B. 6
+C. 3
+D. 5
 
 **5. Space Invaders is widely credited with causing a shortage of which coin in Japan due to the game's enormous popularity?**
 
-- A. The 10-yen coin
-- B. The 50-yen coin
-- C. The 500-yen coin
-- D. The 100-yen coin
+A. The 10-yen coin
+B. The 50-yen coin
+C. The 500-yen coin
+D. The 100-yen coin
 
 **6. Which company licensed Space Invaders for manufacture and distribution in North America?**
 
-- A. Midway
-- B. Atari
-- C. Bally
-- D. Williams
+A. Midway
+B. Atari
+C. Bally
+D. Williams
 
 **7. What was the maximum number of points awarded for hitting the mystery UFO that crosses the top of the screen in Space Invaders?**
 
-- A. 500
-- B. 200
-- C. 100
-- D. 300
+A. 500
+B. 200
+C. 100
+D. 300
 
 **8. Which home console port of Space Invaders, released in 1980, is widely credited as the first 'killer app' that dramatically boosted its platform's hardware sales?**
 
-- A. ColecoVision
-- B. Atari 2600
-- C. Intellivision
-- D. Magnavox Odyssey²
+A. ColecoVision
+B. Atari 2600
+C. Intellivision
+D. Magnavox Odyssey²
 
 ### Did You Know
 
@@ -237,33 +237,33 @@
 
 ### Chapter 1 — Pac-Man
 
-1. C — Puck Man
-2. B — Toru Iwatani
-3. D — The right half of the screen becomes garbled and the level is unbeatable
-4. A — Clyde (orange)
-5. C — Ms. Pac-Man
-6. C — 240
-7. B — Midway Manufacturing
-8. D — Cherry
+1. C - Puck Man
+2. B - Toru Iwatani
+3. D - The right half of the screen becomes garbled and the level is unbeatable
+4. A - Clyde (orange)
+5. C - Ms. Pac-Man
+6. C - 240
+7. B - Midway Manufacturing
+8. D - Cherry
 
 ### Chapter 2 — Donkey Kong
 
-1. C — Shigeru Miyamoto
-2. A — Jumpman
-3. D — 4
-4. B — Universal City Studios
-5. C — A hammer
-6. D — Steve Wiebe
-7. B — Pauline
-8. A — Popeye
+1. C - Shigeru Miyamoto
+2. A - Jumpman
+3. D - 4
+4. B - Universal City Studios
+5. C - A hammer
+6. D - Steve Wiebe
+7. B - Pauline
+8. A - Popeye
 
 ### Chapter 3 — Space Invaders
 
-1. C — Tomohiro Nishikado
-2. A — 1978
-3. B — The hardware renders fewer sprites faster, causing the remaining aliens to move more quickly
-4. D — 5
-5. D — The 100-yen coin
-6. A — Midway
-7. D — 300
-8. B — Atari 2600
+1. C - Tomohiro Nishikado
+2. A - 1978
+3. B - The hardware renders fewer sprites faster, causing the remaining aliens to move more quickly
+4. D - 5
+5. D - The 100-yen coin
+6. A - Midway
+7. D - 300
+8. B - Atari 2600

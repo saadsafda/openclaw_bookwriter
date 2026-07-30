@@ -325,6 +325,14 @@ class TriviaBuilder:
                     size=self.cfg.image_size,
                     quality=self.cfg.image_quality,
                 )
+                # Interiors print black and white and models return a colour
+                # cast even when asked for grayscale, so convert rather than
+                # trust the prompt.
+                from .image_edit import to_grayscale
+                try:
+                    to_grayscale(path)
+                except Exception as exc:
+                    self.log(f"  grayscale conversion failed: {exc}")
                 chapter.illustration_path = str(path)
             except Exception as exc:  # image failure must not lose the text
                 self.log(f"  illustration failed: {exc}")
@@ -448,21 +456,32 @@ class TriviaBuilder:
 
 
 def build_illustration_prompt(cfg: BookConfig, ch: ChapterConfig) -> str:
-    """Section 9 constraints are non-negotiable: no humans, no text at all."""
+    """Section 9 constraints are non-negotiable: no humans, no text at all.
+
+    Interiors print in black and white, so these match the grayscale house
+    style used by the prose books (openclaw_image_maker's rich-scene-no-text
+    variant): pure black plus a few cool grays on white, never color.
+    """
     hint = ch.illustration_prompt_hint or ch.chapter_title
     style = cfg.illustration_style_hint or (
-        "clean editorial illustration, rich saturated color, subtle texture, "
-        "strong central subject on an uncluttered background"
+        "clean line art with varied line weight and soft stipple or crosshatch "
+        "texture, strong central subject, generous white space"
     )
     return (
-        f"Illustration for a book chapter about {ch.chapter_title} "
-        f"in the context of {cfg.topic}. Subject: {hint}. "
+        f"A completely wordless, text-free standalone book illustration for a "
+        f"chapter about {ch.chapter_title} in the context of {cfg.topic}. "
+        f"Subject: {hint}. "
         f"Style: {style}. "
-        "Absolutely no people, no human figures, no faces, no hands, and no "
-        "body parts of any kind. "
+        "Strictly neutral grayscale: use only deep black and exactly 3 "
+        "distinct shades of cool gray on a stark pure white background "
+        "(#FFFFFF). Absolutely no color, no yellow, sepia, cream, or warm "
+        "tones. "
+        "Absolutely no people, no human figures, no faces, and no body parts. "
         "Absolutely no text, letters, numbers, words, labels, captions, "
-        "signatures, watermarks, frames, or borders anywhere in the image. "
-        "Depict only objects, equipment, scenery, or symbolic items."
+        "signatures, watermarks, frames, or borders anywhere in the image; "
+        "any books, signs, screens, or papers in the scene must be blank. "
+        "Depict only objects, equipment, scenery, or symbolic items. "
+        "Keep the full subject visible and centered; do not crop any edge."
     )
 
 
