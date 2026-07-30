@@ -20,6 +20,7 @@ import hashlib
 import json
 import mimetypes
 import os
+import random
 import re
 import subprocess
 import sys
@@ -1084,6 +1085,34 @@ def humanize_text(text: str) -> str:
 _SPEND_TRACKER: Optional["SpendTracker"] = None
 
 
+# Upstream overload/rate-limit failures are transient: the gateway rejected the
+# request before the model ran, so no partial turn was written to the session
+# and re-sending the same message is safe. Matched on the error text because the
+# CLI collapses every upstream failure into exit code 1.
+_RETRYABLE_ERROR_MARKERS = (
+    "failovererror",
+    "temporarily overloaded",
+    "overloaded_error",
+    "rate limit",
+    "rate_limit_error",
+    "429",
+    "500",
+    "502",
+    "503",
+    "504",
+    "529",
+)
+
+OPENCLAW_MAX_ATTEMPTS = 3
+OPENCLAW_BACKOFF_BASE_S = 2.0
+OPENCLAW_BACKOFF_CAP_S = 60.0
+
+
+def _is_retryable_openclaw_failure(stdout: str, stderr: str) -> bool:
+    blob = f"{stdout}\n{stderr}".lower()
+    return any(marker in blob for marker in _RETRYABLE_ERROR_MARKERS)
+
+
 def run_openclaw_call(agent_id: str, message: str, local: bool, thinking: str, timeout_s: int, session_id: str = "") -> str:
     cmd = ["openclaw", "agent", "--agent", agent_id, "--message", message, "--json"]
     if local:
@@ -1095,14 +1124,35 @@ def run_openclaw_call(agent_id: str, message: str, local: bool, thinking: str, t
     if session_id:
         cmd += ["--session-id", session_id]
 
-    p = subprocess.run(cmd, capture_output=True, text=True)
-    if p.returncode != 0:
-        raise RuntimeError(
-            "OpenClaw failed.\n"
-            f"Command: {' '.join(cmd)}\n\n"
-            f"STDOUT:\n{p.stdout}\n\n"
-            f"STDERR:\n{p.stderr}\n"
+    for attempt in range(1, OPENCLAW_MAX_ATTEMPTS + 1):
+        p = subprocess.run(cmd, capture_output=True, text=True)
+        if p.returncode == 0:
+            break
+
+        retryable = _is_retryable_openclaw_failure(p.stdout, p.stderr)
+        if not retryable or attempt == OPENCLAW_MAX_ATTEMPTS:
+            reason = (
+                f"still failing after {attempt} attempts"
+                if retryable
+                else "not a retryable error"
+            )
+            raise RuntimeError(
+                f"OpenClaw failed ({reason}).\n"
+                f"Command: {' '.join(cmd)}\n\n"
+                f"STDOUT:\n{p.stdout}\n\n"
+                f"STDERR:\n{p.stderr}\n"
+            )
+
+        # Exponential backoff with full jitter, so parallel jobs hitting the
+        # same overloaded gateway do not retry in lockstep.
+        delay = min(OPENCLAW_BACKOFF_CAP_S, OPENCLAW_BACKOFF_BASE_S * (2 ** (attempt - 1)))
+        delay = random.uniform(0, delay)
+        print(
+            f"  AI service busy (attempt {attempt}/{OPENCLAW_MAX_ATTEMPTS}); "
+            f"retrying in {delay:.1f}s...",
+            flush=True,
         )
+        time.sleep(delay)
     # Record real spend after the call, which is the first point where actual
     # billed usage is available. Crossing the threshold emits a UI warning;
     # it does not interrupt generation.
