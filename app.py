@@ -44,6 +44,7 @@ import publications as pub_routes
 import review_automation as review_routes
 import launch_emails as launch_email_routes
 import book_editor as book_editor_routes
+import trivia as trivia_routes
 
 ROOT_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = ROOT_DIR / "web_uploads"
@@ -170,6 +171,7 @@ review_routes.register(app)
 review_routes.start_background_tick()
 launch_email_routes.register(app)
 book_editor_routes.register(app)
+trivia_routes.register(app)
 
 
 def _timestamp() -> str:

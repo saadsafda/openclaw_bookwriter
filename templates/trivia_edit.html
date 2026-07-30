@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full antialiased">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Preview &amp; Edit · OpenClaw Trivia</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', system-ui, sans-serif; background: #f6f8fb; }
+        .page-sheet {
+            background: #fffdf8;
+            box-shadow: 0 4px 24px rgba(15, 23, 42, 0.10);
+            font-family: 'Lora', Georgia, serif;
+        }
+        .field {
+            background: #fff; border: 1px solid rgba(15,23,42,.14); color: #0f172a;
+            transition: all .15s ease;
+        }
+        .field:focus {
+            outline: none; border-color: rgba(16,185,129,.65);
+            box-shadow: 0 0 0 3px rgba(16,185,129,.16);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #10b981 0%, #0ea5e9 60%, #6366f1 100%);
+            background-size: 200% 200%; transition: all .3s ease; color: #fff;
+            box-shadow: 0 8px 20px -12px rgba(16,185,129,.8);
+        }
+        .btn-primary:hover { background-position: 100% 0; }
+        .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+        .btn-ghost {
+            background: #fff; border: 1px solid rgba(15,23,42,.12); color: #334155;
+            transition: all .15s ease;
+        }
+        .btn-ghost:hover { background: #f1f5f9; border-color: rgba(15,23,42,.2); }
+        .btn-ghost:disabled { opacity: .5; cursor: not-allowed; }
+        .card { background: #fff; border: 1px solid rgba(15,23,42,.10); }
+        .scroll-thin::-webkit-scrollbar { width: 8px; }
+        .scroll-thin::-webkit-scrollbar-thumb { background: rgba(15,23,42,.16); border-radius: 8px; }
+        .outline-item { transition: all .12s ease; cursor: pointer; }
+        .outline-item:hover { background: rgba(15,23,42,.04); }
+        .outline-item.active {
+            background: #ecfdf5; border-left-color: #10b981; color: #065f46; font-weight: 600;
+        }
+        .q-block { transition: background .12s ease; border-radius: 10px; }
+        .q-block:hover { background: rgba(16,185,129,.05); }
+        .q-block.selected { background: rgba(16,185,129,.10); outline: 2px solid rgba(16,185,129,.45); }
+        .editable:focus {
+            outline: 2px solid rgba(16,185,129,.5); border-radius: 4px;
+            background: #fff; outline-offset: 2px;
+        }
+        .badge { font-size: 10.5px; letter-spacing: .04em; }
+        .toast {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            z-index: 60; transition: opacity .25s ease, transform .25s ease;
+        }
+        .spin { animation: sp 1s linear infinite; }
+        @keyframes sp { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="h-full text-slate-700">
+
+<div class="h-full flex flex-col">
+
+    <!-- Top bar -->
+    <header class="shrink-0 h-16 bg-white border-b border-slate-900/10 flex items-center justify-between px-5">
+        <div class="flex items-center gap-3 min-w-0">
+            <a href="/trivia" class="btn-ghost w-9 h-9 rounded-lg flex items-center justify-center shrink-0" title="Back to generator">
+                <i class="fas fa-arrow-left text-sm"></i>
+            </a>
+            <div class="min-w-0">
+                <div id="book-title" class="text-[15px] font-semibold text-slate-900 truncate">{{ book_title }}</div>
+                <div id="book-sub" class="text-[11px] text-slate-500 truncate">Preview &amp; Edit</div>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <span id="save-state" class="text-[11px] text-slate-400 mr-1"></span>
+            <button id="btn-validate" class="btn-ghost px-3 py-2 rounded-lg text-xs">
+                <i class="fas fa-circle-check mr-1"></i> Validate
+            </button>
+            <button id="btn-reexport" class="btn-primary px-4 py-2 rounded-lg text-xs font-semibold">
+                <i class="fas fa-file-export mr-1"></i> Re-export
+            </button>
+        </div>
+    </header>
+
+    <div class="flex-1 flex min-h-0">
+
+        <!-- Left: outline -->
+        <aside class="w-64 shrink-0 bg-white border-r border-slate-900/10 flex flex-col">
+            <div class="px-4 py-3 border-b border-slate-900/10">
+                <div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Book outline</div>
+            </div>
+            <div id="outline" class="flex-1 overflow-y-auto scroll-thin py-2"></div>
+            <div class="px-4 py-3 border-t border-slate-900/10">
+                <div id="outline-stats" class="text-[11px] text-slate-500"></div>
+            </div>
+        </aside>
+
+        <!-- Middle: preview -->
+        <main class="flex-1 min-w-0 overflow-y-auto scroll-thin">
+            <div class="max-w-3xl mx-auto px-8 py-8">
+                <div id="chapter-head" class="mb-5"></div>
+                <div id="preview" class="page-sheet rounded-lg px-10 py-10 min-h-[500px]"></div>
+            </div>
+        </main>
+
+        <!-- Right: AI assistant -->
+        <aside class="w-80 shrink-0 bg-white border-l border-slate-900/10 flex flex-col">
+            <div class="px-4 py-3 border-b border-slate-900/10 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <i class="fas fa-wand-magic-sparkles text-emerald-600 text-sm"></i>
+                    <span class="text-sm font-semibold text-slate-900">AI Assistant</span>
+                </div>
+                <span id="agent-badge" class="badge uppercase px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">main</span>
+            </div>
+
+            <div class="flex-1 overflow-y-auto scroll-thin p-4">
+                <div id="sel-none" class="text-center py-10">
+                    <i class="fas fa-hand-pointer text-2xl text-slate-300 block mb-3"></i>
+                    <p class="text-sm text-slate-500">Select a question or fact<br>in the preview to edit it.</p>
+                </div>
+
+                <div id="sel-panel" class="hidden">
+                    <div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Selected</div>
+                    <div id="sel-preview" class="card rounded-xl p-3 text-xs text-slate-700 mb-4 max-h-32 overflow-y-auto scroll-thin"></div>
+
+                    <div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">AI actions</div>
+                    <div class="space-y-2 mb-4">
+                        <button class="ai-act w-full btn-ghost rounded-xl px-3 py-2.5 text-left" data-action="rewrite">
+                            <div class="text-xs font-semibold text-slate-800">Rewrite</div>
+                            <div class="text-[11px] text-slate-500">Reword, same underlying fact</div>
+                        </button>
+                        <button class="ai-act w-full btn-ghost rounded-xl px-3 py-2.5 text-left" data-action="regenerate_distractors" data-questions-only="1">
+                            <div class="text-xs font-semibold text-slate-800">Regenerate distractors</div>
+                            <div class="text-[11px] text-slate-500">New wrong choices, same answer</div>
+                        </button>
+                        <button class="ai-act w-full btn-ghost rounded-xl px-3 py-2.5 text-left" data-action="harder">
+                            <div class="text-xs font-semibold text-slate-800">Make harder</div>
+                            <div class="text-[11px] text-slate-500">Tighten the distractors</div>
+                        </button>
+                        <button class="ai-act w-full btn-ghost rounded-xl px-3 py-2.5 text-left" data-action="easier">
+                            <div class="text-xs font-semibold text-slate-800">Make easier</div>
+                            <div class="text-[11px] text-slate-500">More obviously wrong choices</div>
+                        </button>
+                    </div>
+
+                    <div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Extra instruction</div>
+                    <textarea id="ai-instruction" rows="3"
+                        class="field w-full rounded-xl px-3 py-2 text-xs mb-3"
+                        placeholder="Optional: e.g. 'focus on the 1960s' or 'avoid naming the artist'"></textarea>
+
+                    <button id="btn-delete-item" class="w-full btn-ghost rounded-xl px-3 py-2 text-xs text-red-600 hover:bg-red-50 hover:border-red-200">
+                        <i class="fas fa-trash mr-1"></i> Delete this item
+                    </button>
+                </div>
+
+                <!-- Image editing state -->
+                <div id="img-panel" class="hidden">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Chapter illustration</div>
+                        <button id="img-deselect" class="text-[11px] text-slate-400 hover:text-slate-700" title="Close">
+                            <i class="fas fa-xmark"></i>
+                        </button>
+                    </div>
+
+                    <div class="relative rounded-xl overflow-hidden border border-slate-200 mb-1.5 bg-slate-50">
+                        <img id="img-el" class="block w-full select-none" alt="">
+                        <canvas id="mask-canvas" class="absolute inset-0 w-full h-full cursor-crosshair hidden"></canvas>
+                    </div>
+                    <div id="img-meta" class="text-[10px] text-slate-400 mb-3"></div>
+
+                    <div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Tell AI what to change</div>
+                    <textarea id="img-instruction" rows="3" class="field w-full rounded-xl px-3 py-2 text-xs mb-2"
+                              placeholder="e.g. 'make the background a warm sunset', 'add more barrels', 'use a cooler blue palette'"></textarea>
+
+                    <label class="flex items-center gap-2 text-xs text-slate-700 mb-2">
+                        <input type="checkbox" id="mask-toggle" class="rounded bg-white border-slate-300 text-emerald-600 focus:ring-emerald-500/40">
+                        Paint only part of the image
+                    </label>
+                    <div id="mask-tools" class="hidden mb-2.5">
+                        <div class="flex items-center gap-2 mb-1.5">
+                            <span class="text-[11px] text-slate-500 w-10">Brush</span>
+                            <input type="range" id="brush-size" min="10" max="140" value="50" class="flex-1 accent-emerald-600">
+                        </div>
+                        <button id="mask-clear" class="btn-ghost w-full rounded-lg px-3 py-1.5 text-[11px]">Clear painted area</button>
+                        <p class="text-[10px] text-slate-500 mt-1.5">Paint over the area to change. The rest stays as-is.</p>
+                    </div>
+
+                    <button id="img-ai-go" class="btn-primary w-full rounded-xl px-3 py-2.5 text-xs font-semibold mb-1">
+                        <i class="fas fa-wand-magic-sparkles mr-1"></i> Apply AI edit
+                    </button>
+                    <p class="text-[10px] text-slate-500 mb-4">No people and no text are enforced automatically.</p>
+
+                    <details class="mb-3">
+                        <summary class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2 select-none cursor-pointer hover:text-slate-600">
+                            Manual adjustments
+                        </summary>
+                        <div class="pt-2">
+                            <div class="space-y-2 mb-2.5">
+                                <div>
+                                    <div class="flex justify-between text-[11px] text-slate-600 mb-0.5">
+                                        <span>Brightness</span><span id="v-brightness">1.00</span></div>
+                                    <input type="range" id="s-brightness" min="0.3" max="2" step="0.05" value="1" class="w-full accent-emerald-600">
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-[11px] text-slate-600 mb-0.5">
+                                        <span>Contrast</span><span id="v-contrast">1.00</span></div>
+                                    <input type="range" id="s-contrast" min="0.3" max="2" step="0.05" value="1" class="w-full accent-emerald-600">
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-[11px] text-slate-600 mb-0.5">
+                                        <span>Saturation</span><span id="v-saturation">1.00</span></div>
+                                    <input type="range" id="s-saturation" min="0" max="2.5" step="0.05" value="1" class="w-full accent-emerald-600">
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-[11px] text-slate-600 mb-0.5">
+                                        <span>Sharpness</span><span id="v-sharpness">1.00</span></div>
+                                    <input type="range" id="s-sharpness" min="0" max="3" step="0.05" value="1" class="w-full accent-emerald-600">
+                                </div>
+                            </div>
+                            <div class="flex gap-2 mb-3">
+                                <button id="adj-apply" class="btn-ghost flex-1 rounded-lg px-3 py-1.5 text-[11px]">Apply</button>
+                                <button id="adj-reset" class="btn-ghost rounded-lg px-3 py-1.5 text-[11px]">Reset</button>
+                            </div>
+                            <div class="grid grid-cols-2 gap-1.5">
+                                <button class="tf btn-ghost rounded-lg px-2 py-1.5 text-[11px]" data-op="rotate" data-deg="90"><i class="fas fa-rotate-right mr-1"></i>Rotate</button>
+                                <button class="tf btn-ghost rounded-lg px-2 py-1.5 text-[11px]" data-op="rotate" data-deg="180">180°</button>
+                                <button class="tf btn-ghost rounded-lg px-2 py-1.5 text-[11px]" data-op="flip" data-axis="horizontal">Flip H</button>
+                                <button class="tf btn-ghost rounded-lg px-2 py-1.5 text-[11px]" data-op="flip" data-axis="vertical">Flip V</button>
+                            </div>
+                        </div>
+                    </details>
+
+                    <div class="flex gap-2 mb-2">
+                        <button id="img-undo" class="btn-ghost flex-1 rounded-lg px-3 py-2 text-[11px]" disabled>
+                            <i class="fas fa-rotate-left mr-1"></i> Undo
+                        </button>
+                        <button id="img-regen" class="btn-ghost flex-1 rounded-lg px-3 py-2 text-[11px]">
+                            <i class="fas fa-arrows-rotate mr-1"></i> Regenerate
+                        </button>
+                    </div>
+                    <button id="img-upload-btn" class="btn-ghost w-full rounded-lg px-3 py-2 text-[11px]">
+                        <i class="fas fa-upload mr-1"></i> Upload my own
+                    </button>
+                    <input type="file" id="img-upload" accept="image/png,image/jpeg,image/webp" class="hidden">
+                </div>
+            </div>
+
+            <div id="ai-status" class="hidden px-4 py-2.5 border-t border-slate-900/10 bg-slate-50 text-[11px] text-slate-600"></div>
+            <div class="px-4 py-3 border-t border-slate-900/10">
+                <div id="usage-line" class="text-[11px] text-slate-500"></div>
+            </div>
+        </aside>
+    </div>
+</div>
+
+<div id="toast" class="toast opacity-0 pointer-events-none rounded-xl px-4 py-2.5 text-sm shadow-lg"></div>
+
+<script>
+const BOOK_ID = {{ book_id | tojson }};
+const $ = (id) => document.getElementById(id);
+
+let BOOK = null;
+let activeChapter = null;
+let selected = null;   // { kind: "question"|"fact", id }
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c =>
+    ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+function toast(msg, kind = "ok") {
+    const t = $("toast");
+    t.textContent = msg;
+    t.className = "toast rounded-xl px-4 py-2.5 text-sm shadow-lg " + (
+        kind === "err" ? "bg-red-600 text-white" :
+        kind === "warn" ? "bg-amber-500 text-white" : "bg-slate-900 text-white");
+    t.style.opacity = "1";
+    t.style.transform = "translateX(-50%) translateY(0)";
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => {
+        t.style.opacity = "0";
+        t.style.transform = "translateX(-50%) translateY(8px)";
+    }, 2600);
+}
+
+function setSaveState(text, spinning = false) {
+    $("save-state").innerHTML = spinning
+        ? `<i class="fas fa-circle-notch spin mr-1"></i>${esc(text)}`
+        : esc(text);
+}
+
+async function api(path, opts = {}) {
+    const r = await fetch(path, opts);
+    let data = {};
+    try { data = await r.json(); } catch (e) { /* non-JSON (e.g. image) */ }
+    if (!r.ok) throw new Error(data.error || `Request failed (${r.status})`);
+    return data;
+}
+
+// ---------- load ----------
+async function load() {
+    try {
+        BOOK = await api(`/api/trivia/books/${BOOK_ID}/content`);
+    } catch (e) {
+        $("preview").innerHTML =
+            `<p class="text-sm text-red-600">${esc(e.message)}</p>`;
+        return;
+    }
+    $("book-title").textContent = BOOK.book_title || "Untitled";
+    $("book-sub").textContent =
+        `${BOOK.chapters.length} chapters · ${BOOK.topic || ""}`;
+    if (BOOK.config && BOOK.config.agent) $("agent-badge").textContent = BOOK.config.agent;
+    renderUsage(BOOK.usage);
+    if (!activeChapter && BOOK.chapters.length) activeChapter = BOOK.chapters[0].chapter_number;
+    renderOutline();
+    renderPreview();
+}
+
+function renderUsage(u) {
+    if (!u || !u.calls) { $("usage-line").textContent = ""; return; }
+    $("usage-line").innerHTML =
+        `<i class="fas fa-coins mr-1 text-slate-400"></i>$${(u.cost_usd||0).toFixed(4)} · ` +
+        `${(u.total_tokens||0).toLocaleString()} tokens`;
+}
+
+function renderOutline() {
+    const wrap = $("outline");
+    wrap.innerHTML = BOOK.chapters.map(ch => `
+        <div class="outline-item px-4 py-2.5 border-l-[3px] border-transparent ${ch.chapter_number === activeChapter ? "active" : ""}"
+             data-ch="${ch.chapter_number}">
+            <div class="text-sm truncate">${esc(ch.chapter_title)}</div>
+            <div class="text-[11px] text-slate-500">${ch.trivia.length} Q · ${ch.facts.length} facts</div>
+        </div>`).join("");
+    wrap.querySelectorAll(".outline-item").forEach(el =>
+        el.addEventListener("click", () => {
+            activeChapter = parseInt(el.dataset.ch, 10);
+            selected = null;
+            renderOutline(); renderPreview(); renderSelection();
+        }));
+
+    const tq = BOOK.chapters.reduce((s,c) => s + c.trivia.length, 0);
+    const tf = BOOK.chapters.reduce((s,c) => s + c.facts.length, 0);
+    $("outline-stats").textContent = `${tq} questions · ${tf} facts total`;
+}
+
+function currentChapter() {
+    return BOOK.chapters.find(c => c.chapter_number === activeChapter);
+}
+
+function renderPreview() {
+    const ch = currentChapter();
+    if (!ch) { $("preview").innerHTML = ""; return; }
+
+    $("chapter-head").innerHTML = `
+        <div class="flex items-center justify-between gap-3">
+            <input id="ch-title" class="field rounded-lg px-3 py-2 text-sm font-semibold flex-1"
+                   value="${esc(ch.chapter_title)}">
+            <button id="btn-regen-img" class="btn-ghost px-3 py-2 rounded-lg text-xs whitespace-nowrap">
+                <i class="fas fa-image mr-1"></i> Illustration
+            </button>
+        </div>
+        <input id="ch-scope" class="field rounded-lg px-3 py-2 text-xs w-full mt-2"
+               placeholder="Chapter scope" value="${esc(ch.chapter_scope || "")}">`;
+
+    $("ch-title").addEventListener("change", e =>
+        saveChapter({ chapter_title: e.target.value }));
+    $("ch-scope").addEventListener("change", e =>
+        saveChapter({ chapter_scope: e.target.value }));
+    $("btn-regen-img").addEventListener("click", openImageDialog);
+
+    const imgSelected = selected && selected.kind === "image";
+    const img = ch.illustration_path
+        ? `<div class="text-center mb-8">
+             <div class="chapter-illustration q-block inline-block p-2 cursor-pointer relative group ${imgSelected ? "selected" : ""}"
+                  title="Click to edit this image">
+               <img src="/api/trivia/books/${BOOK_ID}/illustration/${ch.chapter_number}?t=${Date.now()}"
+                    class="block max-h-64 rounded-lg shadow-sm" alt="">
+               <div class="absolute inset-2 rounded-lg bg-slate-900/0 group-hover:bg-slate-900/30 transition flex items-center justify-center">
+                 <span class="opacity-0 group-hover:opacity-100 transition text-white text-xs font-semibold bg-slate-900/70 px-3 py-1.5 rounded-lg">
+                   <i class="fas fa-wand-magic-sparkles mr-1"></i> Edit image
+                 </span>
+               </div>
+             </div>
+           </div>`
+        : `<div class="text-center mb-8">
+             <button id="add-illustration" class="btn-ghost rounded-xl px-4 py-3 text-xs text-slate-500">
+               <i class="fas fa-image mr-1"></i> No illustration — generate one
+             </button>
+           </div>`;
+
+    const questions = ch.trivia.map((q, i) => `
+        <div class="q-block px-3 py-2 mb-3 ${selected && selected.id === q.id ? "selected" : ""}"
+             data-kind="question" data-id="${q.id}">
+            <div class="flex items-start gap-2">
+                <span class="text-[10px] text-slate-400 mt-1.5 w-6 shrink-0">${i+1}.</span>
+                <div class="flex-1 min-w-0">
+                    <div class="editable font-semibold text-[15px] leading-snug text-slate-900"
+                         contenteditable="true" data-field="question" data-id="${q.id}">${esc(q.question)}</div>
+                    <div class="mt-1.5 space-y-0.5">
+                        ${["A","B","C","D"].map(L => `
+                            <div class="flex items-start gap-2 text-[14px] leading-snug">
+                                <button class="mark-correct w-5 h-5 rounded-full text-[10px] font-bold shrink-0 mt-0.5
+                                        ${q.correct_answer === L
+                                            ? "bg-emerald-500 text-white"
+                                            : "bg-slate-100 text-slate-500 hover:bg-slate-200"}"
+                                        data-id="${q.id}" data-letter="${L}" title="Mark ${L} correct">${L}</button>
+                                <span class="editable flex-1 text-slate-800" contenteditable="true"
+                                      data-field="choice" data-letter="${L}" data-id="${q.id}">${esc(q.choices[L] || "")}</span>
+                            </div>`).join("")}
+                    </div>
+                </div>
+            </div>
+        </div>`).join("");
+
+    const facts = ch.facts.map(f => `
+        <div class="q-block px-3 py-1.5 mb-1 flex items-start gap-2 ${selected && selected.id === f.id ? "selected" : ""}"
+             data-kind="fact" data-id="${f.id}">
+            <span class="text-emerald-600 mt-1.5 text-[10px]">●</span>
+            <div class="editable flex-1 text-[14px] leading-snug text-slate-800"
+                 contenteditable="true" data-field="fact" data-id="${f.id}">${esc(f.fact)}</div>
+        </div>`).join("");
+
+    $("preview").innerHTML = `
+        ${img}
+        <h2 class="text-center text-xl font-semibold text-slate-900 mb-1">Chapter ${ch.chapter_number}</h2>
+        <p class="text-center text-slate-500 text-sm mb-8">${esc(ch.chapter_title)}</p>
+        <h3 class="text-sm font-bold uppercase tracking-wider text-slate-400 mb-3 border-b border-slate-200 pb-1">Trivia</h3>
+        ${questions || '<p class="text-sm text-slate-400 mb-6">No questions.</p>'}
+        <h3 class="text-sm font-bold uppercase tracking-wider text-slate-400 mt-8 mb-3 border-b border-slate-200 pb-1">Did You Know</h3>
+        ${facts || '<p class="text-sm text-slate-400">No facts.</p>'}`;
+
+    wirePreview();
+}
+
+function wirePreview() {
+    const illo = document.querySelector(".chapter-illustration");
+    if (illo) illo.addEventListener("click", openImageDialog);
+    const addIllo = $("add-illustration");
+    if (addIllo) addIllo.addEventListener("click", () => regenerateImage(""));
+
+    document.querySelectorAll(".q-block:not(.chapter-illustration)").forEach(el =>
+        el.addEventListener("mousedown", () => {
+            selected = { kind: el.dataset.kind, id: el.dataset.id };
+            document.querySelectorAll(".q-block").forEach(o => o.classList.remove("selected"));
+            el.classList.add("selected");
+            renderSelection();
+        }));
+
+    document.querySelectorAll(".editable").forEach(el => {
+        el.addEventListener("blur", onEditableBlur);
+        el.addEventListener("keydown", e => {
+            if (e.key === "Enter" && el.dataset.field !== "fact") { e.preventDefault(); el.blur(); }
+            if (e.key === "Escape") { renderPreview(); }
+        });
+    });
+
+    document.querySelectorAll(".mark-correct").forEach(btn =>
+        btn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            await saveQuestion(btn.dataset.id, { correct_answer: btn.dataset.letter });
+        }));
+}
+
+async function onEditableBlur(e) {
+    const el = e.target;
+    const id = el.dataset.id;
+    const field = el.dataset.field;
+    const value = el.textContent.trim();
+
+    const ch = currentChapter();
+    if (field === "fact") {
+        const f = ch.facts.find(x => x.id === id);
+        if (!f || f.fact === value) return;
+        await saveFact(id, { fact: value });
+    } else if (field === "question") {
+        const q = ch.trivia.find(x => x.id === id);
+        if (!q || q.question === value) return;
+        await saveQuestion(id, { question: value });
+    } else if (field === "choice") {
+        const q = ch.trivia.find(x => x.id === id);
+        const L = el.dataset.letter;
+        if (!q || q.choices[L] === value) return;
+        await saveQuestion(id, { choices: { ...q.choices, [L]: value } });
+    }
+}
+
+// ---------- saving ----------
+async function saveQuestion(id, patch) {
+    setSaveState("Saving…", true);
+    try {
+        const r = await api(`/api/trivia/books/${BOOK_ID}/questions/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(patch),
+        });
+        const ch = currentChapter();
+        const i = ch.trivia.findIndex(x => x.id === id);
+        if (i >= 0) ch.trivia[i] = r.question;
+        setSaveState("Saved");
+        renderPreview(); renderSelection();
+    } catch (e) {
+        setSaveState("");
+        toast(e.message, "err");
+        renderPreview();
+    }
+}
+
+async function saveFact(id, patch) {
+    setSaveState("Saving…", true);
+    try {
+        const r = await api(`/api/trivia/books/${BOOK_ID}/facts/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(patch),
+        });
+        const ch = currentChapter();
+        const i = ch.facts.findIndex(x => x.id === id);
+        if (i >= 0) ch.facts[i] = r.fact;
+        setSaveState("Saved");
+        renderSelection();
+    } catch (e) {
+        setSaveState("");
+        toast(e.message, "err");
+        renderPreview();
+    }
+}
+
+async function saveChapter(patch) {
+    setSaveState("Saving…", true);
+    try {
+        await api(`/api/trivia/books/${BOOK_ID}/chapters/${activeChapter}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(patch),
+        });
+        const ch = currentChapter();
+        if (patch.chapter_title !== undefined) ch.chapter_title = patch.chapter_title;
+        if (patch.chapter_scope !== undefined) ch.chapter_scope = patch.chapter_scope;
+        setSaveState("Saved");
+        renderOutline();
+    } catch (e) {
+        setSaveState(""); toast(e.message, "err");
+    }
+}
+
+// ---------- selection panel ----------
+function renderSelection() {
+    if (!selected) {
+        $("sel-none").classList.remove("hidden");
+        $("sel-panel").classList.add("hidden");
+        $("img-panel").classList.add("hidden");
+        return;
+    }
+    if (selected.kind === "image") {
+        $("sel-none").classList.add("hidden");
+        $("sel-panel").classList.add("hidden");
+        $("img-panel").classList.remove("hidden");
+        return;
+    }
+    $("sel-none").classList.add("hidden");
+    $("img-panel").classList.add("hidden");
+    $("sel-panel").classList.remove("hidden");
+
+    const ch = currentChapter();
+    let html = "";
+    if (selected.kind === "question") {
+        const q = ch.trivia.find(x => x.id === selected.id);
+        if (!q) { selected = null; return renderSelection(); }
+        html = `<div class="font-semibold mb-1">${esc(q.question)}</div>
+                <div class="text-slate-500">Answer: ${q.correct_answer} — ${esc(q.choices[q.correct_answer] || "")}</div>`;
+    } else {
+        const f = ch.facts.find(x => x.id === selected.id);
+        if (!f) { selected = null; return renderSelection(); }
+        html = esc(f.fact);
+    }
+    $("sel-preview").innerHTML = html;
+
+    // Distractor regeneration only applies to questions.
+    document.querySelectorAll(".ai-act").forEach(b => {
+        const qOnly = b.dataset.questionsOnly === "1";
+        b.disabled = qOnly && selected.kind !== "question";
+        b.style.display = (qOnly && selected.kind !== "question") ? "none" : "";
+    });
+}
+
+document.querySelectorAll(".ai-act").forEach(btn =>
+    btn.addEventListener("click", async () => {
+        if (!selected) return;
+        const action = btn.dataset.action;
+        $("ai-status").classList.remove("hidden");
+        $("ai-status").innerHTML = `<i class="fas fa-circle-notch spin mr-1"></i> Asking the model…`;
+        document.querySelectorAll(".ai-act").forEach(b => b.disabled = true);
+        try {
+            const r = await api(`/api/trivia/books/${BOOK_ID}/ai-edit`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    item_id: selected.id,
+                    kind: selected.kind,
+                    action,
+                    instruction: $("ai-instruction").value,
+                }),
+            });
+            const ch = currentChapter();
+            if (r.question) {
+                const i = ch.trivia.findIndex(x => x.id === r.question.id);
+                if (i >= 0) ch.trivia[i] = r.question;
+            } else if (r.fact) {
+                const i = ch.facts.findIndex(x => x.id === r.fact.id);
+                if (i >= 0) ch.facts[i] = r.fact;
+            }
+            renderUsage(r.usage);
+            renderPreview(); renderSelection();
+            $("ai-status").innerHTML = `<span class="text-emerald-700"><i class="fas fa-check mr-1"></i> Applied</span>`;
+            toast("AI edit applied");
+        } catch (e) {
+            $("ai-status").innerHTML = `<span class="text-red-600">${esc(e.message)}</span>`;
+            toast(e.message, "err");
+        } finally {
+            document.querySelectorAll(".ai-act").forEach(b => b.disabled = false);
+            renderSelection();
+        }
+    }));
+
+$("btn-delete-item").addEventListener("click", async () => {
+    if (!selected) return;
+    if (!confirm("Delete this item from the book?")) return;
+    try {
+        await api(`/api/trivia/books/${BOOK_ID}/items/${selected.id}`, { method: "DELETE" });
+        selected = null;
+        await load();
+        toast("Item deleted");
+    } catch (e) { toast(e.message, "err"); }
+});
+
+// ---------- image editor (right panel) ----------
+let maskCtx = null, painting = false;
+
+function imgBusy(msg) {
+    const el = $("ai-status");
+    if (!msg) { el.classList.add("hidden"); return; }
+    el.classList.remove("hidden");
+    el.innerHTML = `<i class="fas fa-circle-notch spin mr-1"></i> ${esc(msg)}`;
+}
+
+// Errors persist in the panel — a toast disappears before it can be read,
+// and image failures usually carry a message worth acting on.
+function imgBusyError(msg) {
+    const el = $("ai-status");
+    el.classList.remove("hidden");
+    el.innerHTML = `<span class="text-red-600"><i class="fas fa-circle-exclamation mr-1"></i> ${esc(msg)}</span>`;
+}
+
+async function openImageDialog() {
+    const ch = currentChapter();
+    if (!ch) return;
+    if (!ch.illustration_path) {
+        if (!confirm("This chapter has no illustration yet. Generate one now?")) return;
+        return regenerateImage("");
+    }
+    selected = { kind: "image", id: `ch${ch.chapter_number}_img` };
+    document.querySelectorAll(".q-block").forEach(o => o.classList.remove("selected"));
+    document.querySelectorAll(".chapter-illustration").forEach(o => o.classList.add("selected"));
+    renderSelection();
+    await refreshImagePanel();
+}
+
+async function refreshImagePanel() {
+    const ch = currentChapter();
+    if (!ch) return;
+    const url = `/api/trivia/books/${BOOK_ID}/illustration/${ch.chapter_number}?t=${Date.now()}`;
+    const img = $("img-el");
+    await new Promise(res => { img.onload = res; img.onerror = res; img.src = url; });
+
+    try {
+        const info = await api(`/api/trivia/books/${BOOK_ID}/image-info/${ch.chapter_number}`);
+        $("img-meta").textContent = info.has_image
+            ? `${info.width}×${info.height} · ${info.dpi} DPI · ${info.history_count} undo step(s)`
+            : "";
+        $("img-undo").disabled = !info.history_count;
+    } catch (e) { /* metadata is non-critical */ }
+
+    resetMaskCanvas();
+}
+
+function resetMaskCanvas() {
+    const img = $("img-el"), cv = $("mask-canvas");
+    if (!img.naturalWidth) return;
+    cv.width = img.naturalWidth;
+    cv.height = img.naturalHeight;
+    maskCtx = cv.getContext("2d");
+    maskCtx.clearRect(0, 0, cv.width, cv.height);
+    maskCtx.fillStyle = "rgba(16,185,129,0.55)";
+}
+
+$("mask-toggle").addEventListener("change", e => {
+    const on = e.target.checked;
+    $("mask-canvas").classList.toggle("hidden", !on);
+    $("mask-tools").classList.toggle("hidden", !on);
+    if (on) resetMaskCanvas();
+});
+
+$("mask-clear").addEventListener("click", resetMaskCanvas);
+
+function paintAt(e) {
+    if (!maskCtx) return;
+    const cv = $("mask-canvas"), r = cv.getBoundingClientRect();
+    const x = (e.clientX - r.left) * (cv.width / r.width);
+    const y = (e.clientY - r.top) * (cv.height / r.height);
+    const radius = parseInt($("brush-size").value, 10) * (cv.width / r.width) / 2;
+    maskCtx.beginPath();
+    maskCtx.arc(x, y, radius, 0, Math.PI * 2);
+    maskCtx.fill();
+}
+
+$("mask-canvas").addEventListener("mousedown", e => { painting = true; paintAt(e); });
+$("mask-canvas").addEventListener("mousemove", e => { if (painting) paintAt(e); });
+window.addEventListener("mouseup", () => { painting = false; });
+
+function maskHasPaint() {
+    const cv = $("mask-canvas");
+    if (!maskCtx || cv.classList.contains("hidden")) return false;
+    const d = maskCtx.getImageData(0, 0, cv.width, cv.height).data;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 8) return true;
+    return false;
+}
+
+$("img-ai-go").addEventListener("click", async () => {
+    const instruction = $("img-instruction").value.trim();
+    if (!instruction) {
+        // Make the reason obvious in the panel, not just a transient toast.
+        $("img-instruction").focus();
+        $("img-instruction").classList.add("ring-2", "ring-red-400");
+        setTimeout(() => $("img-instruction").classList.remove("ring-2", "ring-red-400"), 1600);
+        imgBusyError("Type what you want changed first.");
+        toast("Describe the change first", "warn");
+        return;
+    }
+
+    const body = { chapter_number: activeChapter, instruction };
+    if (maskHasPaint()) body.mask = $("mask-canvas").toDataURL("image/png");
+
+    imgBusy("Editing image… this can take up to a minute");
+    $("img-ai-go").disabled = true;
+    try {
+        await api(`/api/trivia/books/${BOOK_ID}/image/ai-edit`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        });
+        await refreshImagePanel();
+        renderPreview();
+        toast("Image edited");
+    } catch (e) {
+        imgBusyError(e.message);
+        toast(e.message, "err");
+        return;
+    } finally {
+        $("img-ai-go").disabled = false;
+    }
+    imgBusy("");
+});
+
+["brightness","contrast","saturation","sharpness"].forEach(k => {
+    $(`s-${k}`).addEventListener("input", e =>
+        $(`v-${k}`).textContent = parseFloat(e.target.value).toFixed(2));
+});
+
+$("adj-reset").addEventListener("click", () => {
+    ["brightness","contrast","saturation","sharpness"].forEach(k => {
+        $(`s-${k}`).value = 1; $(`v-${k}`).textContent = "1.00";
+    });
+});
+
+$("adj-apply").addEventListener("click", async () => {
+    imgBusy("Applying adjustments…");
+    try {
+        await api(`/api/trivia/books/${BOOK_ID}/image/adjust`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                chapter_number: activeChapter,
+                brightness: parseFloat($("s-brightness").value),
+                contrast: parseFloat($("s-contrast").value),
+                saturation: parseFloat($("s-saturation").value),
+                sharpness: parseFloat($("s-sharpness").value),
+            }),
+        });
+        $("adj-reset").click();
+        await refreshImagePanel();
+        renderPreview();
+        toast("Adjustments applied");
+    } catch (e) { imgBusyError(e.message); toast(e.message, "err"); return; }
+    finally { }
+    imgBusy("");
+});
+
+document.querySelectorAll(".tf").forEach(btn =>
+    btn.addEventListener("click", async () => {
+        imgBusy("Transforming…");
+        try {
+            await api(`/api/trivia/books/${BOOK_ID}/image/transform`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    chapter_number: activeChapter,
+                    op: btn.dataset.op,
+                    degrees: parseInt(btn.dataset.deg || "90", 10),
+                    axis: btn.dataset.axis || "horizontal",
+                }),
+            });
+            await refreshImagePanel();
+            renderPreview();
+        } catch (e) { imgBusyError(e.message); toast(e.message, "err"); return; }
+        finally { }
+        imgBusy("");
+    }));
+
+$("img-undo").addEventListener("click", async () => {
+    imgBusy("Undoing…");
+    try {
+        await api(`/api/trivia/books/${BOOK_ID}/image/undo`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chapter_number: activeChapter }),
+        });
+        await refreshImagePanel();
+        renderPreview();
+        toast("Reverted");
+    } catch (e) { imgBusyError(e.message); toast(e.message, "err"); return; }
+    finally { }
+    imgBusy("");
+});
+
+$("img-regen").addEventListener("click", async () => {
+    const hint = prompt("Describe the new illustration (blank uses the chapter title):", "");
+    if (hint === null) return;
+    imgBusy("Generating…");
+    try {
+        await api(`/api/trivia/books/${BOOK_ID}/regenerate-illustration`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chapter_number: activeChapter, prompt_hint: hint }),
+        });
+        await refreshImagePanel();
+        renderPreview();
+        toast("Illustration regenerated");
+    } catch (e) { imgBusyError(e.message); toast(e.message, "err"); return; }
+    finally { }
+    imgBusy("");
+});
+
+$("img-upload-btn").addEventListener("click", () => $("img-upload").click());
+$("img-upload").addEventListener("change", async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("image", file);
+    fd.append("chapter_number", activeChapter);
+    imgBusy("Uploading…");
+    try {
+        const r = await fetch(`/api/trivia/books/${BOOK_ID}/upload-illustration`, {
+            method: "POST", body: fd });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "Upload failed");
+        await refreshImagePanel();
+        renderPreview();
+        toast("Image replaced");
+    } catch (err) { imgBusyError(err.message); toast(err.message, "err"); e.target.value = ""; return; }
+    finally { e.target.value = ""; }
+    imgBusy("");
+});
+
+$("img-deselect").addEventListener("click", () => {
+    selected = null;
+    document.querySelectorAll(".chapter-illustration").forEach(o => o.classList.remove("selected"));
+    renderSelection();
+});
+
+async function regenerateImage(hint) {
+    setSaveState("Generating image…", true);
+    try {
+        await api(`/api/trivia/books/${BOOK_ID}/regenerate-illustration`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chapter_number: activeChapter, prompt_hint: hint }),
+        });
+        setSaveState("Saved");
+        await load();
+        toast("Illustration created");
+    } catch (e) {
+        setSaveState("");
+        toast(e.message, "err");
+    }
+}
+
+// ---------- validate / export ----------
+$("btn-validate").addEventListener("click", async () => {
+    try {
+        const r = await api(`/api/trivia/books/${BOOK_ID}/validate`);
+        if (r.ok) { toast("All checks passed — ready to export"); return; }
+        const parts = [];
+        if (r.errors && r.errors.length) parts.push(`${r.errors.length} structural issue(s)`);
+        if (r.overlaps && r.overlaps.length) parts.push(`${r.overlaps.length} fact/trivia overlap(s)`);
+        toast(parts.join(" · "), "warn");
+        console.warn("Validation details:", r);
+        const detail = [
+            ...(r.errors || []),
+            ...(r.overlaps || []).map(o => `${o.fact_id} repeats ${o.question_id} (${o.score})`),
+        ].slice(0, 12).join("\n");
+        if (detail) alert("Validation issues:\n\n" + detail);
+    } catch (e) { toast(e.message, "err"); }
+});
+
+$("btn-reexport").addEventListener("click", async () => {
+    $("btn-reexport").disabled = true;
+    setSaveState("Re-exporting…", true);
+    try {
+        const r = await api(`/api/trivia/books/${BOOK_ID}/reformat`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+        });
+        setSaveState("Exported");
+        toast(r.warning ? r.warning : "DOCX, Markdown and KDP files rebuilt",
+              r.warning ? "warn" : "ok");
+    } catch (e) {
+        setSaveState(""); toast(e.message, "err");
+    } finally {
+        $("btn-reexport").disabled = false;
+    }
+});
+
+load();
+</script>
+</body>
+</html>

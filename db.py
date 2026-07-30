@@ -252,6 +252,44 @@ def init_db() -> None:
         """)
         conn.commit()
 
+        # Trivia & facts books. Separate from `books` on purpose: a trivia book
+        # is structured content (questions, choices, facts, answer key) rather
+        # than a prose manuscript, and the two pipelines share no fields beyond
+        # id/title/status.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS trivia_books (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL DEFAULT '',
+                topic TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'queued',
+                stage TEXT NOT NULL DEFAULT '',
+                progress REAL NOT NULL DEFAULT 0,
+                agent TEXT NOT NULL DEFAULT 'main',
+                difficulty TEXT NOT NULL DEFAULT 'medium',
+                answer_key_position TEXT NOT NULL DEFAULT 'end_of_book',
+                chapter_count INTEGER NOT NULL DEFAULT 0,
+                trivia_total INTEGER NOT NULL DEFAULT 0,
+                fact_total INTEGER NOT NULL DEFAULT 0,
+                config_json TEXT NOT NULL DEFAULT '',
+                json_path TEXT NOT NULL DEFAULT '',
+                markdown_path TEXT NOT NULL DEFAULT '',
+                docx_path TEXT NOT NULL DEFAULT '',
+                kindle_path TEXT NOT NULL DEFAULT '',
+                paperback_path TEXT NOT NULL DEFAULT '',
+                error TEXT NOT NULL DEFAULT '',
+                warnings_json TEXT NOT NULL DEFAULT '',
+                usage_json TEXT NOT NULL DEFAULT '',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+        """)
+        conn.commit()
+        # Migrate: add usage tracking to existing trivia_books tables.
+        tcols = {r[1] for r in conn.execute("PRAGMA table_info(trivia_books)").fetchall()}
+        if "usage_json" not in tcols:
+            conn.execute("ALTER TABLE trivia_books ADD COLUMN usage_json TEXT NOT NULL DEFAULT ''")
+            conn.commit()
+
         conn.close()
 
 
@@ -1254,3 +1292,122 @@ def get_settings_with_prefix(prefix: str) -> dict[str, str]:
     finally:
         conn.close()
     return {r["key"]: r["value"] for r in rows}
+
+
+# ---------------------------------------------------------------------------
+# Trivia & facts books
+#
+# Kept in their own table and helper block so the trivia generator can evolve
+# without touching the prose-book queries above.
+# ---------------------------------------------------------------------------
+
+def save_trivia_book(
+    book_id: str,
+    title: str,
+    topic: str,
+    *,
+    status: str = "queued",
+    agent: str = "main",
+    difficulty: str = "medium",
+    answer_key_position: str = "end_of_book",
+    chapter_count: int = 0,
+    trivia_total: int = 0,
+    fact_total: int = 0,
+    config_json: str = "",
+) -> None:
+    now = time.time()
+    with _lock:
+        conn = _connect()
+        conn.execute(
+            """
+            INSERT INTO trivia_books(
+                id, title, topic, status, agent, difficulty, answer_key_position,
+                chapter_count, trivia_total, fact_total, config_json,
+                created_at, updated_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                title=excluded.title,
+                topic=excluded.topic,
+                status=excluded.status,
+                agent=excluded.agent,
+                difficulty=excluded.difficulty,
+                answer_key_position=excluded.answer_key_position,
+                chapter_count=excluded.chapter_count,
+                trivia_total=excluded.trivia_total,
+                fact_total=excluded.fact_total,
+                config_json=excluded.config_json,
+                updated_at=excluded.updated_at
+            """,
+            (
+                book_id, title, topic, status, agent, difficulty,
+                answer_key_position, chapter_count, trivia_total, fact_total,
+                config_json, now, now,
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+
+_TRIVIA_UPDATABLE = {
+    "title", "topic", "status", "stage", "progress", "agent", "difficulty",
+    "answer_key_position", "chapter_count", "trivia_total", "fact_total",
+    "config_json", "json_path", "markdown_path", "docx_path", "kindle_path",
+    "paperback_path", "error", "warnings_json", "usage_json",
+}
+
+
+def update_trivia_book(book_id: str, **fields: Any) -> None:
+    allowed = {k: v for k, v in fields.items() if k in _TRIVIA_UPDATABLE}
+    if not allowed:
+        return
+    sets = ", ".join(f"{k}=?" for k in allowed)
+    values = list(allowed.values()) + [time.time(), book_id]
+    with _lock:
+        conn = _connect()
+        conn.execute(
+            f"UPDATE trivia_books SET {sets}, updated_at=? WHERE id=?",
+            values,
+        )
+        conn.commit()
+        conn.close()
+
+
+def list_trivia_books(limit: int = 50) -> list[dict[str, Any]]:
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, title, topic, status, stage, progress, difficulty,
+                   answer_key_position, chapter_count, trivia_total, fact_total,
+                   json_path, markdown_path, docx_path, kindle_path,
+                   paperback_path, error, created_at, updated_at
+            FROM trivia_books
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_trivia_book(book_id: str) -> Optional[dict[str, Any]]:
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT * FROM trivia_books WHERE id=?", (book_id,)
+        ).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else None
+
+
+def delete_trivia_book(book_id: str) -> bool:
+    with _lock:
+        conn = _connect()
+        cur = conn.execute("DELETE FROM trivia_books WHERE id=?", (book_id,))
+        conn.commit()
+        deleted = cur.rowcount > 0
+        conn.close()
+    return deleted
