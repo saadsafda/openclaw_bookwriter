@@ -3,7 +3,8 @@ formatted hand-edits back (Word-style toolbar), and serve embedded images.
 
 Round-trips inline formatting (bold/italic/underline/strike/sup/sub/color/
 highlight/font/size) as docx runs, plus paragraph properties (alignment,
-bullet/number list, style/heading, indent). Images are read-only and preserved.
+bullet/number list, style/heading, indent). Embedded images are served here and
+edited in place via docx_image_edit (AI edits, adjustments, upload, undo).
 
 Works for both:
   - books        → final / kindle / paperback / input docx (from the books table)
@@ -26,6 +27,7 @@ from docx.shared import Pt, RGBColor
 from flask import abort, jsonify, request, send_file
 
 import db as bookdb
+import docx_image_edit
 import openclaw_docx_writer as writer
 
 
@@ -723,6 +725,127 @@ def register(app) -> None:  # noqa: ANN001
         if not path or not Path(path).exists():
             return jsonify({"error": "document not found on disk"}), 404
         return jsonify(insert_or_refresh_toc(Path(path), **_toc_anchor(request)))
+
+    # ---- Book images -----------------------------------------------------
+    #
+    # Prose-book images live inside the .docx, so every edit here rewrites the
+    # embedded part in place rather than touching a loose file on disk.
+
+    def _book_doc_or_error(book_id: str):
+        """Resolve the requested .docx, or return (None, error_response)."""
+        book = bookdb.get_book(book_id)
+        if not book:
+            abort(404)
+        which = (request.args.get("which") or "final").lower()
+        path = _book_docx_path(book, which)
+        if not path or not Path(path).exists():
+            return None, (jsonify({"error": "document not found on disk"}), 404)
+        return Path(path), None
+
+    @app.get("/api/books/<book_id>/images")
+    def list_book_images(book_id: str):  # noqa: ANN202
+        doc_path, err = _book_doc_or_error(book_id)
+        if err:
+            return err
+        return jsonify({"images": docx_image_edit.list_images(doc_path)})
+
+    @app.get("/api/books/<book_id>/images/<int:para_index>/info")
+    def book_image_info(book_id: str, para_index: int):  # noqa: ANN202
+        doc_path, err = _book_doc_or_error(book_id)
+        if err:
+            return err
+        return jsonify(docx_image_edit.image_info(doc_path, para_index))
+
+    @app.post("/api/books/<book_id>/images/<int:para_index>/ai-edit")
+    def book_image_ai_edit(book_id: str, para_index: int):  # noqa: ANN202
+        doc_path, err = _book_doc_or_error(book_id)
+        if err:
+            return err
+        payload = request.get_json(silent=True) or {}
+        try:
+            result = docx_image_edit.ai_edit_image(
+                doc_path,
+                para_index,
+                str(payload.get("instruction") or ""),
+                mask_data_url=str(payload.get("mask") or ""),
+                size=str(payload.get("size") or "auto"),
+                quality=str(payload.get("quality") or "high"),
+                api_key=str(payload.get("openai_api_key") or ""),
+            )
+        except docx_image_edit.DocxImageError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({"ok": True, **result.to_dict()})
+
+    @app.post("/api/books/<book_id>/images/<int:para_index>/adjust")
+    def book_image_adjust(book_id: str, para_index: int):  # noqa: ANN202
+        doc_path, err = _book_doc_or_error(book_id)
+        if err:
+            return err
+        payload = request.get_json(silent=True) or {}
+
+        def _f(name: str) -> float:
+            try:
+                return float(payload.get(name, 1.0))
+            except (TypeError, ValueError):
+                return 1.0
+
+        try:
+            result = docx_image_edit.adjust_image(
+                doc_path, para_index,
+                brightness=_f("brightness"), contrast=_f("contrast"),
+                saturation=_f("saturation"), sharpness=_f("sharpness"),
+            )
+        except docx_image_edit.DocxImageError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({"ok": True, **result.to_dict()})
+
+    @app.post("/api/books/<book_id>/images/<int:para_index>/transform")
+    def book_image_transform(book_id: str, para_index: int):  # noqa: ANN202
+        doc_path, err = _book_doc_or_error(book_id)
+        if err:
+            return err
+        payload = request.get_json(silent=True) or {}
+        try:
+            degrees = int(payload.get("degrees") or 90)
+        except (TypeError, ValueError):
+            degrees = 90
+        try:
+            result = docx_image_edit.transform_image(
+                doc_path, para_index,
+                op=str(payload.get("op") or "rotate"),
+                degrees=degrees,
+                axis=str(payload.get("axis") or "horizontal"),
+            )
+        except docx_image_edit.DocxImageError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({"ok": True, **result.to_dict()})
+
+    @app.post("/api/books/<book_id>/images/<int:para_index>/undo")
+    def book_image_undo(book_id: str, para_index: int):  # noqa: ANN202
+        doc_path, err = _book_doc_or_error(book_id)
+        if err:
+            return err
+        try:
+            result = docx_image_edit.undo(doc_path, para_index)
+        except docx_image_edit.DocxImageError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({"ok": True, **result.to_dict()})
+
+    @app.post("/api/books/<book_id>/images/<int:para_index>/upload")
+    def book_image_upload(book_id: str, para_index: int):  # noqa: ANN202
+        doc_path, err = _book_doc_or_error(book_id)
+        if err:
+            return err
+        file = request.files.get("image")
+        if file is None:
+            return jsonify({"error": "no image file was sent"}), 400
+        try:
+            result = docx_image_edit.replace_with_upload(
+                doc_path, para_index, file.read(),
+            )
+        except docx_image_edit.DocxImageError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({"ok": True, **result.to_dict()})
 
     # ---- Publications ----------------------------------------------------
 

@@ -920,6 +920,25 @@ def settings_page() -> str:
     return render_template("settings.html")
 
 
+@app.get("/books/<book_id>/edit")
+def book_edit_page(book_id: str) -> Any:
+    """Full-page book editor.
+
+    Replaces the three separate post-write controls (rewrite text, replace
+    image, view/edit book) with one screen, mirroring the trivia editor.
+    """
+    book = bookdb.get_book(book_id)
+    if not book:
+        abort(404)
+    return render_template(
+        "book_edit.html",
+        book_id=book_id,
+        book_title=book.get("title") or "Book",
+        prompt_variants=sorted(image_maker.PROMPT_VARIANTS.keys()),
+        defaults=DEFAULTS,
+    )
+
+
 _QR_EC_LEVELS = {
     "L": ERROR_CORRECT_L,
     "M": ERROR_CORRECT_M,

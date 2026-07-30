@@ -377,8 +377,13 @@
           page.appendChild(img);
           return;
         }
-        const cls = (b.style === 'Heading 1' || b.style === 'Title') ? 'doc-h'
-                  : (b.style === 'Heading 2' || b.style === 'Heading 3') ? 'doc-sub' : 'doc-p';
+        // `type` comes from the writer's own heading detection and is the
+        // reliable signal: these books format headings directly (bold/size)
+        // rather than with named Word styles, so `style` is "Normal" for
+        // nearly every paragraph. Fall back to `style` when type is absent.
+        const cls = (b.type === 'heading' || b.style === 'Heading 1' || b.style === 'Title') ? 'doc-h'
+                  : (b.type === 'subheading' || b.style === 'Heading 2' || b.style === 'Heading 3') ? 'doc-sub'
+                  : 'doc-p';
         const div = el('div', { class: cls, contenteditable: 'true' });
         div.dataset.index = b.index;
         div.dataset.style = b.style || 'Normal';
