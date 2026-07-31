@@ -1,0 +1,48 @@
+{
+  "book_title": "Crime Scene Puzzle Book (Quick Test)",
+  "topic": "crime scene investigation and detective work",
+  "audience": "kids ages 8-12",
+  "difficulty": "medium",
+  "agent": "main",
+  "thinking": "",
+  "wordsearch_grid": 13,
+  "maze_cols": 14,
+  "maze_rows": 20,
+  "sections": {
+    "picture_puzzles": {
+      "enabled": true,
+      "count": 1,
+      "subjects": ["Detective's Office"]
+    },
+    "mazes": {
+      "enabled": true,
+      "count": 2,
+      "subjects": []
+    },
+    "riddles": {
+      "enabled": true,
+      "count": 4,
+      "subjects": []
+    },
+    "word_searches": {
+      "enabled": true,
+      "count": 1,
+      "subjects": ["Detective Tools"]
+    },
+    "cryptograms": {
+      "enabled": true,
+      "count": 3,
+      "subjects": []
+    },
+    "trivia": {
+      "enabled": true,
+      "count": 1,
+      "subjects": ["Famous Detectives"]
+    },
+    "crosswords": {
+      "enabled": true,
+      "count": 1,
+      "subjects": ["Detective Basics"]
+    }
+  }
+}

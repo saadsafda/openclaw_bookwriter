@@ -290,6 +290,39 @@ def init_db() -> None:
             conn.execute("ALTER TABLE trivia_books ADD COLUMN usage_json TEXT NOT NULL DEFAULT ''")
             conn.commit()
 
+        # Puzzle & activity books. Separate from both `books` and
+        # `trivia_books`: a puzzle book's outputs are largely rendered artwork
+        # (mazes, grids) plus a handoff zip for the formatter, which neither of
+        # the other two pipelines produces.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS puzzle_books (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL DEFAULT '',
+                topic TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'queued',
+                stage TEXT NOT NULL DEFAULT '',
+                progress REAL NOT NULL DEFAULT 0,
+                agent TEXT NOT NULL DEFAULT 'main',
+                audience TEXT NOT NULL DEFAULT '',
+                difficulty TEXT NOT NULL DEFAULT 'medium',
+                counts_json TEXT NOT NULL DEFAULT '',
+                estimated_pages INTEGER NOT NULL DEFAULT 0,
+                config_json TEXT NOT NULL DEFAULT '',
+                json_path TEXT NOT NULL DEFAULT '',
+                markdown_path TEXT NOT NULL DEFAULT '',
+                docx_path TEXT NOT NULL DEFAULT '',
+                kindle_path TEXT NOT NULL DEFAULT '',
+                paperback_path TEXT NOT NULL DEFAULT '',
+                zip_path TEXT NOT NULL DEFAULT '',
+                error TEXT NOT NULL DEFAULT '',
+                warnings_json TEXT NOT NULL DEFAULT '',
+                usage_json TEXT NOT NULL DEFAULT '',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+        """)
+        conn.commit()
+
         conn.close()
 
 
@@ -1407,6 +1440,121 @@ def delete_trivia_book(book_id: str) -> bool:
     with _lock:
         conn = _connect()
         cur = conn.execute("DELETE FROM trivia_books WHERE id=?", (book_id,))
+        conn.commit()
+        deleted = cur.rowcount > 0
+        conn.close()
+    return deleted
+
+
+# ---------------------------------------------------------------------------
+# Puzzle & activity books
+#
+# Own table and helper block, so the puzzle generator can evolve without
+# touching the prose-book or trivia queries above.
+# ---------------------------------------------------------------------------
+
+def save_puzzle_book(
+    book_id: str,
+    title: str,
+    topic: str,
+    *,
+    status: str = "queued",
+    agent: str = "main",
+    audience: str = "",
+    difficulty: str = "medium",
+    counts_json: str = "",
+    estimated_pages: int = 0,
+    config_json: str = "",
+) -> None:
+    now = time.time()
+    with _lock:
+        conn = _connect()
+        conn.execute(
+            """
+            INSERT INTO puzzle_books(
+                id, title, topic, status, agent, audience, difficulty,
+                counts_json, estimated_pages, config_json, created_at, updated_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                title=excluded.title,
+                topic=excluded.topic,
+                status=excluded.status,
+                agent=excluded.agent,
+                audience=excluded.audience,
+                difficulty=excluded.difficulty,
+                counts_json=excluded.counts_json,
+                estimated_pages=excluded.estimated_pages,
+                config_json=excluded.config_json,
+                updated_at=excluded.updated_at
+            """,
+            (
+                book_id, title, topic, status, agent, audience, difficulty,
+                counts_json, estimated_pages, config_json, now, now,
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+
+_PUZZLE_UPDATABLE = {
+    "title", "topic", "status", "stage", "progress", "agent", "audience",
+    "difficulty", "counts_json", "estimated_pages", "config_json", "json_path",
+    "markdown_path", "docx_path", "kindle_path", "paperback_path", "zip_path",
+    "error", "warnings_json", "usage_json",
+}
+
+
+def update_puzzle_book(book_id: str, **fields: Any) -> None:
+    allowed = {k: v for k, v in fields.items() if k in _PUZZLE_UPDATABLE}
+    if not allowed:
+        return
+    sets = ", ".join(f"{k}=?" for k in allowed)
+    values = list(allowed.values()) + [time.time(), book_id]
+    with _lock:
+        conn = _connect()
+        conn.execute(
+            f"UPDATE puzzle_books SET {sets}, updated_at=? WHERE id=?",
+            values,
+        )
+        conn.commit()
+        conn.close()
+
+
+def list_puzzle_books(limit: int = 50) -> list[dict[str, Any]]:
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, title, topic, status, stage, progress, audience,
+                   difficulty, counts_json, estimated_pages, json_path,
+                   markdown_path, docx_path, kindle_path, paperback_path,
+                   zip_path, error, created_at, updated_at
+            FROM puzzle_books
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_puzzle_book(book_id: str) -> Optional[dict[str, Any]]:
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT * FROM puzzle_books WHERE id=?", (book_id,)
+        ).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else None
+
+
+def delete_puzzle_book(book_id: str) -> bool:
+    with _lock:
+        conn = _connect()
+        cur = conn.execute("DELETE FROM puzzle_books WHERE id=?", (book_id,))
         conn.commit()
         deleted = cur.rowcount > 0
         conn.close()

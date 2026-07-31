@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full antialiased">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Puzzle &amp; Activity Book Generator · OpenClaw</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', system-ui, sans-serif; }
+        .bg-mesh {
+            background-color: #f7f6fb;
+            background-image:
+                radial-gradient(at 16% 10%, rgba(245, 158, 11, 0.11) 0px, transparent 50%),
+                radial-gradient(at 84% 16%, rgba(244, 63, 94, 0.08) 0px, transparent 50%),
+                radial-gradient(at 50% 92%, rgba(139, 92, 246, 0.10) 0px, transparent 55%);
+        }
+        .glass {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(18px) saturate(140%);
+            -webkit-backdrop-filter: blur(18px) saturate(140%);
+            border: 1px solid rgba(15, 23, 42, 0.08);
+        }
+        .field {
+            background: #ffffff;
+            border: 1px solid rgba(15, 23, 42, 0.14);
+            color: #0f172a;
+            transition: all 0.15s ease;
+        }
+        .field::placeholder { color: #94a3b8; }
+        .field:focus {
+            outline: none;
+            border-color: rgba(245, 158, 11, 0.65);
+            background: rgba(245, 158, 11, 0.04);
+            box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.16);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #f59e0b 0%, #f43f5e 55%, #8b5cf6 100%);
+            background-size: 200% 200%;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 24px -12px rgba(244, 63, 94, 0.75);
+        }
+        .btn-primary:hover { background-position: 100% 0; transform: translateY(-1px); }
+        .btn-primary:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+        .btn-ghost {
+            background: #ffffff;
+            border: 1px solid rgba(15, 23, 42, 0.12);
+            color: #334155;
+            transition: all 0.15s ease;
+        }
+        .btn-ghost:hover { background: #f1f5f9; border-color: rgba(15, 23, 42, 0.2); }
+        .section-card {
+            background: #ffffff;
+            border: 1px solid rgba(15, 23, 42, 0.10);
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+            transition: border-color .15s ease, opacity .15s ease;
+        }
+        .section-card.off { opacity: .55; }
+        .section-card.on { border-color: rgba(245, 158, 11, 0.45); }
+        .fade-up { animation: fadeUp .5s ease both; }
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(8px);} to {opacity:1; transform:none;} }
+        .log-line { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+        .scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+        .scroll-thin::-webkit-scrollbar-thumb { background: rgba(15,23,42,.16); border-radius: 8px; }
+        .badge { font-size: 10.5px; letter-spacing: .04em; }
+    </style>
+</head>
+<body class="bg-mesh min-h-full text-slate-700">
+
+<header class="sticky top-0 z-30 glass border-b border-slate-900/10">
+    <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 via-rose-500 to-violet-500 flex items-center justify-center font-extrabold text-white shadow-lg">OC</div>
+            <div>
+                <div class="text-sm font-semibold text-slate-900 leading-tight">OpenClaw</div>
+                <div class="text-[11px] text-slate-500 leading-tight">Puzzle &amp; Activity Studio</div>
+            </div>
+        </div>
+        <nav class="flex items-center gap-1 text-sm">
+            <a href="/" class="px-3 py-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-900/5 transition">
+                <i class="fas fa-book-open mr-1.5 text-xs"></i> BookWriter
+            </a>
+            <a href="/trivia" class="px-3 py-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-900/5 transition">
+                <i class="fas fa-circle-question mr-1.5 text-xs"></i> Trivia
+            </a>
+            <a href="/puzzle" class="px-3 py-1.5 rounded-lg bg-white text-slate-900 border border-slate-900/10 shadow-sm">
+                <i class="fas fa-puzzle-piece mr-1.5 text-xs"></i> Puzzles
+            </a>
+            <a href="/qr-code" class="px-3 py-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-900/5 transition">
+                <i class="fas fa-qrcode mr-1.5 text-xs"></i> QR Code
+            </a>
+        </nav>
+    </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-6 py-10">
+
+    <section class="text-center mb-10 fade-up">
+        <h1 class="text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight">
+            Build a
+            <span class="bg-gradient-to-r from-amber-500 via-rose-500 to-violet-500 bg-clip-text text-transparent">puzzle &amp; activity book</span>
+        </h1>
+        <p class="mt-3 text-slate-500 max-w-2xl mx-auto">
+            Mazes, word searches, crosswords, riddles, cryptograms and trivia — generated,
+            laid out and rendered at 300 DPI for a 6&times;9 trim, with every solution
+            collected into one answer key.
+        </p>
+    </section>
+
+    <section class="grid grid-cols-1 lg:grid-cols-5 gap-6 fade-up">
+
+        <!-- Left: config -->
+        <div class="lg:col-span-3 glass rounded-3xl p-6 md:p-8 shadow-xl shadow-slate-900/5">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-lg font-semibold text-slate-900">Book configuration</h2>
+                <div class="flex gap-2">
+                    <button id="btn-preset" class="btn-ghost px-3 py-1.5 rounded-lg text-xs">
+                        <i class="fas fa-wand-magic-sparkles mr-1"></i> Pilot preset
+                    </button>
+                    <button id="btn-import" class="btn-ghost px-3 py-1.5 rounded-lg text-xs">
+                        <i class="fas fa-file-import mr-1"></i> Import
+                    </button>
+                    <button id="btn-export" class="btn-ghost px-3 py-1.5 rounded-lg text-xs">
+                        <i class="fas fa-file-export mr-1"></i> Export
+                    </button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="md:col-span-2">
+                    <label class="block text-xs font-medium text-slate-600 mb-1.5">Book title</label>
+                    <input id="book_title" class="field w-full rounded-xl px-3.5 py-2.5 text-sm"
+                           placeholder="Crime Scene Puzzle Book for Kids Ages 8-12">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-xs font-medium text-slate-600 mb-1.5">Topic</label>
+                    <input id="topic" class="field w-full rounded-xl px-3.5 py-2.5 text-sm"
+                           placeholder="crime scene investigation and detective work">
+                    <p class="text-[11px] text-slate-500 mt-1">What the book is about. Drives every puzzle prompt.</p>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1.5">Audience</label>
+                    <input id="audience" class="field w-full rounded-xl px-3.5 py-2.5 text-sm"
+                           value="kids ages 8-12">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1.5">Difficulty</label>
+                    <select id="difficulty" class="field w-full rounded-xl px-3.5 py-2.5 text-sm">
+                        <option value="easy">Easy — words read forward only</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="hard">Hard — all eight directions</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1.5">OpenClaw agent</label>
+                    <input id="agent" class="field w-full rounded-xl px-3.5 py-2.5 text-sm" value="main">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1.5">Word search grid</label>
+                    <select id="wordsearch_grid" class="field w-full rounded-xl px-3.5 py-2.5 text-sm">
+                        <option value="11">11 &times; 11</option>
+                        <option value="13" selected>13 &times; 13</option>
+                        <option value="15">15 &times; 15</option>
+                        <option value="17">17 &times; 17</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1.5">Maze size (cols &times; rows)</label>
+                    <div class="flex gap-2">
+                        <input id="maze_cols" type="number" min="6" max="40" value="14"
+                               class="field w-full rounded-xl px-3.5 py-2.5 text-sm">
+                        <input id="maze_rows" type="number" min="6" max="50" value="20"
+                               class="field w-full rounded-xl px-3.5 py-2.5 text-sm">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1.5">Thinking</label>
+                    <select id="thinking" class="field w-full rounded-xl px-3.5 py-2.5 text-sm">
+                        <option value="">Default</option>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Sections -->
+            <div class="mt-8">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-slate-900">Sections</h3>
+                    <span id="totals" class="text-[11px] text-slate-500"></span>
+                </div>
+                <p class="text-[11px] text-slate-500 mb-3">
+                    Give each section its subjects one per line, or leave blank and they will be
+                    derived from the topic.
+                </p>
+                <div id="sections" class="space-y-3"></div>
+            </div>
+
+            <div class="mt-8 flex flex-wrap gap-3">
+                <button id="btn-generate" class="btn-primary text-white font-semibold rounded-xl px-6 py-3 text-sm">
+                    <i class="fas fa-play mr-2"></i> Generate book
+                </button>
+                <button id="btn-stop" class="btn-ghost rounded-xl px-5 py-3 text-sm hidden">
+                    <i class="fas fa-stop mr-2"></i> Stop
+                </button>
+                <input type="file" id="import-file" accept="application/json" class="hidden">
+            </div>
+            <p id="form-error" class="hidden mt-3 text-sm text-rose-600"></p>
+        </div>
+
+        <!-- Right: status -->
+        <div class="lg:col-span-2 space-y-6">
+            <div class="glass rounded-3xl p-6 shadow-xl shadow-slate-900/5">
+                <h2 class="text-lg font-semibold text-slate-900 mb-4">Build status</h2>
+
+                <div id="status-idle" class="text-sm text-slate-500 py-8 text-center">
+                    <i class="fas fa-puzzle-piece text-3xl text-slate-300 mb-3 block"></i>
+                    Configure the book, then start a build.
+                </div>
+
+                <div id="status-live" class="hidden">
+                    <div class="flex items-center justify-between mb-2">
+                        <span id="stage-label" class="text-sm font-medium text-slate-800">working</span>
+                        <span id="progress-pct" class="text-xs text-slate-500">0%</span>
+                    </div>
+                    <div class="h-2 rounded-full bg-slate-200 overflow-hidden mb-4">
+                        <div id="progress-bar" class="h-full rounded-full bg-gradient-to-r from-amber-500 via-rose-500 to-violet-500 transition-all duration-500" style="width:0%"></div>
+                    </div>
+
+                    <div id="usage-box" class="hidden grid grid-cols-3 gap-2 mb-4">
+                        <div class="rounded-xl bg-white border border-slate-900/10 px-3 py-2">
+                            <div class="text-[10px] uppercase tracking-wide text-slate-400">Cost</div>
+                            <div id="u-cost" class="text-sm font-semibold text-slate-900">$0</div>
+                        </div>
+                        <div class="rounded-xl bg-white border border-slate-900/10 px-3 py-2">
+                            <div class="text-[10px] uppercase tracking-wide text-slate-400">Tokens</div>
+                            <div id="u-tokens" class="text-sm font-semibold text-slate-900">0</div>
+                        </div>
+                        <div class="rounded-xl bg-white border border-slate-900/10 px-3 py-2">
+                            <div class="text-[10px] uppercase tracking-wide text-slate-400">Calls</div>
+                            <div id="u-calls" class="text-sm font-semibold text-slate-900">0</div>
+                        </div>
+                    </div>
+
+                    <div id="counts-box" class="hidden flex flex-wrap gap-1.5 mb-4"></div>
+
+                    <p id="job-error" class="hidden text-sm text-rose-600 mb-3"></p>
+                    <div id="job-warnings" class="hidden text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3 space-y-1"></div>
+
+                    <div id="downloads" class="hidden grid grid-cols-2 gap-2 mb-4"></div>
+
+                    <div id="logs" class="scroll-thin bg-slate-900 rounded-xl p-3 h-56 overflow-y-auto"></div>
+                </div>
+            </div>
+
+            <!-- Library -->
+            <div class="glass rounded-3xl p-6 shadow-xl shadow-slate-900/5">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold text-slate-900">Your puzzle books</h2>
+                    <button id="btn-refresh" class="btn-ghost px-3 py-1.5 rounded-lg text-xs">
+                        <i class="fas fa-rotate"></i>
+                    </button>
+                </div>
+                <div id="library" class="space-y-2 max-h-96 overflow-y-auto scroll-thin"></div>
+            </div>
+        </div>
+    </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let pollTimer = null;
+let currentJob = null;
+let SECTIONS = [];
+
+// The pilot book from the spec: Crime Scene Puzzle Book for Kids Ages 8-12.
+const PILOT = {
+    book_title: "Crime Scene Puzzle Book for Kids Ages 8-12",
+    topic: "crime scene investigation and detective work",
+    audience: "kids ages 8-12",
+    difficulty: "medium",
+    sections: {
+        word_searches: { subjects: [
+            "Detective Tools", "Types of Clues", "Police Station", "Mystery Words",
+            "Spy Gear", "City Locations", "Vehicles", "Forensics Basics",
+            "Courtroom Terms", "Secret Agents"
+        ]}
+    }
+};
+
+function sectionCard(s) {
+    const div = document.createElement("div");
+    div.className = "section-card on rounded-2xl p-4";
+    div.dataset.kind = s.kind;
+    const humanTag = s.human
+        ? `<span class="badge px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 font-semibold uppercase">Illustrator brief</span>`
+        : "";
+    div.innerHTML = `
+        <div class="flex items-center gap-3">
+            <input type="checkbox" class="sec-on rounded bg-white border-slate-300 text-amber-600 focus:ring-amber-500/40" checked>
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <span class="text-sm font-semibold text-slate-900">${s.label}</span>
+                    ${humanTag}
+                </div>
+                <div class="text-[11px] text-slate-500 sec-note"></div>
+            </div>
+            <div class="flex items-center gap-2">
+                <input type="number" min="0" max="60" value="${s.default_count}"
+                       class="sec-count field w-20 rounded-lg px-2.5 py-1.5 text-sm text-center">
+                <span class="text-[11px] text-slate-500 w-14">${s.unit}</span>
+                <button class="sec-toggle btn-ghost rounded-lg px-2 py-1.5 text-xs" title="Subjects">
+                    <i class="fas fa-list"></i>
+                </button>
+            </div>
+        </div>
+        <div class="sec-subjects hidden mt-3">
+            <label class="block text-[11px] font-medium text-slate-600 mb-1">
+                Subjects, one per line (optional)
+            </label>
+            <textarea rows="4" class="sec-subject-text field w-full rounded-xl px-3 py-2 text-xs"
+                      placeholder="Leave blank to derive from the topic"></textarea>
+        </div>`;
+
+    const note = div.querySelector(".sec-note");
+    if (s.kind === "trivia") note.textContent = "6 chapters × 10 questions is the spec default.";
+    else if (s.human) note.textContent = "Scene briefs only — drawn by a human illustrator.";
+    else if (s.kind === "word_searches") note.textContent = "9 words per puzzle.";
+    else if (s.kind === "crosswords") note.textContent = "6 interlocking words per puzzle.";
+
+    const cb = div.querySelector(".sec-on");
+    cb.addEventListener("change", () => {
+        div.classList.toggle("off", !cb.checked);
+        div.classList.toggle("on", cb.checked);
+        updateTotals();
+    });
+    div.querySelector(".sec-toggle").addEventListener("click", () => {
+        div.querySelector(".sec-subjects").classList.toggle("hidden");
+    });
+    div.querySelector(".sec-count").addEventListener("input", updateTotals);
+    return div;
+}
+
+function readConfig() {
+    const sections = {};
+    document.querySelectorAll("#sections .section-card").forEach(card => {
+        const subjects = card.querySelector(".sec-subject-text").value
+            .split("\n").map(s => s.trim()).filter(Boolean);
+        sections[card.dataset.kind] = {
+            enabled: card.querySelector(".sec-on").checked,
+            count: parseInt(card.querySelector(".sec-count").value, 10) || 0,
+            subjects,
+        };
+    });
+    return {
+        book_title: $("book_title").value.trim(),
+        topic: $("topic").value.trim(),
+        audience: $("audience").value.trim(),
+        difficulty: $("difficulty").value,
+        agent: $("agent").value.trim() || "main",
+        thinking: $("thinking").value,
+        wordsearch_grid: parseInt($("wordsearch_grid").value, 10),
+        maze_cols: parseInt($("maze_cols").value, 10),
+        maze_rows: parseInt($("maze_rows").value, 10),
+        sections,
+    };
+}
+
+function applyConfig(cfg) {
+    if (cfg.book_title) $("book_title").value = cfg.book_title;
+    if (cfg.topic) $("topic").value = cfg.topic;
+    if (cfg.audience) $("audience").value = cfg.audience;
+    if (cfg.difficulty) $("difficulty").value = cfg.difficulty;
+    if (cfg.agent) $("agent").value = cfg.agent;
+    if (cfg.wordsearch_grid) $("wordsearch_grid").value = cfg.wordsearch_grid;
+    if (cfg.maze_cols) $("maze_cols").value = cfg.maze_cols;
+    if (cfg.maze_rows) $("maze_rows").value = cfg.maze_rows;
+
+    document.querySelectorAll("#sections .section-card").forEach(card => {
+        const s = (cfg.sections || {})[card.dataset.kind];
+        if (!s) return;
+        if (s.count !== undefined) card.querySelector(".sec-count").value = s.count;
+        if (s.enabled !== undefined) {
+            const cb = card.querySelector(".sec-on");
+            cb.checked = !!s.enabled;
+            card.classList.toggle("off", !cb.checked);
+            card.classList.toggle("on", cb.checked);
+        }
+        if (s.subjects && s.subjects.length) {
+            card.querySelector(".sec-subject-text").value = s.subjects.join("\n");
+            card.querySelector(".sec-subjects").classList.remove("hidden");
+        }
+    });
+    updateTotals();
+}
+
+// Page estimate mirrors engine.BookConfig.page_estimate so the operator sees
+// the spec's budget table before paying for a build.
+const PAGES_PER_UNIT = {
+    picture_puzzles: 2, mazes: 1, riddles: 0.5, word_searches: 1,
+    cryptograms: 1, trivia: 3, crosswords: 1,
+};
+const AK_PER_UNIT = {
+    picture_puzzles: 0.5, mazes: 0.5, riddles: 1 / 20, word_searches: 0.5,
+    cryptograms: 0.1, trivia: 0.5, crosswords: 0.5,
+};
+
+function updateTotals() {
+    const cfg = readConfig();
+    let puzzlePages = 0, akPages = 0, enabled = 0, puzzles = 0;
+    for (const [kind, s] of Object.entries(cfg.sections)) {
+        if (!s.enabled || !s.count) continue;
+        enabled++;
+        puzzles += s.count;
+        puzzlePages += s.count * (PAGES_PER_UNIT[kind] || 1);
+        akPages += s.count * (AK_PER_UNIT[kind] || 0.5);
+    }
+    const total = Math.round(puzzlePages + akPages + enabled + 5);
+    $("totals").textContent =
+        `${enabled} sections · ${puzzles} puzzles · ~${total} pages`;
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+const SECTION_LABEL = {
+    picture_puzzles: "picture briefs", mazes: "mazes", riddles: "riddles",
+    word_searches: "word searches", cryptograms: "cryptograms",
+    trivia: "trivia chapters", crosswords: "crosswords",
+};
+
+function setStatus(s) {
+    $("status-idle").classList.add("hidden");
+    $("status-live").classList.remove("hidden");
+    $("stage-label").textContent = s.stage || s.status || "working";
+    const pct = Math.round((s.progress || 0) * 100);
+    $("progress-pct").textContent = pct + "%";
+    $("progress-bar").style.width = pct + "%";
+
+    const u = s.usage || {};
+    if (u.calls) {
+        $("u-cost").textContent = "$" + (u.cost_usd || 0).toFixed(4);
+        $("u-tokens").textContent = (u.total_tokens || 0).toLocaleString();
+        $("u-calls").textContent = u.calls + (u.cache_hits ? ` +${u.cache_hits}✓` : "");
+        $("usage-box").classList.remove("hidden");
+    } else {
+        $("usage-box").classList.add("hidden");
+    }
+
+    const counts = s.counts || {};
+    const chips = Object.entries(counts).filter(([, n]) => n > 0);
+    if (chips.length) {
+        $("counts-box").innerHTML = chips.map(([k, n]) =>
+            `<span class="badge px-2 py-1 rounded-lg bg-white border border-slate-900/10 text-slate-600">
+                <b class="text-slate-900">${n}</b> ${SECTION_LABEL[k] || k}</span>`).join("");
+        $("counts-box").classList.remove("hidden");
+    } else {
+        $("counts-box").classList.add("hidden");
+    }
+
+    if (s.error) {
+        $("job-error").textContent = s.error;
+        $("job-error").classList.remove("hidden");
+    } else {
+        $("job-error").classList.add("hidden");
+    }
+
+    if (s.warnings && s.warnings.length) {
+        $("job-warnings").innerHTML = s.warnings.map(w => `<div>${escapeHtml(w)}</div>`).join("");
+        $("job-warnings").classList.remove("hidden");
+    } else {
+        $("job-warnings").classList.add("hidden");
+    }
+
+    const logs = $("logs");
+    logs.innerHTML = (s.logs || []).map(l =>
+        `<div class="log-line text-slate-300">${escapeHtml(l)}</div>`).join("");
+    logs.scrollTop = logs.scrollHeight;
+
+    const kinds = [["zip","Handoff ZIP"],["docx","DOCX"],["paperback","Paperback"],
+                   ["kindle","Kindle"],["markdown","Markdown"],["json","JSON"]];
+    const available = kinds.filter(([k]) => s.outputs && s.outputs[k]);
+    if (available.length) {
+        const editBtn = `<a href="/puzzle/${s.id}/edit"
+                class="btn-primary rounded-xl px-3 py-2 text-xs text-center font-semibold col-span-2">
+                <i class="fas fa-pen-to-square mr-1"></i> Preview &amp; Edit</a>`;
+        $("downloads").innerHTML = editBtn + available.map(([k, label]) =>
+            `<a href="/api/puzzle/books/${s.id}/download/${k}"
+                class="btn-ghost text-slate-700 rounded-xl px-3 py-2 text-xs text-center">
+                <i class="fas fa-download mr-1"></i> ${label}</a>`).join("");
+        $("downloads").classList.remove("hidden");
+    } else {
+        $("downloads").classList.add("hidden");
+    }
+
+    const running = s.status === "running" || s.status === "queued";
+    $("btn-stop").classList.toggle("hidden", !running);
+    $("btn-generate").disabled = running;
+}
+
+async function poll(jobId) {
+    try {
+        const r = await fetch(`/api/puzzle/jobs/${jobId}/status`);
+        if (!r.ok) throw new Error("status " + r.status);
+        const s = await r.json();
+        setStatus(s);
+        if (s.status === "running" || s.status === "queued") {
+            pollTimer = setTimeout(() => poll(jobId), 2000);
+        } else {
+            loadLibrary();
+        }
+    } catch (e) {
+        $("stage-label").textContent = "Lost connection to build";
+    }
+}
+
+async function loadLibrary() {
+    try {
+        const r = await fetch("/api/puzzle/books");
+        const data = await r.json();
+        const box = $("library");
+        const books = data.books || [];
+        if (!books.length) {
+            box.innerHTML = `<p class="text-sm text-slate-500 py-6 text-center">No puzzle books yet.</p>`;
+            return;
+        }
+        const tone = {
+            done: "bg-emerald-100 text-emerald-700",
+            error: "bg-rose-100 text-rose-700",
+            running: "bg-amber-100 text-amber-700",
+            queued: "bg-slate-100 text-slate-600",
+            stopped: "bg-slate-100 text-slate-600",
+        };
+        box.innerHTML = books.map(b => {
+            // A book is only editable once it has generated content on disk.
+            const ready = !!b.json_path;
+            return `
+            <div class="rounded-2xl bg-white border border-slate-900/10 p-3 flex items-center gap-3
+                        ${ready ? "hover:border-amber-400/60 cursor-pointer" : ""}"
+                 ${ready ? `data-open="${b.id}"` : ""}>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-slate-900 truncate">${escapeHtml(b.title || "Untitled")}</div>
+                    <div class="text-[11px] text-slate-500 truncate">
+                        ${escapeHtml(b.topic || "")}${b.estimated_pages ? ` · ~${b.estimated_pages} pages` : ""}
+                    </div>
+                </div>
+                <span class="badge px-2 py-1 rounded-lg font-semibold uppercase ${tone[b.status] || tone.queued}">
+                    ${escapeHtml(b.status || "")}
+                </span>
+                ${ready ? `<a href="/puzzle/${b.id}/edit" data-noopen
+                    class="btn-ghost rounded-lg px-2 py-1.5 text-xs text-slate-700" title="Preview &amp; edit">
+                    <i class="fas fa-pen-to-square"></i></a>` : ""}
+                ${b.zip_path ? `<a href="/api/puzzle/books/${b.id}/download/zip" data-noopen
+                    class="btn-ghost rounded-lg px-2 py-1.5 text-xs" title="Download handoff zip">
+                    <i class="fas fa-file-zipper"></i></a>` : ""}
+                <button data-id="${b.id}" data-noopen
+                        class="lib-del btn-ghost rounded-lg px-2 py-1.5 text-xs text-rose-600" title="Delete">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>`;
+        }).join("");
+
+        // Clicking the row opens the editor, except on the action buttons.
+        box.querySelectorAll("[data-open]").forEach(row => {
+            row.addEventListener("click", ev => {
+                if (ev.target.closest("[data-noopen]")) return;
+                window.location.href = `/puzzle/${row.dataset.open}/edit`;
+            });
+        });
+        box.querySelectorAll(".lib-del").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                if (!confirm("Delete this puzzle book?")) return;
+                await fetch(`/api/puzzle/books/${btn.dataset.id}`, { method: "DELETE" });
+                loadLibrary();
+            });
+        });
+    } catch (e) { /* library is non-critical */ }
+}
+
+$("btn-refresh").addEventListener("click", loadLibrary);
+
+$("btn-preset").addEventListener("click", () => applyConfig(PILOT));
+
+$("btn-generate").addEventListener("click", async () => {
+    const cfg = readConfig();
+    $("form-error").classList.add("hidden");
+    if (!cfg.book_title || !cfg.topic) {
+        $("form-error").textContent = "Book title and topic are both required.";
+        $("form-error").classList.remove("hidden");
+        return;
+    }
+    $("btn-generate").disabled = true;
+    try {
+        const r = await fetch("/api/puzzle/jobs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || "Could not start the build.");
+        currentJob = data.job_id;
+        if (pollTimer) clearTimeout(pollTimer);
+        poll(currentJob);
+        loadLibrary();
+    } catch (e) {
+        $("form-error").textContent = e.message;
+        $("form-error").classList.remove("hidden");
+        $("btn-generate").disabled = false;
+    }
+});
+
+$("btn-stop").addEventListener("click", async () => {
+    if (!currentJob) return;
+    await fetch(`/api/puzzle/jobs/${currentJob}/stop`, { method: "POST" });
+});
+
+$("btn-export").addEventListener("click", () => {
+    const blob = new Blob([JSON.stringify(readConfig(), null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "puzzle_book_config.json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+});
+
+$("btn-import").addEventListener("click", () => $("import-file").click());
+$("import-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+        applyConfig(JSON.parse(await file.text()));
+    } catch (err) {
+        $("form-error").textContent = "That file is not valid JSON.";
+        $("form-error").classList.remove("hidden");
+    }
+    e.target.value = "";
+});
+
+// Boot: section list comes from the server so the UI never hardcodes it.
+(async function init() {
+    try {
+        const r = await fetch("/api/puzzle/defaults");
+        const data = await r.json();
+        SECTIONS = data.sections || [];
+        const box = $("sections");
+        SECTIONS.forEach(s => box.appendChild(sectionCard(s)));
+        updateTotals();
+    } catch (e) {
+        $("sections").innerHTML =
+            `<p class="text-sm text-rose-600">Could not load the section list.</p>`;
+    }
+    loadLibrary();
+})();
+</script>
+</body>
+</html>

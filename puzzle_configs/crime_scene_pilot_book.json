@@ -1,0 +1,94 @@
+{
+  "book_title": "Crime Scene Puzzle Book for Kids Ages 8-12",
+  "topic": "crime scene investigation and detective work",
+  "audience": "kids ages 8-12",
+  "difficulty": "medium",
+  "agent": "main",
+  "thinking": "",
+  "wordsearch_grid": 13,
+  "maze_cols": 14,
+  "maze_rows": 20,
+  "sections": {
+    "picture_puzzles": {
+      "enabled": true,
+      "count": 12,
+      "subjects": [
+        "Detective's Office",
+        "The Crime Scene Tape",
+        "Police Station Lobby",
+        "Forensics Laboratory",
+        "The Museum Break-In",
+        "Bank Robbery Getaway",
+        "Courtroom in Session",
+        "Stakeout in the Van",
+        "The Evidence Locker",
+        "Fingerprint Dusting",
+        "Interview Room",
+        "The Case Solved Party"
+      ]
+    },
+    "mazes": {
+      "enabled": true,
+      "count": 12,
+      "subjects": []
+    },
+    "riddles": {
+      "enabled": true,
+      "count": 20,
+      "subjects": []
+    },
+    "word_searches": {
+      "enabled": true,
+      "count": 10,
+      "subjects": [
+        "Detective Tools",
+        "Types of Clues",
+        "Police Station",
+        "Mystery Words",
+        "Spy Gear",
+        "City Locations",
+        "Vehicles",
+        "Forensics Basics",
+        "Courtroom Terms",
+        "Secret Agents"
+      ]
+    },
+    "cryptograms": {
+      "enabled": true,
+      "count": 10,
+      "subjects": []
+    },
+    "trivia": {
+      "enabled": true,
+      "count": 6,
+      "subjects": [
+        "Famous Detectives",
+        "Forensic Science Basics",
+        "Solving the Case",
+        "Police Work and Equipment",
+        "Clues and Evidence",
+        "Mystery Books and Movies"
+      ]
+    },
+    "crosswords": {
+      "enabled": true,
+      "count": 14,
+      "subjects": [
+        "Detective Basics",
+        "Crime Scene Words",
+        "Police Ranks",
+        "Evidence Types",
+        "Forensic Tools",
+        "Courtroom People",
+        "Mystery Vocabulary",
+        "Spy Equipment",
+        "Investigation Steps",
+        "Fingerprints and Prints",
+        "Witness Words",
+        "Case File Terms",
+        "Vehicles and Chases",
+        "Cracking the Case"
+      ]
+    }
+  }
+}

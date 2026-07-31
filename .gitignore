@@ -28,3 +28,6 @@ env/
 # Build/output directories
 web_outputs/
 web_uploads/
+trivia_outputs/
+puzzle_outputs/
+puzzle_test_output/
