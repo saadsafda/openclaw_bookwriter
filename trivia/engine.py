@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import json
 import math
+import random
 import re
 import subprocess
+import time
 import unicodedata
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -64,6 +66,40 @@ class TriviaError(RuntimeError):
 
 class ValidationGateError(TriviaError):
     """A hard gate (Section 6 / Section 8) rejected the book for export."""
+
+
+class ProviderRejectionError(TriviaError):
+    """The upstream provider refused the request itself.
+
+    Distinct from a content failure: retrying the identical prompt cannot fix
+    it, so the refill loop must abort instead of burning its whole budget. Also
+    never cached — see RawOutputCache.set.
+    """
+
+
+# OpenClaw exits 0 for these: the CLI ran fine, the *provider* refused, and the
+# refusal arrives as ordinary reply text. Matched on the message because there
+# is no distinguishing status field to key on.
+_PROVIDER_REJECTION_MARKERS = (
+    "llm request failed",
+    "provider rejected the request",
+    "schema or tool payload",
+    "request too large",
+    "context length exceeded",
+    "prompt is too long",
+)
+
+
+def is_provider_rejection(reply: str) -> bool:
+    """True when a reply is an upstream refusal rather than model output.
+
+    Only meaningful for short replies — a legitimate trivia batch could quote
+    one of these phrases inside a question, but never in a one-line answer.
+    """
+    s = (reply or "").strip().lower()
+    if not s or len(s) > 600:
+        return False
+    return any(marker in s for marker in _PROVIDER_REJECTION_MARKERS)
 
 
 # --------------------------------------------------------------------------
@@ -435,11 +471,30 @@ class RawOutputCache:
         return None
 
     def set(self, key: str, stdout: str, prompt: str = "") -> None:
+        """Store a reply, but only one worth replaying.
+
+        A provider rejection is a well-formed JSON envelope carrying an error
+        sentence as its payload text, so an emptiness check alone lets it
+        through. Caching one is permanent: the next run keys off the identical
+        prompt, hits this entry, and re-raises the failure without ever calling
+        the provider — so the build can never recover on its own.
+        """
         if not (stdout or "").strip():
+            return
+        if is_provider_rejection(parse_openclaw_reply(stdout)):
             return
         (self.path / f"{key}.json").write_text(stdout, encoding="utf-8")
         if prompt:
             (self.path / f"{key}.prompt.txt").write_text(prompt, encoding="utf-8")
+
+    def evict(self, key: str) -> None:
+        """Drop an entry that turned out to be unusable.
+
+        Covers caches written before set() screened rejections, so an existing
+        poisoned cache heals on the next run instead of needing a manual rm.
+        """
+        (self.path / f"{key}.json").unlink(missing_ok=True)
+        (self.path / f"{key}.prompt.txt").unlink(missing_ok=True)
 
 
 # --------------------------------------------------------------------------
@@ -455,19 +510,41 @@ def call_openclaw_raw(
     timeout_s: int = DEFAULT_TIMEOUT,
     cache: Optional["RawOutputCache"] = None,
     ledger: Optional["UsageLedger"] = None,
+    session_id: str = "",
+    log: Optional[Callable[[str], None]] = None,
 ) -> str:
     """One openclaw agent call, same shape as email_agent._call_openclaw.
 
     When a cache is supplied, an identical prompt is served from disk instead
     of being re-billed (Section 12).
+
+    Each batch is an independent one-shot request, so callers pass a per-build
+    session_id. Without one the CLI files every call under the shared default
+    session key, where hundreds of batches and their replies pile up into a
+    single conversation until the provider refuses the request outright.
     """
+    from openclaw_docx_writer import (
+        OPENCLAW_BACKOFF_BASE_S,
+        OPENCLAW_BACKOFF_CAP_S,
+        OPENCLAW_MAX_ATTEMPTS,
+        _is_retryable_openclaw_failure,
+    )
+
+    say = log or (lambda _m: None)
     key = RawOutputCache.key_for(agent_id, message) if cache is not None else ""
     if cache is not None:
         hit = cache.get(key)
         if hit is not None:
-            if ledger is not None:
-                ledger.note_cache_hit()
-            return parse_openclaw_reply(hit)
+            replay = parse_openclaw_reply(hit)
+            # Caches written before set() screened rejections still hold
+            # poisoned entries; drop them and pay for a real call instead.
+            if is_provider_rejection(replay):
+                say("  discarding cached provider rejection; re-requesting")
+                cache.evict(key)
+            else:
+                if ledger is not None:
+                    ledger.note_cache_hit()
+                return replay
 
     cmd = ["openclaw", "agent", "--agent", agent_id, "--message", message, "--json"]
     if local:
@@ -476,19 +553,49 @@ def call_openclaw_raw(
         cmd += ["--thinking", thinking]
     if timeout_s > 0:
         cmd += ["--timeout", str(timeout_s)]
-    p = subprocess.run(cmd, capture_output=True, text=True)
-    if p.returncode != 0:
-        raise TriviaError(
-            "OpenClaw call failed.\n"
-            f"Command: {' '.join(cmd[:6])} ...\n\n"
-            f"STDERR:\n{p.stderr[:2000]}"
-        )
+    if session_id:
+        cmd += ["--session-id", session_id]
+
+    for attempt in range(1, OPENCLAW_MAX_ATTEMPTS + 1):
+        p = subprocess.run(cmd, capture_output=True, text=True)
+        if p.returncode == 0:
+            break
+
+        retryable = _is_retryable_openclaw_failure(p.stdout, p.stderr)
+        if not retryable or attempt == OPENCLAW_MAX_ATTEMPTS:
+            reason = (
+                f"still failing after {attempt} attempts"
+                if retryable
+                else "not a retryable error"
+            )
+            raise TriviaError(
+                f"OpenClaw call failed ({reason}).\n"
+                f"Command: {' '.join(cmd[:6])} ...\n\n"
+                f"STDERR:\n{p.stderr[:2000]}"
+            )
+
+        # Full jitter, matching the prose writer: parallel builds hitting one
+        # overloaded gateway must not retry in lockstep.
+        delay = min(OPENCLAW_BACKOFF_CAP_S, OPENCLAW_BACKOFF_BASE_S * (2 ** (attempt - 1)))
+        delay = random.uniform(0, delay)
+        say(f"  AI service busy (attempt {attempt}/{OPENCLAW_MAX_ATTEMPTS}); retrying in {delay:.1f}s")
+        time.sleep(delay)
+
+    reply = parse_openclaw_reply(p.stdout)
+
+    # Exit code 0 with a refusal in the payload. Real spend may still have been
+    # incurred, so meter it, but never cache it and never let the caller retry
+    # an identical prompt that cannot succeed.
+    if is_provider_rejection(reply):
+        if ledger is not None:
+            ledger.record(p.stdout)
+        raise ProviderRejectionError(reply.strip())
 
     if ledger is not None:
         ledger.record(p.stdout)
     if cache is not None:
         cache.set(key, p.stdout, prompt=message)
-    return parse_openclaw_reply(p.stdout)
+    return reply
 
 
 def _extract_json_array(text: str) -> list[Any]:
@@ -819,11 +926,13 @@ class DedupChecker:
         log: Optional[Callable[[str], None]] = None,
         cache: Optional["RawOutputCache"] = None,
         ledger: Optional["UsageLedger"] = None,
+        session_id: str = "",
     ) -> None:
         self.cfg = cfg
         self.log = log or (lambda _m: None)
         self.cache = cache
         self.ledger = ledger
+        self.session_id = session_id
 
     def _judge(self, pairs: list[tuple[str, str]]) -> list[bool]:
         if not pairs:
@@ -840,8 +949,15 @@ class DedupChecker:
                     timeout_s=self.cfg.timeout_s,
                     cache=self.cache,
                     ledger=self.ledger,
+                    session_id=self.session_id,
+                    log=self.log,
                 )
                 parsed = _extract_json_array(reply)
+            except ProviderRejectionError:
+                # Not a judgement failure — the provider is refusing calls
+                # outright. Marking the chunk as duplicates would silently
+                # delete good content, so surface it to the build instead.
+                raise
             except TriviaError as exc:
                 # A judge failure must not silently pass content through the
                 # gate — treat the whole chunk as colliding so it regenerates.

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -24,6 +25,7 @@ from .engine import (
     Collision,
     DedupChecker,
     DidYouKnowFact,
+    ProviderRejectionError,
     TriviaBook,
     TriviaError,
     TriviaQuestion,
@@ -67,8 +69,17 @@ class TriviaBuilder:
         self.cache: Optional[engine.RawOutputCache] = None
         if cache_dir is not None:
             self.cache = engine.RawOutputCache(Path(cache_dir))
+        # One throwaway session per build. Batches are independent one-shots;
+        # letting them share the CLI's default session accumulates every prompt
+        # and reply into one conversation that eventually exceeds what the
+        # provider accepts, failing the build with an opaque rejection.
+        self.session_id = f"trivia-{uuid.uuid4().hex[:12]}"
         self.checker = DedupChecker(
-            cfg, log=self.log, cache=self.cache, ledger=self.ledger
+            cfg,
+            log=self.log,
+            cache=self.cache,
+            ledger=self.ledger,
+            session_id=self.session_id,
         )
         self.book = TriviaBook(config=cfg)
         self.collisions: list[Collision] = []
@@ -88,6 +99,8 @@ class TriviaBuilder:
             timeout_s=self.cfg.timeout_s,
             cache=self.cache,
             ledger=self.ledger,
+            session_id=self.session_id,
+            log=self.log,
         )
         return engine._extract_json_array(reply)
 
@@ -109,6 +122,7 @@ class TriviaBuilder:
         self.log(f"Chapter {ch_cfg.chapter_number}: generating {target} trivia questions")
         accepted: list[TriviaQuestion] = []
         rounds = 0
+        upstream_failures = 0
 
         while len(accepted) < target and rounds < MAX_REFILL_ROUNDS + target // engine.TRIVIA_BATCH:
             self._check_stop()
@@ -124,7 +138,15 @@ class TriviaBuilder:
             prompt = engine.build_trivia_prompt(self.cfg, ch_cfg, batch_size, avoid)
             try:
                 raw = self._generate_batch(prompt)
+            except ProviderRejectionError as exc:
+                # Re-sending the same prompt cannot clear an upstream refusal.
+                raise TriviaError(
+                    f"Chapter {ch_cfg.chapter_number}: the AI provider refused the "
+                    f"request, so no trivia could be generated — {exc}. This is not "
+                    "a problem with your chapter scope or trivia_count."
+                ) from exc
             except TriviaError as exc:
+                upstream_failures += 1
                 self.log(f"  batch failed ({exc}); retrying")
                 continue
 
@@ -148,10 +170,28 @@ class TriviaBuilder:
             self.log(f"  chapter {ch_cfg.chapter_number}: {len(accepted)}/{target} questions")
 
         if len(accepted) < target:
+            # Blaming the scope is actively misleading when every batch died
+            # upstream — the operator would rewrite a config that was fine.
+            if upstream_failures == rounds:
+                hint = (
+                    "Every attempt failed before any content was generated, so this "
+                    "is an AI service problem, not a problem with your chapter scope "
+                    "or trivia_count. Check the batch errors above."
+                )
+            elif upstream_failures:
+                hint = (
+                    f"{upstream_failures} of {rounds} attempts failed upstream; the "
+                    "rest were rejected by validation or the dedup gate. Retry, and "
+                    "if it persists widen the chapter scope or lower trivia_count."
+                )
+            else:
+                hint = (
+                    "Attempts succeeded but the content was rejected as duplicate or "
+                    "invalid. Widen the chapter scope or lower trivia_count."
+                )
             raise ValidationGateError(
                 f"Chapter {ch_cfg.chapter_number}: only produced {len(accepted)} of "
-                f"{target} required trivia questions after {rounds} attempts. "
-                "Narrow the chapter scope or lower trivia_count."
+                f"{target} required trivia questions after {rounds} attempts. {hint}"
             )
 
         # Final numbering, stable and sequential.
@@ -174,6 +214,7 @@ class TriviaBuilder:
         self.log(f"Chapter {ch_cfg.chapter_number}: generating {target} facts")
         accepted: list[DidYouKnowFact] = []
         rounds = 0
+        upstream_failures = 0
 
         while len(accepted) < target and rounds < MAX_REFILL_ROUNDS + target // engine.FACT_BATCH:
             self._check_stop()
@@ -190,7 +231,14 @@ class TriviaBuilder:
             prompt = engine.build_facts_prompt(self.cfg, ch_cfg, batch_size, exclusions)
             try:
                 raw = self._generate_batch(prompt)
+            except ProviderRejectionError as exc:
+                raise TriviaError(
+                    f"Chapter {ch_cfg.chapter_number}: the AI provider refused the "
+                    f"request, so no facts could be generated — {exc}. This is not a "
+                    "problem with your chapter scope or fact_count."
+                ) from exc
             except TriviaError as exc:
+                upstream_failures += 1
                 self.log(f"  batch failed ({exc}); retrying")
                 continue
 
@@ -223,10 +271,26 @@ class TriviaBuilder:
             self.log(f"  chapter {ch_cfg.chapter_number}: {len(accepted)}/{target} facts")
 
         if len(accepted) < target:
+            if upstream_failures == rounds:
+                hint = (
+                    "Every attempt failed before any content was generated, so this "
+                    "is an AI service problem, not a problem with your chapter scope "
+                    "or fact_count. Check the batch errors above."
+                )
+            elif upstream_failures:
+                hint = (
+                    f"{upstream_failures} of {rounds} attempts failed upstream; the "
+                    "no-overlap gate rejected the rest. Retry, and if it persists "
+                    "widen the scope or lower fact_count."
+                )
+            else:
+                hint = (
+                    "The no-overlap gate rejected the rest. Widen the chapter scope "
+                    "or lower fact_count."
+                )
             raise ValidationGateError(
                 f"Chapter {ch_cfg.chapter_number}: only produced {len(accepted)} of "
-                f"{target} required facts after {rounds} attempts. The no-overlap "
-                "gate rejected the rest. Narrow the scope or lower fact_count."
+                f"{target} required facts after {rounds} attempts. {hint}"
             )
 
         for i, f in enumerate(accepted, start=1):
