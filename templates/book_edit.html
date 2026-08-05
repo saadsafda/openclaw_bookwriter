@@ -164,6 +164,10 @@
                class="btn-ghost px-3 py-2 rounded-lg text-xs" title="Download this version">
                 <i class="fas fa-download mr-1"></i> Download
             </a>
+            <button id="btn-strip-ai" class="btn-ghost px-3 py-2 rounded-lg text-xs"
+                    title="Remove AI metadata from images and text">
+                <i class="fas fa-eraser mr-1"></i> Strip AI
+            </button>
             <button id="btn-save" class="btn-primary px-4 py-2 rounded-lg text-xs font-semibold">
                 <i class="fas fa-save mr-1"></i> Save edits
             </button>
@@ -407,6 +411,25 @@
 </div>
 
 <div id="toast" class="toast opacity-0 pointer-events-none rounded-xl px-4 py-2.5 text-sm shadow-lg"></div>
+
+<!-- ===== Strip AI metadata: confirm dialog ===== -->
+<div id="strip-ai-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 p-4">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+            <i class="fas fa-eraser text-slate-400"></i>
+            <h3 class="font-semibold text-sm text-slate-900">Remove AI fingerprints</h3>
+        </div>
+        <div id="strip-ai-body" class="px-5 py-4 text-sm text-slate-700 max-h-[55vh] overflow-y-auto">
+            <div class="text-slate-400 text-xs">Scanning…</div>
+        </div>
+        <div class="px-5 py-3 bg-slate-50 flex items-center justify-end gap-2">
+            <button id="strip-ai-cancel" class="btn-ghost px-3 py-2 rounded-lg text-xs">Cancel</button>
+            <button id="strip-ai-apply" class="btn-primary px-4 py-2 rounded-lg text-xs font-semibold" disabled>
+                Apply changes
+            </button>
+        </div>
+    </div>
+</div>
 
 <script src="/static/book_editor.js"></script>
 <script>
@@ -1033,6 +1056,95 @@ window.addEventListener("beforeunload", (e) => {
         e.returnValue = "";
     }
 });
+
+// ---------- strip AI fingerprints ----------
+// Preview first: the text pass rewrites the manuscript, so the operator sees
+// the counts and confirms before anything is written.
+const stripAiUrl = () => `/api/books/${BOOK_ID}/strip-ai?which=${encodeURIComponent(whichVersion())}`;
+
+function stripAiRender(r) {
+    const rows = [];
+    if (r.images_flagged) {
+        rows.push(`<div class="mb-3">
+            <div class="font-semibold text-slate-900 mb-1">
+                ${r.images_flagged} of ${r.images_total} image(s) need fixing
+            </div>
+            <ul class="text-xs text-slate-600 space-y-1">` +
+            (r.image_details || []).map(d =>
+                `<li><span class="font-mono">${esc(d.file)}</span><br>
+                 <span class="text-slate-400">${esc((d.problems || []).join("; "))}</span></li>`
+            ).join("") + `</ul></div>`);
+    } else {
+        rows.push(`<div class="mb-3 text-slate-500">
+            All ${r.images_total} image(s) are already 300 DPI with no metadata.</div>`);
+    }
+
+    const fp = r.text_fingerprints || {};
+    const keys = Object.keys(fp);
+    if (keys.length) {
+        rows.push(`<div class="mb-2">
+            <div class="font-semibold text-slate-900 mb-1">
+                ${r.text_total} AI text fingerprint(s) found
+            </div>
+            <ul class="text-xs text-slate-600 space-y-0.5">` +
+            keys.map(k => `<li>${esc(k)} &times; ${fp[k]}</li>`).join("") +
+            `</ul>
+            <div class="text-[11px] text-slate-400 mt-2">
+                These are invisible characters and smart punctuation. Your wording is left exactly as written.
+            </div></div>`);
+    } else {
+        rows.push(`<div class="text-slate-500">No AI text fingerprints found.</div>`);
+    }
+    return rows.join("");
+}
+
+async function stripAiScan() {
+    const modal = $("strip-ai-modal");
+    modal.classList.remove("hidden");
+    modal.classList.add("flex");
+    $("strip-ai-body").innerHTML = `<div class="text-slate-400 text-xs">Scanning…</div>`;
+    $("strip-ai-apply").disabled = true;
+    try {
+        const r = await api(stripAiUrl(), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ apply: false }),
+        });
+        $("strip-ai-body").innerHTML = stripAiRender(r);
+        const nothing = !r.images_flagged && !r.text_total;
+        $("strip-ai-apply").disabled = nothing;
+        $("strip-ai-apply").textContent = nothing ? "Nothing to clean" : "Apply changes";
+    } catch (e) {
+        $("strip-ai-body").innerHTML =
+            `<div class="text-red-600 text-xs">${esc(e.message)}</div>`;
+    }
+}
+
+function stripAiClose() {
+    const modal = $("strip-ai-modal");
+    modal.classList.add("hidden");
+    modal.classList.remove("flex");
+}
+
+$("btn-strip-ai").addEventListener("click", stripAiScan);
+$("strip-ai-cancel").addEventListener("click", stripAiClose);
+$("strip-ai-apply").addEventListener("click", async () => {
+    $("strip-ai-apply").disabled = true;
+    try {
+        const r = await api(stripAiUrl(), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ apply: true }),
+        });
+        stripAiClose();
+        toast(`Cleaned ${r.images_total} image(s) and ${r.text_fields_changed || 0} text field(s). Re-export to rebuild the files.`);
+        loadDocument();
+    } catch (e) {
+        toast(e.message, "err");
+        $("strip-ai-apply").disabled = false;
+    }
+});
+
 
 (async function init() {
     await loadHeadings();

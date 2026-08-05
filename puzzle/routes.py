@@ -20,6 +20,7 @@ from typing import Any, Optional
 from flask import abort, jsonify, render_template, request, send_file
 
 import db as bookdb
+from print_hygiene import strip_ai_report
 from . import edit as editor
 from . import export as exporter
 from . import pipeline
@@ -510,6 +511,25 @@ def register(app) -> None:  # noqa: ANN001
         response = send_file(path_str, mimetype="image/png")
         response.headers["Cache-Control"] = "no-store"
         return response
+
+    @app.post("/api/puzzle/books/<book_id>/strip-ai")
+    def puzzle_strip_ai(book_id: str):  # noqa: ANN202
+        """Report, or remove, AI fingerprints in this book's images and text.
+
+        POST {"apply": false} previews; {"apply": true} performs the cleanup
+        and re-saves. Preview first is the default so prose is never rewritten
+        without the operator seeing the counts.
+        """
+        payload = request.get_json(silent=True) or {}
+        apply = bool(payload.get("apply"))
+        try:
+            _row, json_path, book = _load_book_for_edit(book_id)
+            result = strip_ai_report(book, json_path.parent, apply=apply)
+            if apply:
+                _save_book(book, json_path)
+            return jsonify({"ok": True, **result})
+        except PuzzleError as exc:
+            return jsonify({"error": str(exc)}), 400
 
     @app.patch("/api/puzzle/books/<book_id>/riddles/<item_id>")
     def puzzle_edit_riddle(book_id: str, item_id: str):  # noqa: ANN202

@@ -13,17 +13,26 @@ which is not an integer. Pillow rounds it to 11811, so a naive
 ``save(dpi=(300, 300))`` reads back as 299.9994 forever. Some print
 preflight checks floor that to 299 and reject the file as under 300 DPI.
 
-``write_pHYs_exact()`` rewrites the chunk to 11812 ppm, which is the value
-that rounds *up* to a clean 300.0 on read-back. JPEG is unaffected — it
-stores DPI as a plain integer in JFIF, so 300 is exact there.
+``write_pHYs_exact()`` pins the chunk to 11811 ppm, the closest PNG can
+represent; it reads back as 299.9994, which is exactly 300.0 at the two
+decimals preflight tools report. JPEG is unaffected — it stores DPI as a
+plain integer in JFIF, so 300 is exact there.
 
 Everything funnels through :func:`sanitize_for_print`, so there is one
 chokepoint to audit rather than one per generator.
+
+The second half of this module does the equivalent job for *text*:
+:func:`scrub_text` removes the invisible characters that mark a manuscript as
+machine-generated (zero-width joiners, non-breaking spaces, smart quotes,
+em dashes) without touching the author's wording. Rewriting prose is a
+separate concern and lives in ``openclaw_docx_writer.humanize_text``.
 """
 
 from __future__ import annotations
 
+import re
 import struct
+import tempfile
 from pathlib import Path
 
 from PIL import Image
@@ -202,6 +211,321 @@ def sanitize_tree(root: str | Path, dpi: int = PRINT_DPI) -> list[Path]:
             sanitize_for_print(p, dpi)
             done.append(p)
     return done
+
+
+# --------------------------------------------------------------------------
+# Text fingerprints
+# --------------------------------------------------------------------------
+
+# Characters that are invisible (or near-invisible) in a manuscript but are a
+# reliable tell that text came from a model or was pasted through a web UI.
+# Mapped to what a human typing in a word processor would have produced.
+_INVISIBLE = {
+    "​": "",        # zero-width space
+    "‌": "",        # zero-width non-joiner
+    "‍": "",        # zero-width joiner
+    "⁠": "",        # word joiner
+    "﻿": "",        # BOM / zero-width no-break space
+    "­": "",        # soft hyphen
+    "᠎": "",        # Mongolian vowel separator
+    " ": " ",       # non-breaking space
+    " ": " ",       # narrow no-break space
+    " ": " ",       # thin space
+    " ": " ",       # en space
+    " ": " ",       # em space
+}
+
+# Typographic characters models emit that a plain manuscript would not.
+_TYPOGRAPHIC = {
+    "—": ", ",      # em dash  -> comma, matching humanize_text()
+    "–": ", ",      # en dash  -> comma
+    "‘": "'",       # left single quote
+    "’": "'",       # right single quote / apostrophe
+    "“": '"',       # left double quote
+    "”": '"',       # right double quote
+    "…": "...",     # ellipsis
+    "′": "'",       # prime
+    "″": '"',       # double prime
+}
+
+# Human-readable names, for the preview the operator confirms against.
+_CHAR_NAMES = {
+    "​": "zero-width space", "‌": "zero-width non-joiner",
+    "‍": "zero-width joiner", "⁠": "word joiner",
+    "﻿": "byte-order mark", "­": "soft hyphen",
+    "᠎": "Mongolian vowel separator", " ": "non-breaking space",
+    " ": "narrow no-break space", " ": "thin space",
+    " ": "en space", " ": "em space",
+    "—": "em dash", "–": "en dash",
+    "‘": "left single quote", "’": "right single quote",
+    "“": "left double quote", "”": "right double quote",
+    "…": "ellipsis", "′": "prime", "″": "double prime",
+}
+
+
+def scan_text(text: str) -> dict[str, int]:
+    """Count AI-fingerprint characters in ``text``. Keys are readable names."""
+    if not text:
+        return {}
+    found: dict[str, int] = {}
+    for ch in list(_INVISIBLE) + list(_TYPOGRAPHIC):
+        n = text.count(ch)
+        if n:
+            found[_CHAR_NAMES.get(ch, repr(ch))] = found.get(_CHAR_NAMES.get(ch, repr(ch)), 0) + n
+    return found
+
+
+def scrub_text(text: str) -> str:
+    """Strip invisible/typographic AI fingerprints, leaving wording intact.
+
+    Deliberately does not rewrite prose — no phrase removal, no contractions.
+    That is ``humanize_text``'s job and it changes meaning; this function is
+    safe to run on finished copy.
+    """
+    if not text:
+        return text
+    for ch, repl in _INVISIBLE.items():
+        text = text.replace(ch, repl)
+    for ch, repl in _TYPOGRAPHIC.items():
+        text = text.replace(ch, repl)
+    # The dash substitutions can leave doubled punctuation or stray spacing.
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    # Only pull punctuation back across spaces/tabs — matching \s here would
+    # swallow the newline and join separate lines of a riddle or poem.
+    text = re.sub(r"[ \t]+([.,;:!?])", r"\1", text)
+    text = re.sub(r",[ \t]*,", ",", text)
+    # A dash at end-of-line becomes ", " and leaves a trailing space.
+    text = re.sub(r"[ \t]+(?=\n)", "", text)
+    text = re.sub(r"[ \t]+$", "", text)
+    return text
+
+
+# Fields that hold identifiers or filesystem paths, never prose. Rewriting a
+# path would break the image links; rewriting an id would break edit routing.
+_NON_PROSE_FIELDS = {
+    "id", "image_path", "solution_path", "illustration_path", "cipher",
+    "encoded", "grid", "numbers", "placements", "seed", "specs",
+}
+
+
+def scan_book_text(obj: object) -> dict[str, int]:
+    """Recursively count AI fingerprints in every prose field of a book."""
+    totals: dict[str, int] = {}
+
+    def _merge(found: dict[str, int]) -> None:
+        for name, n in found.items():
+            totals[name] = totals.get(name, 0) + n
+
+    def _walk(node: object, field_name: str = "") -> None:
+        if isinstance(node, str):
+            if field_name not in _NON_PROSE_FIELDS:
+                _merge(scan_text(node))
+        elif isinstance(node, (list, tuple)):
+            for item in node:
+                _walk(item, field_name)
+        elif isinstance(node, dict):
+            for key, value in node.items():
+                _walk(value, str(key))
+        elif hasattr(node, "__dataclass_fields__"):
+            for name in node.__dataclass_fields__:
+                _walk(getattr(node, name, None), name)
+
+    _walk(obj)
+    return totals
+
+
+def scrub_book_text(obj: object) -> int:
+    """Recursively scrub prose fields in place. Returns the field count changed."""
+    changed = 0
+
+    def _clean_str(value: str) -> str:
+        return scrub_text(value)
+
+    def _walk(node: object, field_name: str = "") -> object:
+        nonlocal changed
+        if isinstance(node, str):
+            if field_name in _NON_PROSE_FIELDS:
+                return node
+            cleaned = _clean_str(node)
+            if cleaned != node:
+                changed += 1
+            return cleaned
+        if isinstance(node, list):
+            for i, item in enumerate(node):
+                node[i] = _walk(item, field_name)
+            return node
+        if isinstance(node, tuple):
+            return tuple(_walk(item, field_name) for item in node)
+        if isinstance(node, dict):
+            for key in list(node):
+                node[key] = _walk(node[key], str(key))
+            return node
+        if hasattr(node, "__dataclass_fields__"):
+            for name in node.__dataclass_fields__:
+                setattr(node, name, _walk(getattr(node, name, None), name))
+            return node
+        return node
+
+    _walk(obj)
+    return changed
+
+
+def strip_ai_report(book: object, job_dir: str | Path, *, apply: bool = False) -> dict:
+    """Scan (or clean) a book's images and prose in one pass.
+
+    With ``apply=False`` this only reports, so the operator can confirm before
+    any manuscript is rewritten. With ``apply=True`` it strips image metadata,
+    pins DPI, and scrubs text fingerprints in place.
+
+    The caller is responsible for persisting ``book`` and re-exporting.
+    """
+    job_dir = Path(job_dir)
+
+    image_problems = audit_tree(job_dir, PRINT_DPI) if job_dir.exists() else {}
+    images_total = sum(
+        1 for p in job_dir.rglob("*")
+        if p.is_file() and p.suffix.lower() in _RASTER_SUFFIXES
+    ) if job_dir.exists() else 0
+
+    text_found = scan_book_text(book)
+
+    result = {
+        "images_total": images_total,
+        "images_flagged": len(image_problems),
+        "image_details": [
+            {"file": str(p.relative_to(job_dir) if p.is_relative_to(job_dir) else p),
+             "problems": probs}
+            for p, probs in list(image_problems.items())[:50]
+        ],
+        "text_fingerprints": text_found,
+        "text_total": sum(text_found.values()),
+        "applied": False,
+    }
+
+    if apply:
+        if job_dir.exists():
+            sanitize_tree(job_dir, PRINT_DPI)
+        result["text_fields_changed"] = scrub_book_text(book)
+        result["applied"] = True
+
+    return result
+
+
+def strip_ai_docx(docx_path: str | Path, *, apply: bool = False) -> dict:
+    """Scan (or clean) a .docx: embedded image metadata/DPI and text fingerprints.
+
+    Used for the plain book editor, which works on documents rather than a JSON
+    book object. Images live in ``word/media/`` inside the zip, so they are
+    extracted, sanitized, and written back.
+    """
+    from docx import Document
+
+    docx_path = Path(docx_path)
+    if not docx_path.exists():
+        raise PrintHygieneError(f"{docx_path}: not found")
+
+    doc = Document(str(docx_path))
+
+    # --- text ---
+    text_found: dict[str, int] = {}
+    for para in doc.paragraphs:
+        for name, n in scan_text(para.text).items():
+            text_found[name] = text_found.get(name, 0) + n
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for name, n in scan_text(cell.text).items():
+                    text_found[name] = text_found.get(name, 0) + n
+
+    # --- images (inspect the zip parts directly) ---
+    import zipfile
+
+    image_problems: dict[str, list[str]] = {}
+    images_total = 0
+    with zipfile.ZipFile(docx_path) as zf:
+        media = [n for n in zf.namelist() if n.startswith("word/media/")]
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in media:
+                suffix = Path(name).suffix.lower()
+                if suffix not in _RASTER_SUFFIXES:
+                    continue
+                images_total += 1
+                scratch = Path(tmp) / Path(name).name
+                scratch.write_bytes(zf.read(name))
+                problems = audit_image(scratch, PRINT_DPI)
+                if problems:
+                    image_problems[name] = problems
+
+    result = {
+        "images_total": images_total,
+        "images_flagged": len(image_problems),
+        "image_details": [
+            {"file": name, "problems": probs}
+            for name, probs in list(image_problems.items())[:50]
+        ],
+        "text_fingerprints": text_found,
+        "text_total": sum(text_found.values()),
+        "applied": False,
+    }
+    if not apply:
+        return result
+
+    # --- apply: rewrite runs in place, then rebuild the zip with clean media ---
+    changed_runs = 0
+    for para in doc.paragraphs:
+        for run in para.runs:
+            cleaned = scrub_text(run.text)
+            if cleaned != run.text:
+                run.text = cleaned
+                changed_runs += 1
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for para in cell.paragraphs:
+                    for run in para.runs:
+                        cleaned = scrub_text(run.text)
+                        if cleaned != run.text:
+                            run.text = cleaned
+                            changed_runs += 1
+    doc.save(str(docx_path))
+
+    _sanitize_docx_media(docx_path)
+
+    result["text_fields_changed"] = changed_runs
+    result["applied"] = True
+    return result
+
+
+def _sanitize_docx_media(docx_path: Path) -> int:
+    """Rewrite every raster in ``word/media/`` of a .docx, preserving the zip."""
+    import zipfile
+
+    with zipfile.ZipFile(docx_path) as zf:
+        entries = [(i, zf.read(i.filename)) for i in zf.infolist()]
+
+    cleaned_count = 0
+    with tempfile.TemporaryDirectory() as tmp:
+        rebuilt: list[tuple[zipfile.ZipInfo, bytes]] = []
+        for info, data in entries:
+            suffix = Path(info.filename).suffix.lower()
+            if info.filename.startswith("word/media/") and suffix in _RASTER_SUFFIXES:
+                scratch = Path(tmp) / Path(info.filename).name
+                scratch.write_bytes(data)
+                try:
+                    sanitize_for_print(scratch, PRINT_DPI)
+                    data = scratch.read_bytes()
+                    cleaned_count += 1
+                except PrintHygieneError:
+                    pass  # leave anything unreadable exactly as it was
+            rebuilt.append((info, data))
+
+        tmp_out = docx_path.with_suffix(".sanitizing.tmp")
+        with zipfile.ZipFile(tmp_out, "w", zipfile.ZIP_DEFLATED) as out:
+            for info, data in rebuilt:
+                out.writestr(info, data)
+        tmp_out.replace(docx_path)
+
+    return cleaned_count
 
 
 def _main(argv: list[str] | None = None) -> int:

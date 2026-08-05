@@ -19,6 +19,7 @@ from typing import Any, Optional
 from flask import abort, jsonify, render_template, request, send_file
 
 import db as bookdb
+from print_hygiene import strip_ai_report
 from . import edit as editor
 from . import export as exporter
 from . import image_edit as imgedit
@@ -656,6 +657,23 @@ def register(app) -> None:  # noqa: ANN001
             return jsonify({"ok": True, **result.to_dict()})
         except (TypeError, ValueError):
             return jsonify({"error": "chapter_number must be a number."}), 400
+        except TriviaError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @app.post("/api/trivia/books/<book_id>/strip-ai")
+    def trivia_strip_ai(book_id: str):  # noqa: ANN202
+        """Report, or remove, AI fingerprints in this book's images and text.
+
+        POST {"apply": false} previews; {"apply": true} performs the cleanup.
+        """
+        payload = request.get_json(silent=True) or {}
+        apply = bool(payload.get("apply"))
+        try:
+            _row, json_path, book = _load_book_for_edit(book_id)
+            result = strip_ai_report(book, json_path.parent, apply=apply)
+            if apply:
+                _save_book(book, json_path)
+            return jsonify({"ok": True, **result})
         except TriviaError as exc:
             return jsonify({"error": str(exc)}), 400
 

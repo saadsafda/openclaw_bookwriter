@@ -29,6 +29,7 @@ from flask import abort, jsonify, request, send_file
 import db as bookdb
 import docx_image_edit
 import openclaw_docx_writer as writer
+from print_hygiene import PrintHygieneError, strip_ai_docx
 
 
 # ---------------------------------------------------------------------------
@@ -703,6 +704,27 @@ def register(app) -> None:  # noqa: ANN001
             return jsonify({"error": "body must be {edits: [{index, text}]}"}), 400
         result = write_blocks(Path(path), edits)
         return jsonify({"ok": True, **result})
+
+    @app.post("/api/books/<book_id>/strip-ai")
+    def strip_ai_book(book_id: str):  # noqa: ANN202
+        """Report, or remove, AI fingerprints in this book's DOCX.
+
+        POST {"apply": false} previews; {"apply": true} performs the cleanup on
+        both the embedded images and the document text.
+        """
+        book = bookdb.get_book(book_id)
+        if not book:
+            abort(404)
+        which = (request.args.get("which") or "final").lower()
+        path = _book_docx_path(book, which)
+        if not path or not Path(path).exists():
+            return jsonify({"error": "document not found on disk", "which": which}), 404
+        payload = request.get_json(silent=True) or {}
+        try:
+            result = strip_ai_docx(Path(path), apply=bool(payload.get("apply")))
+        except PrintHygieneError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({"ok": True, "which": which, **result})
 
     @app.get("/api/books/<book_id>/content/image/<int:para_index>")
     def get_book_image(book_id: str, para_index: int):  # noqa: ANN202
