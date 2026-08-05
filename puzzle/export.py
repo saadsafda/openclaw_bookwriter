@@ -24,6 +24,8 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt
 
+from print_hygiene import audit_tree, sanitize_for_print
+
 from .engine import (
     PAGE_H_IN,
     PAGE_W_IN,
@@ -173,6 +175,10 @@ def _add_image(doc: Document, image_path: str, width_in: float = IMAGE_WIDTH_IN)
     """
     if not image_path or not Path(image_path).exists():
         return False
+    # Last line of defence before an image is embedded: guarantee 300 DPI and
+    # no AI/EXIF metadata even if the file arrived from outside the renderer
+    # (hand-drawn art, a re-run, an edited replacement).
+    sanitize_for_print(image_path, PRINT_DPI)
     para = doc.add_paragraph()
     para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     para.add_run().add_picture(image_path, width=Inches(width_in))
@@ -373,6 +379,27 @@ def _build_answer_key(doc: Document, book: PuzzleBook) -> None:
 
 
 # --------------------------------------------------------------------------
+# Print-readiness verification
+# --------------------------------------------------------------------------
+
+def verify_print_images(book: PuzzleBook, job_dir: Path) -> list[str]:
+    """Confirm every rendered image in ``job_dir`` is 300 DPI and metadata-free.
+
+    Returns a list of human-readable problems and appends them to
+    ``book.warnings``, so a bad asset shows up in the build log rather than
+    reaching KDP unnoticed. An empty list means the whole tree is clean.
+    """
+    problems: list[str] = []
+    for path, issues in audit_tree(job_dir, PRINT_DPI).items():
+        rel = path.relative_to(job_dir) if path.is_relative_to(job_dir) else path
+        problems.append(f"{rel}: {'; '.join(issues)}")
+
+    for message in problems:
+        book.warnings.append(f"Print check — {message}")
+    return problems
+
+
+# --------------------------------------------------------------------------
 # KDP print files
 # --------------------------------------------------------------------------
 
@@ -435,6 +462,9 @@ def build_handoff_zip(book: PuzzleBook, job_dir: Path, zip_path: Path) -> Path:
         def _add(path_str: str, arcname: str) -> None:
             p = Path(path_str)
             if path_str and p.exists():
+                # The formatter's copy must carry the same guarantees as the
+                # manuscript's: exactly 300 DPI, no AI metadata.
+                sanitize_for_print(p, PRINT_DPI)
                 zf.write(p, arcname)
 
         for maze in book.mazes:

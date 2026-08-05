@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full antialiased">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit · {{ book_title }} · OpenClaw</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Lora:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', system-ui, sans-serif; }
+        .bg-mesh {
+            background-color: #f6f8fb;
+            background-image:
+                radial-gradient(at 18% 12%, rgba(244, 63, 94, 0.08) 0px, transparent 50%),
+                radial-gradient(at 82% 18%, rgba(249, 115, 22, 0.07) 0px, transparent 50%);
+        }
+        .glass {
+            background: rgba(255, 255, 255, 0.88);
+            backdrop-filter: blur(18px) saturate(140%);
+            -webkit-backdrop-filter: blur(18px) saturate(140%);
+            border: 1px solid rgba(15, 23, 42, 0.08);
+        }
+        .field {
+            background: #ffffff;
+            border: 1px solid rgba(15, 23, 42, 0.14);
+            color: #0f172a;
+            transition: all 0.15s ease;
+        }
+        .field:focus {
+            outline: none;
+            border-color: rgba(244, 63, 94, 0.55);
+            box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.14);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #f43f5e 0%, #f97316 55%, #8b5cf6 100%);
+            background-size: 200% 200%;
+            transition: all 0.3s ease;
+            color: #fff;
+        }
+        .btn-primary:hover { background-position: 100% 0; }
+        .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+        .btn-ghost {
+            background: #ffffff;
+            border: 1px solid rgba(15, 23, 42, 0.12);
+            color: #334155;
+            transition: all 0.15s ease;
+        }
+        .btn-ghost:hover { background: #f1f5f9; }
+        .btn-ghost:disabled { opacity: .5; cursor: not-allowed; }
+        .scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+        .scroll-thin::-webkit-scrollbar-thumb { background: rgba(15,23,42,.16); border-radius: 8px; }
+        .badge { font-size: 10.5px; letter-spacing: .04em; }
+        .story-item { border-left: 3px solid transparent; transition: all .12s ease; cursor: pointer; }
+        .story-item:hover { background: rgba(15,23,42,.03); }
+        .story-item.active { background: rgba(244,63,94,.06); border-left-color: #f43f5e; }
+        .story-item.flagged .flag-dot { display: inline-block; }
+        .flag-dot { display: none; }
+        .prose-body {
+            font-family: 'Lora', Georgia, serif;
+            font-size: 15.5px;
+            line-height: 1.75;
+            color: #1e293b;
+        }
+        .prose-body:focus { outline: none; }
+        .toast {
+            position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+            z-index: 60; opacity: 0; transition: opacity .2s ease, transform .2s ease;
+            pointer-events: none;
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(-6px); }
+    </style>
+</head>
+<body class="bg-mesh min-h-full text-slate-700">
+
+<header class="sticky top-0 z-30 glass border-b border-slate-900/10">
+    <div class="max-w-[1600px] mx-auto px-6 h-16 flex items-center justify-between gap-4">
+        <div class="flex items-center gap-3 min-w-0">
+            <a href="/stories" class="btn-ghost w-9 h-9 rounded-xl flex items-center justify-center shrink-0" title="Back">
+                <i class="fas fa-arrow-left text-xs"></i>
+            </a>
+            <div class="min-w-0">
+                <div class="text-sm font-semibold text-slate-900 truncate">{{ book_title }}</div>
+                <div id="book-stats" class="text-[11px] text-slate-500">loading…</div>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <button id="btn-validate" class="btn-ghost px-3 py-2 rounded-lg text-xs">
+                <i class="fas fa-clipboard-check mr-1"></i> Check book
+            </button>
+            <button id="btn-reformat" class="btn-primary px-4 py-2 rounded-lg text-xs font-semibold">
+                <i class="fas fa-file-export mr-1"></i> Rebuild exports
+            </button>
+        </div>
+    </div>
+</header>
+
+<main class="max-w-[1600px] mx-auto px-6 py-6">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- Story list -->
+        <aside class="lg:col-span-3">
+            <div class="glass rounded-2xl p-4 shadow-lg sticky top-24">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-sm font-semibold text-slate-900">Stories</h2>
+                    <button id="btn-add" class="btn-ghost px-2.5 py-1 rounded-lg text-[11px]" title="Add a story">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </div>
+                <input id="filter" class="field w-full rounded-lg px-3 py-2 text-xs mb-3" placeholder="Filter stories…">
+                <div id="story-list" class="space-y-0.5 max-h-[calc(100vh-15rem)] overflow-y-auto scroll-thin -mx-2"></div>
+            </div>
+        </aside>
+
+        <!-- Editor -->
+        <section class="lg:col-span-6">
+            <div id="empty-state" class="glass rounded-2xl p-12 text-center text-slate-500 shadow-lg">
+                <i class="fas fa-feather-pointed text-4xl opacity-25 mb-3 block"></i>
+                Select a story to edit.
+            </div>
+
+            <div id="editor" class="hidden glass rounded-2xl shadow-lg overflow-hidden">
+                <div class="px-5 pt-5 pb-3 border-b border-slate-900/8">
+                    <div class="flex items-center gap-2 mb-3">
+                        <span id="ed-number" class="badge uppercase font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">1</span>
+                        <span id="ed-words" class="text-[11px] text-slate-500"></span>
+                        <div class="ml-auto flex gap-1.5">
+                            <button id="btn-delete" class="btn-ghost px-2.5 py-1.5 rounded-lg text-[11px] hover:text-red-600" title="Delete story">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <input id="ed-title" class="field w-full rounded-lg px-3 py-2 text-sm font-semibold">
+                </div>
+
+                <div class="px-5 py-4">
+                    <textarea id="ed-body" rows="20"
+                              class="prose-body w-full bg-transparent border-0 p-0 resize-none"></textarea>
+                </div>
+
+                <div id="extras" class="px-5 pb-4 space-y-3"></div>
+
+                <div class="px-5 py-4 bg-slate-50/60 border-t border-slate-900/8">
+                    <div class="text-[11px] font-medium text-slate-500 uppercase tracking-wide mb-2">
+                        AI edit
+                    </div>
+                    <div class="flex flex-wrap gap-1.5 mb-2">
+                        <button class="ai-act btn-ghost px-2.5 py-1.5 rounded-lg text-[11px]" data-action="rewrite">Rewrite</button>
+                        <button class="ai-act btn-ghost px-2.5 py-1.5 rounded-lg text-[11px]" data-action="expand">Expand</button>
+                        <button class="ai-act btn-ghost px-2.5 py-1.5 rounded-lg text-[11px]" data-action="shorten">Shorten</button>
+                        <button class="ai-act btn-ghost px-2.5 py-1.5 rounded-lg text-[11px]" data-action="punchier">Punchier</button>
+                        <button class="ai-act btn-ghost px-2.5 py-1.5 rounded-lg text-[11px]" data-action="simplify">Simplify</button>
+                    </div>
+                    <div class="flex gap-2">
+                        <input id="ai-instruction" class="field flex-1 rounded-lg px-3 py-2 text-xs"
+                               placeholder="Or describe the change you want…">
+                        <button id="btn-ai-custom" class="btn-primary px-3 py-2 rounded-lg text-xs font-semibold">
+                            Apply
+                        </button>
+                    </div>
+                    <div class="mt-2 flex items-center gap-2">
+                        <button id="btn-regen" class="btn-ghost px-2.5 py-1.5 rounded-lg text-[11px]" title="Rewrite from the context box">
+                            <i class="fas fa-rotate mr-1"></i> Regenerate from context
+                        </button>
+                        <span id="ai-status" class="text-[11px] text-slate-500"></span>
+                    </div>
+                </div>
+
+                <div class="px-5 py-3 border-t border-slate-900/8 flex items-center gap-2">
+                    <button id="btn-save" class="btn-primary px-4 py-2 rounded-lg text-xs font-semibold">
+                        <i class="fas fa-check mr-1"></i> Save changes
+                    </button>
+                    <span id="save-hint" class="text-[11px] text-slate-400">Unsaved edits are kept only in this pane.</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Research / fact-check panel -->
+        <aside class="lg:col-span-3">
+            <div class="glass rounded-2xl p-5 shadow-lg sticky top-24 max-h-[calc(100vh-8rem)] overflow-y-auto scroll-thin">
+                <h2 class="text-sm font-semibold text-slate-900 mb-3">Research</h2>
+                <div id="research-empty" class="text-xs text-slate-500 py-6 text-center">
+                    Select a story to see its sources.
+                </div>
+                <div id="research" class="hidden space-y-4">
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-500 uppercase tracking-wide mb-1.5">Context</label>
+                        <textarea id="rs-context" rows="5" class="field w-full rounded-lg px-3 py-2 text-xs"
+                                  placeholder="The research notes this story was written from."></textarea>
+                    </div>
+                    <div class="grid grid-cols-1 gap-2">
+                        <input id="rs-who" class="field rounded-lg px-3 py-2 text-xs" placeholder="Who">
+                        <div class="grid grid-cols-2 gap-2">
+                            <input id="rs-year" class="field rounded-lg px-3 py-2 text-xs" placeholder="Year">
+                            <input id="rs-where" class="field rounded-lg px-3 py-2 text-xs" placeholder="Where">
+                        </div>
+                        <input id="rs-sources" class="field rounded-lg px-3 py-2 text-xs" placeholder="Sources">
+                    </div>
+
+                    <div id="cited-wrap" class="hidden">
+                        <label class="block text-[11px] font-medium text-slate-500 uppercase tracking-wide mb-1.5">
+                            Cited by the AI <span class="text-amber-600 normal-case font-normal">(unverified)</span>
+                        </label>
+                        <ul id="cited-list" class="text-xs text-slate-600 space-y-1"></ul>
+                    </div>
+
+                    <div id="flags-wrap" class="hidden rounded-xl bg-amber-50 border border-amber-200 p-3">
+                        <div class="text-[11px] font-semibold text-amber-800 uppercase tracking-wide mb-1.5">
+                            <i class="fas fa-triangle-exclamation mr-1"></i> Verify before publishing
+                        </div>
+                        <ul id="flags-list" class="text-xs text-amber-900 space-y-1"></ul>
+                    </div>
+
+                    <div id="warn-wrap" class="hidden rounded-xl bg-slate-100 border border-slate-200 p-3">
+                        <div class="text-[11px] font-semibold text-slate-600 uppercase tracking-wide mb-1.5">Build notes</div>
+                        <ul id="warn-list" class="text-xs text-slate-600 space-y-1"></ul>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </div>
+</main>
+
+<div id="toast" class="toast px-4 py-2.5 rounded-xl bg-slate-900 text-white text-xs shadow-xl"></div>
+
+<script>
+const BOOK_ID = {{ book_id | tojson }};
+const $ = (id) => document.getElementById(id);
+
+let book = null;
+let stories = [];
+let current = null;
+
+function escapeHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, c =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function toast(message, isError = false) {
+    const t = $("toast");
+    t.textContent = message;
+    t.style.background = isError ? "#b91c1c" : "#0f172a";
+    t.classList.add("show");
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => t.classList.remove("show"), 2600);
+}
+
+function countWords(text) {
+    const m = (text || "").match(/\b[\w'-]+\b/g);
+    return m ? m.length : 0;
+}
+
+/* ---------------- Load ---------------- */
+
+async function load() {
+    const r = await fetch(`/api/stories/books/${BOOK_ID}/content`);
+    if (!r.ok) {
+        toast("Could not load this book.", true);
+        return;
+    }
+    book = await r.json();
+    stories = (book.chapters || []).flatMap(c => c.stories || []);
+    renderList();
+    updateStats();
+    if (stories.length) select(stories[0].id);
+}
+
+function updateStats() {
+    const words = stories.reduce((s, x) => s + countWords(x.body), 0);
+    const flagged = stories.filter(s => (s.uncertain_claims || []).length).length;
+    $("book-stats").textContent =
+        `${stories.length} stories · ${words.toLocaleString()} words` +
+        (flagged ? ` · ${flagged} need fact-checking` : "");
+}
+
+function renderList() {
+    const filter = $("filter").value.trim().toLowerCase();
+    const shown = filter
+        ? stories.filter(s => (s.title || "").toLowerCase().includes(filter))
+        : stories;
+
+    $("story-list").innerHTML = shown.map(s => {
+        const flagged = (s.uncertain_claims || []).length > 0;
+        return `<div class="story-item ${flagged ? "flagged" : ""} ${current === s.id ? "active" : ""}
+                     px-3 py-2 rounded-lg" data-id="${s.id}">
+            <div class="flex items-center gap-2">
+                <span class="text-[10px] text-slate-400 w-6 shrink-0">${s.number}</span>
+                <span class="text-xs text-slate-800 truncate flex-1">${escapeHtml(s.title)}</span>
+                <span class="flag-dot w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" title="Has unverified claims"></span>
+            </div>
+            <div class="text-[10px] text-slate-400 pl-8">${countWords(s.body)} words</div>
+        </div>`;
+    }).join("") || `<div class="text-xs text-slate-400 text-center py-6">No matches.</div>`;
+
+    document.querySelectorAll(".story-item").forEach(el =>
+        el.addEventListener("click", () => select(el.dataset.id)));
+}
+
+function findStory(id) {
+    return stories.find(s => s.id === id) || null;
+}
+
+/* ---------------- Select / render one story ---------------- */
+
+function select(id) {
+    const s = findStory(id);
+    if (!s) return;
+    current = id;
+
+    $("empty-state").classList.add("hidden");
+    $("editor").classList.remove("hidden");
+    $("research-empty").classList.add("hidden");
+    $("research").classList.remove("hidden");
+
+    $("ed-number").textContent = s.number;
+    $("ed-title").value = s.title || "";
+    $("ed-body").value = s.body || "";
+    updateWordCount();
+
+    // Sidebar / closer only exist when the book was configured with them.
+    const cfg = book.config || {};
+    const extras = [];
+    if (cfg.sidebar_enabled) {
+        extras.push(`<div>
+            <label class="block text-[11px] font-medium text-slate-500 uppercase tracking-wide mb-1.5">${escapeHtml(cfg.sidebar_label || "Sidebar")}</label>
+            <textarea id="ed-sidebar" rows="2" class="field w-full rounded-lg px-3 py-2 text-xs">${escapeHtml(s.sidebar || "")}</textarea>
+        </div>`);
+    }
+    if (cfg.closer_enabled) {
+        extras.push(`<div>
+            <label class="block text-[11px] font-medium text-slate-500 uppercase tracking-wide mb-1.5">${escapeHtml(cfg.closer_label || "Closer")}</label>
+            <textarea id="ed-closer" rows="2" class="field w-full rounded-lg px-3 py-2 text-xs">${escapeHtml(s.closer || "")}</textarea>
+        </div>`);
+    }
+    $("extras").innerHTML = extras.join("");
+
+    $("rs-context").value = s.context || "";
+    $("rs-who").value = s.who || "";
+    $("rs-year").value = s.year || "";
+    $("rs-where").value = s.where || "";
+    $("rs-sources").value = s.sources || "";
+
+    const cited = s.cited_sources || [];
+    $("cited-wrap").classList.toggle("hidden", !cited.length);
+    $("cited-list").innerHTML = cited.map(c => `<li>• ${escapeHtml(c)}</li>`).join("");
+
+    const flags = s.uncertain_claims || [];
+    $("flags-wrap").classList.toggle("hidden", !flags.length);
+    $("flags-list").innerHTML = flags.map(c => `<li>• ${escapeHtml(c)}</li>`).join("");
+
+    const warns = s.warnings || [];
+    $("warn-wrap").classList.toggle("hidden", !warns.length);
+    $("warn-list").innerHTML = warns.map(w => `<li>• ${escapeHtml(w)}</li>`).join("");
+
+    renderList();
+}
+
+function updateWordCount() {
+    const n = countWords($("ed-body").value);
+    const cfg = book.config || {};
+    const lo = cfg.min_words || 300, hi = cfg.max_words || 500;
+    const off = n < lo * 0.88 || n > hi * 1.12;
+    $("ed-words").innerHTML =
+        `<span class="${off ? "text-amber-600 font-medium" : "text-slate-500"}">${n} words</span>
+         <span class="text-slate-400">· target ${lo}-${hi}</span>`;
+}
+
+$("ed-body").addEventListener("input", updateWordCount);
+$("filter").addEventListener("input", renderList);
+
+/* ---------------- Save ---------------- */
+
+async function save() {
+    if (!current) return;
+    const payload = {
+        title: $("ed-title").value,
+        body: $("ed-body").value,
+        context: $("rs-context").value,
+        who: $("rs-who").value,
+        year: $("rs-year").value,
+        where: $("rs-where").value,
+        sources: $("rs-sources").value,
+    };
+    if ($("ed-sidebar")) payload.sidebar = $("ed-sidebar").value;
+    if ($("ed-closer")) payload.closer = $("ed-closer").value;
+
+    const r = await fetch(`/api/stories/books/${BOOK_ID}/stories/${current}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+    });
+    const data = await r.json();
+    if (!r.ok) return toast(data.error || "Could not save.", true);
+
+    Object.assign(findStory(current), data.story);
+    renderList();
+    updateStats();
+    toast("Saved.");
+}
+
+$("btn-save").addEventListener("click", save);
+
+// Cmd/Ctrl+S saves, matching every other editor the operator uses.
+document.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        save();
+    }
+});
+
+/* ---------------- AI actions ---------------- */
+
+function setBusy(busy, message = "") {
+    $("ai-status").textContent = message;
+    document.querySelectorAll(".ai-act").forEach(b => b.disabled = busy);
+    $("btn-ai-custom").disabled = busy;
+    $("btn-regen").disabled = busy;
+}
+
+async function aiEdit(action, instruction) {
+    if (!current) return;
+    setBusy(true, action === "custom" ? "Applying your edit…" : `Running ${action}…`);
+    try {
+        const r = await fetch(`/api/stories/books/${BOOK_ID}/ai-edit`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ item_id: current, action, instruction }),
+        });
+        const data = await r.json();
+        if (!r.ok) {
+            toast(data.error || "The edit failed.", true);
+            return;
+        }
+        Object.assign(findStory(current), data.story);
+        select(current);
+        updateStats();
+        toast("Story updated.");
+    } catch (e) {
+        toast("Request failed: " + e.message, true);
+    } finally {
+        setBusy(false);
+    }
+}
+
+document.querySelectorAll(".ai-act").forEach(btn =>
+    btn.addEventListener("click", () => aiEdit(btn.dataset.action, $("ai-instruction").value.trim())));
+
+$("btn-ai-custom").addEventListener("click", () => {
+    const instruction = $("ai-instruction").value.trim();
+    if (!instruction) return toast("Describe the change you want first.", true);
+    aiEdit("custom", instruction);
+});
+
+$("btn-regen").addEventListener("click", async () => {
+    if (!current) return;
+    if (!confirm("Rewrite this story from its context box? The current text will be replaced.")) return;
+    setBusy(true, "Rewriting from context…");
+    try {
+        const r = await fetch(`/api/stories/books/${BOOK_ID}/regenerate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ item_id: current, context: $("rs-context").value }),
+        });
+        const data = await r.json();
+        if (!r.ok) return toast(data.error || "Could not regenerate.", true);
+        Object.assign(findStory(current), data.story);
+        select(current);
+        updateStats();
+        toast("Story rewritten.");
+    } catch (e) {
+        toast("Request failed: " + e.message, true);
+    } finally {
+        setBusy(false);
+    }
+});
+
+/* ---------------- Add / delete ---------------- */
+
+$("btn-add").addEventListener("click", async () => {
+    const title = prompt("Title for the new story:");
+    if (!title || !title.trim()) return;
+    const context = prompt("Context for this story (everything you know — can be left blank):") || "";
+
+    toast("Writing the new story…");
+    try {
+        const r = await fetch(`/api/stories/books/${BOOK_ID}/add-story`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title: title.trim(), context: context.trim() }),
+        });
+        const data = await r.json();
+        if (!r.ok) return toast(data.error || "Could not add the story.", true);
+        await load();
+        select(data.story.id);
+        toast("Story added.");
+    } catch (e) {
+        toast("Request failed: " + e.message, true);
+    }
+});
+
+$("btn-delete").addEventListener("click", async () => {
+    if (!current) return;
+    const s = findStory(current);
+    if (!confirm(`Delete "${s.title}"? This cannot be undone.`)) return;
+
+    const r = await fetch(`/api/stories/books/${BOOK_ID}/stories/${current}`, { method: "DELETE" });
+    const data = await r.json();
+    if (!r.ok) return toast(data.error || "Could not delete.", true);
+
+    current = null;
+    $("editor").classList.add("hidden");
+    $("empty-state").classList.remove("hidden");
+    $("research").classList.add("hidden");
+    $("research-empty").classList.remove("hidden");
+    await load();
+    toast("Story deleted.");
+});
+
+/* ---------------- Book-level actions ---------------- */
+
+$("btn-validate").addEventListener("click", async () => {
+    const r = await fetch(`/api/stories/books/${BOOK_ID}/validate`);
+    const v = await r.json();
+    if (!r.ok) return toast(v.error || "Could not check the book.", true);
+
+    const lines = [
+        `${v.story_count} stories · ${v.total_words.toLocaleString()} words`,
+        `Target: ${v.target_band[0]}-${v.target_band[1]} words each`,
+        "",
+    ];
+    if (v.problems.length) {
+        lines.push("PROBLEMS:", ...v.problems.map(p => "  • " + p), "");
+    }
+    if (v.out_of_band.length) {
+        lines.push(`OUTSIDE THE TARGET LENGTH (${v.out_of_band.length}):`,
+            ...v.out_of_band.slice(0, 12).map(s => `  • ${s.number}. ${s.title} — ${s.word_count} words`), "");
+    }
+    if (v.possible_duplicates.length) {
+        lines.push(`POSSIBLE DUPLICATES (${v.possible_duplicates.length}):`,
+            ...v.possible_duplicates.slice(0, 12).map(d => `  • ${d.number}. ${d.title} ≈ ${d.duplicate_of_title}`), "");
+    }
+    if (v.flagged_claims.length) {
+        lines.push(`STORIES WITH UNVERIFIED CLAIMS (${v.flagged_claims.length}):`,
+            ...v.flagged_claims.slice(0, 12).map(f => `  • ${f.number}. ${f.title} (${f.claims.length})`), "");
+    }
+    if (!v.problems.length && !v.out_of_band.length && !v.possible_duplicates.length) {
+        lines.push("No structural problems found.");
+    }
+    alert(lines.join("\n"));
+});
+
+$("btn-reformat").addEventListener("click", async () => {
+    const btn = $("btn-reformat");
+    btn.disabled = true;
+    const original = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Rebuilding…';
+    try {
+        const r = await fetch(`/api/stories/books/${BOOK_ID}/reformat`, { method: "POST" });
+        const data = await r.json();
+        if (!r.ok) return toast(data.error || "Rebuild failed.", true);
+        toast(data.warning || "Exports rebuilt from your edits.");
+    } catch (e) {
+        toast("Request failed: " + e.message, true);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = original;
+    }
+});
+
+load();
+</script>
+</body>
+</html>

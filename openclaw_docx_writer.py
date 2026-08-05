@@ -238,13 +238,14 @@ def clear_paragraph(paragraph: Paragraph) -> None:
 
 
 def prepare_image_for_print(image_path: Path, dpi: int = 300) -> None:
-    """Strip all EXIF/metadata and set DPI for print publishing."""
-    from PIL import Image
+    """Strip all EXIF/metadata and set DPI for print publishing.
 
-    with Image.open(image_path) as img:
-        clean = Image.new(img.mode, img.size)
-        clean.putdata(list(img.getdata()))
-        clean.save(image_path, dpi=(dpi, dpi))
+    Shared implementation lives in print_hygiene so every image embedded in a
+    DOCX gets the same guarantees as the rest of the pipeline.
+    """
+    from print_hygiene import sanitize_for_print
+
+    sanitize_for_print(image_path, dpi)
 
 
 def set_paragraph_image(paragraph: Paragraph, image_path: Path, width_inches: float) -> None:

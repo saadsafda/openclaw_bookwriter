@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full antialiased">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stories Generator · OpenClaw</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', system-ui, sans-serif; }
+        .bg-mesh {
+            background-color: #f6f8fb;
+            background-image:
+                radial-gradient(at 18% 12%, rgba(244, 63, 94, 0.09) 0px, transparent 50%),
+                radial-gradient(at 82% 18%, rgba(249, 115, 22, 0.08) 0px, transparent 50%),
+                radial-gradient(at 50% 90%, rgba(139, 92, 246, 0.09) 0px, transparent 55%);
+        }
+        .glass {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(18px) saturate(140%);
+            -webkit-backdrop-filter: blur(18px) saturate(140%);
+            border: 1px solid rgba(15, 23, 42, 0.08);
+        }
+        .field {
+            background: #ffffff;
+            border: 1px solid rgba(15, 23, 42, 0.14);
+            color: #0f172a;
+            transition: all 0.15s ease;
+        }
+        .field::placeholder { color: #94a3b8; }
+        .field:focus {
+            outline: none;
+            border-color: rgba(244, 63, 94, 0.55);
+            background: rgba(244, 63, 94, 0.03);
+            box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.14);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #f43f5e 0%, #f97316 55%, #8b5cf6 100%);
+            background-size: 200% 200%;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 24px -12px rgba(244, 63, 94, 0.75);
+        }
+        .btn-primary:hover { background-position: 100% 0; transform: translateY(-1px); }
+        .btn-primary:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+        .btn-ghost {
+            background: #ffffff;
+            border: 1px solid rgba(15, 23, 42, 0.12);
+            color: #334155;
+            transition: all 0.15s ease;
+        }
+        .btn-ghost:hover { background: #f1f5f9; border-color: rgba(15, 23, 42, 0.2); }
+        .story-card {
+            background: #ffffff;
+            border: 1px solid rgba(15, 23, 42, 0.10);
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        }
+        .story-card.thin { border-left: 3px solid #f59e0b; }
+        .story-card.rich { border-left: 3px solid #10b981; }
+        .fade-up { animation: fadeUp .5s ease both; }
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(8px);} to {opacity:1; transform:none;} }
+        .log-line { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+        .scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+        .scroll-thin::-webkit-scrollbar-thumb { background: rgba(15,23,42,.16); border-radius: 8px; }
+        .badge { font-size: 10.5px; letter-spacing: .04em; }
+        details > summary { list-style: none; cursor: pointer; }
+        details > summary::-webkit-details-marker { display: none; }
+        textarea.field { resize: vertical; }
+        .drop-zone.dragging { border-color: #f43f5e; background: rgba(244,63,94,.05); }
+    </style>
+</head>
+<body class="bg-mesh min-h-full text-slate-700">
+
+<header class="sticky top-0 z-30 glass border-b border-slate-900/10">
+    <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-rose-500 via-orange-500 to-violet-500 flex items-center justify-center font-extrabold text-white shadow-lg">OC</div>
+            <div>
+                <div class="text-sm font-semibold text-slate-900 leading-tight">OpenClaw</div>
+                <div class="text-[11px] text-slate-500 leading-tight">Stories Studio</div>
+            </div>
+        </div>
+        <nav class="flex items-center gap-1 text-sm">
+            <a href="/" class="px-3 py-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-900/5 transition">
+                <i class="fas fa-book-open mr-1.5 text-xs"></i> BookWriter
+            </a>
+            <a href="/stories" class="px-3 py-1.5 rounded-lg bg-white text-slate-900 border border-slate-900/10 shadow-sm">
+                <i class="fas fa-feather-pointed mr-1.5 text-xs"></i> Stories
+            </a>
+            <a href="/trivia" class="px-3 py-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-900/5 transition">
+                <i class="fas fa-circle-question mr-1.5 text-xs"></i> Trivia
+            </a>
+            <a href="/puzzle" class="px-3 py-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-900/5 transition">
+                <i class="fas fa-puzzle-piece mr-1.5 text-xs"></i> Puzzles
+            </a>
+        </nav>
+    </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-6 py-10">
+
+    <section class="text-center mb-8 fade-up">
+        <h1 class="text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight">
+            Build a
+            <span class="bg-gradient-to-r from-rose-500 via-orange-500 to-violet-500 bg-clip-text text-transparent">book of real stories</span>
+        </h1>
+        <p class="mt-3 text-slate-500 max-w-2xl mx-auto">
+            Give each entry a title and as much context as you have — a full research
+            breakdown or a single line. Every story comes back as finished prose,
+            with a fact-check sheet listing anything that needs verifying.
+        </p>
+    </section>
+
+    <section class="grid grid-cols-1 lg:grid-cols-5 gap-6 fade-up">
+
+        <!-- Left: config -->
+        <div class="lg:col-span-3 space-y-6">
+
+            <div class="glass rounded-3xl p-6 md:p-8 shadow-xl shadow-slate-900/5">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-lg font-semibold text-slate-900">Book setup</h2>
+                    <div class="flex gap-2">
+                        <button id="btn-import" class="btn-ghost px-3 py-1.5 rounded-lg text-xs">
+                            <i class="fas fa-file-import mr-1"></i> Import config
+                        </button>
+                        <button id="btn-export" class="btn-ghost px-3 py-1.5 rounded-lg text-xs">
+                            <i class="fas fa-file-export mr-1"></i> Export config
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-medium text-slate-600 mb-1.5">Book title</label>
+                        <input id="book_title" class="field w-full rounded-xl px-3.5 py-2.5 text-sm"
+                               placeholder="World's Dumbest Criminals">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-medium text-slate-600 mb-1.5">Topic</label>
+                        <input id="topic" class="field w-full rounded-xl px-3.5 py-2.5 text-sm"
+                               placeholder="real, documented cases of criminals undone by their own bad decisions">
+                        <p class="text-[11px] text-slate-500 mt-1">What the book is about. Drives every prompt.</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-600 mb-1.5">Audience</label>
+                        <input id="audience" class="field w-full rounded-xl px-3.5 py-2.5 text-sm"
+                               placeholder="general adult reader">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-600 mb-1.5">Tone</label>
+                        <input id="tone" class="field w-full rounded-xl px-3.5 py-2.5 text-sm"
+                               placeholder="comedic true-crime, family-friendly">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-600 mb-1.5">Words per story</label>
+                        <div class="flex items-center gap-2">
+                            <input type="number" id="min_words" min="120" max="1500" value="300"
+                                   class="field w-full rounded-xl px-3 py-2.5 text-sm">
+                            <span class="text-slate-400 text-sm">to</span>
+                            <input type="number" id="max_words" min="120" max="1500" value="500"
+                                   class="field w-full rounded-xl px-3 py-2.5 text-sm">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-600 mb-1.5">OpenClaw agent</label>
+                        <input id="agent" class="field w-full rounded-xl px-3.5 py-2.5 text-sm" value="main">
+                    </div>
+
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-medium text-slate-600 mb-1.5">
+                            Book-wide notes <span class="text-slate-400 font-normal">— added to every story prompt</span>
+                        </label>
+                        <textarea id="global_context" rows="2" class="field w-full rounded-xl px-3.5 py-2.5 text-sm"
+                                  placeholder="e.g. keep it family-friendly, never mock victims, avoid stories ending in death"></textarea>
+                    </div>
+                </div>
+
+                <!-- Optional per-story blocks -->
+                <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="rounded-2xl border border-slate-200 p-4">
+                        <label class="flex items-center gap-2 text-sm text-slate-700 mb-3">
+                            <input type="checkbox" id="sidebar_enabled"
+                                   class="rounded bg-white border-slate-300 text-rose-600 focus:ring-rose-500/40">
+                            <span class="font-medium">Sidebar block</span>
+                        </label>
+                        <input id="sidebar_label" class="field w-full rounded-lg px-3 py-2 text-sm mb-2"
+                               placeholder="Dumb Move Breakdown" value="The Breakdown">
+                        <input id="sidebar_instruction" class="field w-full rounded-lg px-3 py-2 text-sm"
+                               placeholder="what it should say (optional)">
+                    </div>
+                    <div class="rounded-2xl border border-slate-200 p-4">
+                        <label class="flex items-center gap-2 text-sm text-slate-700 mb-3">
+                            <input type="checkbox" id="closer_enabled"
+                                   class="rounded bg-white border-slate-300 text-rose-600 focus:ring-rose-500/40">
+                            <span class="font-medium">Closing line</span>
+                        </label>
+                        <input id="closer_label" class="field w-full rounded-lg px-3 py-2 text-sm mb-2"
+                               placeholder="Lesson Not Learned" value="The Takeaway">
+                        <input id="closer_instruction" class="field w-full rounded-lg px-3 py-2 text-sm"
+                               placeholder="what it should say (optional)">
+                    </div>
+                </div>
+
+                <div class="mt-5 flex flex-wrap gap-5">
+                    <label class="flex items-center gap-2 text-sm text-slate-700">
+                        <input type="checkbox" id="illustrations"
+                               class="rounded bg-white border-slate-300 text-rose-600 focus:ring-rose-500/40">
+                        Illustrations
+                    </label>
+                    <label class="flex items-center gap-2 text-sm text-slate-700">
+                        <input type="checkbox" id="illustrate_every_story"
+                               class="rounded bg-white border-slate-300 text-rose-600 focus:ring-rose-500/40">
+                        One per story
+                        <span class="text-[11px] text-slate-500">(otherwise per chapter)</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-sm text-slate-700">
+                        <input type="checkbox" id="check_duplicates" checked
+                               class="rounded bg-white border-slate-300 text-rose-600 focus:ring-rose-500/40">
+                        Flag duplicate stories
+                    </label>
+                </div>
+            </div>
+
+            <!-- Outline -->
+            <div class="glass rounded-3xl p-6 md:p-8 shadow-xl shadow-slate-900/5">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold text-slate-900">Outline</h2>
+                    <div id="outline-summary" class="text-xs text-slate-500"></div>
+                </div>
+
+                <div id="drop-zone" class="drop-zone rounded-2xl border-2 border-dashed border-slate-300 p-5 text-center transition mb-4">
+                    <i class="fas fa-file-arrow-up text-2xl text-slate-300 mb-2 block"></i>
+                    <p class="text-sm text-slate-600">
+                        Drop your outline here, or
+                        <button id="btn-pick-file" class="text-rose-600 font-medium hover:underline">choose a file</button>
+                    </p>
+                    <p class="text-[11px] text-slate-400 mt-1">Word (.docx), .txt or .md — titles, Who/Year/Where and context are read automatically</p>
+                    <div class="mt-3 flex flex-wrap items-center justify-center gap-2">
+                        <button id="btn-paste" class="btn-ghost px-3 py-1.5 rounded-lg text-xs">
+                            <i class="fas fa-clipboard mr-1"></i> Paste outline text
+                        </button>
+                        <button id="btn-suggest" class="btn-ghost px-3 py-1.5 rounded-lg text-xs">
+                            <i class="fas fa-wand-magic-sparkles mr-1"></i> Suggest stories with AI
+                        </button>
+                    </div>
+                </div>
+
+                <div id="paste-wrap" class="hidden mb-4">
+                    <textarea id="paste-text" rows="8" class="field w-full rounded-xl px-3.5 py-2.5 text-sm font-mono"
+                              placeholder="1. The $1 Bank Robbery&#10;Who: James Verone&#10;Year: 2011&#10;Where: Gastonia, NC&#10;The Story: He handed the teller a note demanding one dollar..."></textarea>
+                    <div class="flex gap-2 mt-2">
+                        <button id="btn-parse-paste" class="btn-primary px-4 py-2 rounded-lg text-xs font-semibold text-white">Parse outline</button>
+                        <button id="btn-cancel-paste" class="btn-ghost px-4 py-2 rounded-lg text-xs">Cancel</button>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-slate-900">
+                        Stories <span class="text-slate-500 font-normal">— a title plus whatever context you have</span>
+                    </h3>
+                    <div class="flex gap-2">
+                        <button id="btn-clear-stories" class="btn-ghost px-3 py-1.5 rounded-lg text-xs text-slate-500">
+                            <i class="fas fa-eraser mr-1"></i> Clear
+                        </button>
+                        <button id="btn-add-story" class="btn-ghost px-3 py-1.5 rounded-lg text-xs">
+                            <i class="fas fa-plus mr-1"></i> Add story
+                        </button>
+                    </div>
+                </div>
+
+                <div id="stories" class="space-y-3 max-h-[32rem] overflow-y-auto scroll-thin pr-1"></div>
+            </div>
+
+            <div class="glass rounded-3xl p-5 shadow-xl shadow-slate-900/5 flex items-center gap-3">
+                <button id="btn-generate" class="btn-primary px-5 py-2.5 rounded-xl text-sm font-semibold text-white">
+                    <i class="fas fa-wand-magic-sparkles mr-1.5"></i> Generate book
+                </button>
+                <button id="btn-stop" class="btn-ghost px-4 py-2.5 rounded-xl text-sm hidden">
+                    <i class="fas fa-stop mr-1.5"></i> Stop
+                </button>
+                <div id="totals" class="text-xs text-slate-500 ml-auto text-right"></div>
+            </div>
+        </div>
+
+        <!-- Right: status -->
+        <div class="lg:col-span-2 space-y-6">
+            <div class="glass rounded-3xl p-6 shadow-xl shadow-slate-900/5">
+                <h2 class="text-lg font-semibold text-slate-900 mb-4">Build status</h2>
+                <div id="status-idle" class="text-sm text-slate-500 py-8 text-center">
+                    <i class="fas fa-feather-pointed text-3xl mb-3 opacity-30 block"></i>
+                    No build running.
+                </div>
+                <div id="status-live" class="hidden">
+                    <div class="flex items-center justify-between mb-2">
+                        <span id="stage-label" class="text-sm text-slate-700">Starting…</span>
+                        <span id="progress-pct" class="text-xs text-slate-500">0%</span>
+                    </div>
+                    <div class="h-2 rounded-full bg-slate-200 overflow-hidden">
+                        <div id="progress-bar" class="h-full rounded-full bg-gradient-to-r from-rose-400 to-orange-400 transition-all duration-500" style="width:0%"></div>
+                    </div>
+                    <div id="counts-box" class="hidden mt-3 text-xs text-slate-500 text-center"></div>
+
+                    <div id="usage-box" class="hidden mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                        <div class="text-[11px] font-medium text-slate-500 uppercase tracking-wide mb-1.5">Usage</div>
+                        <div class="grid grid-cols-3 gap-2 text-center">
+                            <div>
+                                <div id="u-cost" class="text-sm font-semibold text-slate-900">$0.00</div>
+                                <div class="text-[10px] text-slate-500">cost</div>
+                            </div>
+                            <div>
+                                <div id="u-tokens" class="text-sm font-semibold text-slate-900">0</div>
+                                <div class="text-[10px] text-slate-500">tokens</div>
+                            </div>
+                            <div>
+                                <div id="u-calls" class="text-sm font-semibold text-slate-900">0</div>
+                                <div class="text-[10px] text-slate-500">calls</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="job-error" class="hidden mt-4 text-xs rounded-xl px-3 py-2.5 bg-red-50 border border-red-200 text-red-700"></div>
+                    <div id="job-warnings" class="hidden mt-3 text-xs rounded-xl px-3 py-2.5 bg-amber-50 border border-amber-200 text-amber-800 max-h-40 overflow-y-auto scroll-thin"></div>
+                    <div id="downloads" class="hidden mt-4 grid grid-cols-2 gap-2"></div>
+
+                    <details id="log-wrap" class="mt-4">
+                        <summary class="text-xs text-slate-500 hover:text-slate-800 select-none">
+                            <i class="fas fa-terminal mr-1"></i> Build log
+                        </summary>
+                        <div id="logs" class="mt-2 max-h-64 overflow-y-auto scroll-thin rounded-xl bg-slate-900 p-3 space-y-0.5"></div>
+                    </details>
+                </div>
+            </div>
+
+            <div class="glass rounded-3xl p-6 shadow-xl shadow-slate-900/5">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold text-slate-900">Library</h2>
+                    <button id="btn-refresh" class="btn-ghost px-2.5 py-1 rounded-lg text-xs">
+                        <i class="fas fa-rotate"></i>
+                    </button>
+                </div>
+                <div id="library" class="space-y-2 max-h-96 overflow-y-auto scroll-thin"></div>
+            </div>
+        </div>
+    </section>
+</main>
+
+<input type="file" id="import-file" accept="application/json" class="hidden">
+<input type="file" id="outline-file" accept=".docx,.txt,.md" class="hidden">
+
+<script>
+const $ = (id) => document.getElementById(id);
+let pollTimer = null;
+let currentJob = null;
+
+function escapeHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, c =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/* ---------------- Story rows ---------------- */
+
+function storyRow(data = {}) {
+    const div = document.createElement("div");
+    div.className = "story-card rounded-2xl p-4";
+    div.innerHTML = `
+        <div class="flex items-center gap-2 mb-3">
+            <span class="badge story-num uppercase font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md shrink-0">1</span>
+            <input class="st-title field flex-1 rounded-lg px-3 py-2 text-sm" placeholder="Story title">
+            <button class="st-toggle btn-ghost w-8 h-8 rounded-lg text-xs shrink-0" title="Details">
+                <i class="fas fa-chevron-down"></i>
+            </button>
+            <button class="st-remove btn-ghost w-8 h-8 rounded-lg text-xs text-slate-400 hover:text-red-600 shrink-0" title="Remove">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+        <textarea class="st-context field w-full rounded-lg px-3 py-2 text-sm" rows="2"
+                  placeholder="Context — everything you know. A full breakdown, or one line like 'the record tuna caught off Florida'."></textarea>
+        <div class="st-details hidden mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
+            <input class="st-who field rounded-lg px-3 py-2 text-sm" placeholder="Who (optional)">
+            <input class="st-year field rounded-lg px-3 py-2 text-sm" placeholder="Year (optional)">
+            <input class="st-where field rounded-lg px-3 py-2 text-sm" placeholder="Where (optional)">
+            <input class="st-sources field rounded-lg px-3 py-2 text-sm md:col-span-3" placeholder="Research sources (optional)">
+        </div>`;
+
+    div.querySelector(".st-title").value = data.title || "";
+    div.querySelector(".st-context").value = data.context || "";
+    div.querySelector(".st-who").value = data.who || "";
+    div.querySelector(".st-year").value = data.year || "";
+    div.querySelector(".st-where").value = data.where || "";
+    div.querySelector(".st-sources").value = data.sources || "";
+
+    // Auto-open details when the entry already carries structured fields, so an
+    // imported outline shows what was picked up rather than hiding it.
+    if (data.who || data.year || data.where || data.sources) {
+        div.querySelector(".st-details").classList.remove("hidden");
+    }
+
+    div.querySelector(".st-toggle").addEventListener("click", () => {
+        div.querySelector(".st-details").classList.toggle("hidden");
+    });
+    div.querySelector(".st-remove").addEventListener("click", () => {
+        div.remove(); renumber(); updateTotals();
+    });
+    div.querySelectorAll("input, textarea").forEach(el =>
+        el.addEventListener("input", () => { markContext(div); updateTotals(); }));
+
+    markContext(div);
+    return div;
+}
+
+/* Colour the left edge by whether the writer has anything to work from. */
+function markContext(div) {
+    const hasContext = [".st-context", ".st-who", ".st-year", ".st-where"]
+        .some(sel => div.querySelector(sel).value.trim());
+    div.classList.toggle("rich", hasContext);
+    div.classList.toggle("thin", !hasContext);
+}
+
+function renumber() {
+    [...$("stories").children].forEach((el, i) => {
+        el.querySelector(".story-num").textContent = i + 1;
+    });
+}
+
+function addStory(data = {}) {
+    $("stories").appendChild(storyRow(data));
+    renumber();
+    updateTotals();
+}
+
+function setStories(list) {
+    $("stories").innerHTML = "";
+    (list || []).forEach(s => $("stories").appendChild(storyRow(s)));
+    renumber();
+    updateTotals();
+}
+
+function readStories() {
+    return [...$("stories").children].map((el, i) => ({
+        number: i + 1,
+        title: el.querySelector(".st-title").value.trim(),
+        context: el.querySelector(".st-context").value.trim(),
+        who: el.querySelector(".st-who").value.trim(),
+        year: el.querySelector(".st-year").value.trim(),
+        where: el.querySelector(".st-where").value.trim(),
+        sources: el.querySelector(".st-sources").value.trim(),
+    }));
+}
+
+/* ---------------- Config ---------------- */
+
+function readConfig() {
+    return {
+        book_title: $("book_title").value.trim(),
+        topic: $("topic").value.trim(),
+        audience: $("audience").value.trim() || "general adult reader",
+        tone: $("tone").value.trim() || "engaging, warm, and lightly humorous",
+        min_words: parseInt($("min_words").value || "300", 10),
+        max_words: parseInt($("max_words").value || "500", 10),
+        global_context: $("global_context").value.trim(),
+        sidebar_enabled: $("sidebar_enabled").checked,
+        sidebar_label: $("sidebar_label").value.trim() || "The Breakdown",
+        sidebar_instruction: $("sidebar_instruction").value.trim(),
+        closer_enabled: $("closer_enabled").checked,
+        closer_label: $("closer_label").value.trim() || "The Takeaway",
+        closer_instruction: $("closer_instruction").value.trim(),
+        illustrations: $("illustrations").checked,
+        illustrate_every_story: $("illustrate_every_story").checked,
+        check_duplicates: $("check_duplicates").checked,
+        agent: $("agent").value.trim() || "main",
+        stories: readStories(),
+    };
+}
+
+function applyConfig(cfg) {
+    $("book_title").value = cfg.book_title || "";
+    $("topic").value = cfg.topic || "";
+    $("audience").value = cfg.audience || "";
+    $("tone").value = cfg.tone || "";
+    $("min_words").value = cfg.min_words || 300;
+    $("max_words").value = cfg.max_words || 500;
+    $("global_context").value = cfg.global_context || "";
+    $("sidebar_enabled").checked = !!cfg.sidebar_enabled;
+    $("sidebar_label").value = cfg.sidebar_label || "The Breakdown";
+    $("sidebar_instruction").value = cfg.sidebar_instruction || "";
+    $("closer_enabled").checked = !!cfg.closer_enabled;
+    $("closer_label").value = cfg.closer_label || "The Takeaway";
+    $("closer_instruction").value = cfg.closer_instruction || "";
+    $("illustrations").checked = !!cfg.illustrations;
+    $("illustrate_every_story").checked = !!cfg.illustrate_every_story;
+    $("check_duplicates").checked = cfg.check_duplicates !== false;
+    $("agent").value = cfg.agent || "main";
+
+    // A config may carry either shape; flatten chapters into the flat editor.
+    const flat = cfg.stories && cfg.stories.length
+        ? cfg.stories
+        : (cfg.chapters || []).flatMap(c => c.stories || []);
+    setStories(flat);
+}
+
+function updateTotals() {
+    const cfg = readConfig();
+    const n = cfg.stories.length;
+    const withContext = cfg.stories.filter(s =>
+        s.context || s.who || s.year || s.where).length;
+    const lo = (n * cfg.min_words).toLocaleString();
+    const hi = (n * cfg.max_words).toLocaleString();
+    $("totals").innerHTML = n
+        ? `${n} stories · ~${lo}-${hi} words<br>
+           <span class="${withContext === n ? 'text-emerald-600' : 'text-amber-600'}">
+           ${withContext}/${n} with context</span>`
+        : "No stories yet";
+    $("outline-summary").textContent = n ? `${n} stories` : "";
+}
+
+/* ---------------- Outline import ---------------- */
+
+function applyParsedOutline(data) {
+    setStories(data.stories || []);
+    if (data.notes && !$("global_context").value.trim()) {
+        // Production notes from the document are offered, not forced — they are
+        // guidance about the book, and the operator decides what applies.
+        if (confirm("Found production notes in that outline. Use them as the book-wide notes?")) {
+            $("global_context").value = data.notes;
+        }
+    }
+    const thin = (data.stories || []).length - (data.with_context || 0);
+    alert(`Imported ${data.story_count} stories.` +
+          (thin > 0 ? `\n\n${thin} have no context — they will be written from the model's own knowledge and flagged for fact-checking.` : ""));
+}
+
+async function uploadOutline(file) {
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+        const r = await fetch("/api/stories/parse-outline", { method: "POST", body: fd });
+        const data = await r.json();
+        if (!r.ok) return alert(data.error || "Could not read that outline.");
+        applyParsedOutline(data);
+    } catch (e) {
+        alert("Upload failed: " + e.message);
+    }
+}
+
+$("btn-pick-file").addEventListener("click", () => $("outline-file").click());
+$("outline-file").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (file) uploadOutline(file);
+    e.target.value = "";
+});
+
+const dz = $("drop-zone");
+["dragenter", "dragover"].forEach(ev =>
+    dz.addEventListener(ev, (e) => {
+        e.preventDefault(); dz.classList.add("dragging");
+    }));
+["dragleave", "drop"].forEach(ev =>
+    dz.addEventListener(ev, (e) => {
+        e.preventDefault(); dz.classList.remove("dragging");
+    }));
+dz.addEventListener("drop", (e) => {
+    const file = e.dataTransfer.files[0];
+    if (file) uploadOutline(file);
+});
+
+$("btn-paste").addEventListener("click", () => {
+    $("paste-wrap").classList.toggle("hidden");
+});
+$("btn-cancel-paste").addEventListener("click", () => {
+    $("paste-wrap").classList.add("hidden");
+});
+$("btn-parse-paste").addEventListener("click", async () => {
+    const text = $("paste-text").value;
+    if (!text.trim()) return alert("Paste your outline first.");
+    try {
+        const r = await fetch("/api/stories/parse-outline-text", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text }),
+        });
+        const data = await r.json();
+        if (!r.ok) return alert(data.error || "Could not read that outline.");
+        applyParsedOutline(data);
+        $("paste-wrap").classList.add("hidden");
+    } catch (e) {
+        alert("Request failed: " + e.message);
+    }
+});
+
+$("btn-suggest").addEventListener("click", async () => {
+    const book_title = $("book_title").value.trim();
+    const topic = $("topic").value.trim();
+    if (!book_title || !topic) return alert("Fill in the book title and topic first.");
+
+    const raw = prompt("How many stories should the AI propose?", "10");
+    if (raw === null) return;
+    const count = parseInt(raw, 10);
+    if (!count || count < 1) return alert("Enter a number of stories.");
+
+    const btn = $("btn-suggest");
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Researching…';
+    try {
+        const r = await fetch("/api/stories/suggest-outline", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                book_title, topic, count,
+                notes: $("global_context").value.trim(),
+                agent: $("agent").value.trim() || "main",
+            }),
+        });
+        const data = await r.json();
+        if (!r.ok) return alert(data.error || "Could not suggest stories.");
+        setStories(data.stories || []);
+        alert(`Proposed ${(data.stories || []).length} stories. ` +
+              `Check every one — these are the AI's suggestions and need verifying.`);
+    } catch (e) {
+        alert("Request failed: " + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = original;
+    }
+});
+
+$("btn-add-story").addEventListener("click", () => addStory());
+$("btn-clear-stories").addEventListener("click", () => {
+    if (!$("stories").children.length) return;
+    if (confirm("Remove every story from the outline?")) setStories([]);
+});
+
+/* ---------------- Build status ---------------- */
+
+function setStatus(s) {
+    $("status-idle").classList.add("hidden");
+    $("status-live").classList.remove("hidden");
+    $("stage-label").textContent = s.stage || s.status || "working";
+    const pct = Math.round((s.progress || 0) * 100);
+    $("progress-pct").textContent = pct + "%";
+    $("progress-bar").style.width = pct + "%";
+
+    if (s.story_count) {
+        $("counts-box").textContent =
+            `${s.stories_written || 0} of ${s.story_count} stories` +
+            (s.total_words ? ` · ${(s.total_words).toLocaleString()} words` : "");
+        $("counts-box").classList.remove("hidden");
+    } else {
+        $("counts-box").classList.add("hidden");
+    }
+
+    const u = s.usage || {};
+    if (u.calls) {
+        $("u-cost").textContent = "$" + (u.cost_usd || 0).toFixed(4);
+        $("u-tokens").textContent = (u.total_tokens || 0).toLocaleString();
+        $("u-calls").textContent = u.calls + (u.cache_hits ? ` +${u.cache_hits}✓` : "");
+        $("usage-box").classList.remove("hidden");
+    } else {
+        $("usage-box").classList.add("hidden");
+    }
+
+    if (s.error) {
+        $("job-error").textContent = s.error;
+        $("job-error").classList.remove("hidden");
+    } else {
+        $("job-error").classList.add("hidden");
+    }
+
+    if (s.warnings && s.warnings.length) {
+        $("job-warnings").innerHTML = s.warnings.map(w =>
+            `<div class="mb-1">${escapeHtml(w)}</div>`).join("");
+        $("job-warnings").classList.remove("hidden");
+    } else {
+        $("job-warnings").classList.add("hidden");
+    }
+
+    const logs = $("logs");
+    logs.innerHTML = (s.logs || []).map(l =>
+        `<div class="log-line text-slate-300">${escapeHtml(l)}</div>`).join("");
+    logs.scrollTop = logs.scrollHeight;
+
+    const kinds = [["json","JSON"],["markdown","Markdown"],["factcheck","Fact-check"],
+                   ["docx","DOCX"],["kindle","Kindle"],["paperback","Paperback"]];
+    const available = kinds.filter(([k]) => s.outputs && s.outputs[k]);
+    if (available.length) {
+        const editBtn = `<a href="/stories/${s.id}/edit"
+                class="btn-primary rounded-xl px-3 py-2 text-xs text-center font-semibold col-span-2 text-white">
+                <i class="fas fa-pen-to-square mr-1"></i> Preview &amp; Edit</a>`;
+        $("downloads").innerHTML = editBtn + available.map(([k, label]) =>
+            `<a href="/api/stories/books/${s.id}/download/${k}"
+                class="btn-ghost rounded-xl px-3 py-2 text-xs text-center text-slate-700">
+                <i class="fas fa-download mr-1"></i> ${label}</a>`).join("");
+        $("downloads").classList.remove("hidden");
+    } else {
+        $("downloads").classList.add("hidden");
+    }
+
+    const running = s.status === "running" || s.status === "queued";
+    $("btn-stop").classList.toggle("hidden", !running);
+    $("btn-generate").disabled = running;
+}
+
+async function poll(jobId) {
+    try {
+        const r = await fetch(`/api/stories/jobs/${jobId}/status`);
+        if (!r.ok) throw new Error("status " + r.status);
+        const s = await r.json();
+        setStatus(s);
+        if (s.status === "running" || s.status === "queued") {
+            pollTimer = setTimeout(() => poll(jobId), 2500);
+        } else {
+            loadLibrary();
+        }
+    } catch (e) {
+        $("stage-label").textContent = "Lost connection to build";
+    }
+}
+
+async function loadLibrary() {
+    try {
+        const r = await fetch("/api/stories/books");
+        const { books } = await r.json();
+        if (!books.length) {
+            $("library").innerHTML = `<div class="text-sm text-slate-500 text-center py-6">No story books yet.</div>`;
+            return;
+        }
+        $("library").innerHTML = books.map(b => {
+            const badgeClass = {
+                done:    "bg-emerald-50 text-emerald-700 border border-emerald-200",
+                error:   "bg-red-50 text-red-700 border border-red-200",
+                running: "bg-sky-50 text-sky-700 border border-sky-200",
+                queued:  "bg-amber-50 text-amber-700 border border-amber-200",
+                stopped: "bg-slate-100 text-slate-600 border border-slate-200",
+            }[b.status] || "bg-slate-100 text-slate-600 border border-slate-200";
+            return `<div class="story-card rounded-xl p-3 flex items-center gap-3">
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm text-slate-900 truncate">${escapeHtml(b.title || "Untitled")}</div>
+                    <div class="text-[11px] text-slate-500 truncate">
+                        ${b.stories_written || 0}/${b.story_count || 0} stories
+                        ${b.total_words ? ` · ${(b.total_words).toLocaleString()} words` : ""}
+                    </div>
+                </div>
+                <span class="badge uppercase px-2 py-0.5 rounded-md ${badgeClass}">${escapeHtml(b.status)}</span>
+                ${b.status === "done" ? `<a href="/stories/${b.id}/edit" class="btn-ghost w-7 h-7 rounded-lg text-[11px] flex items-center justify-center text-rose-700" title="Preview &amp; Edit"><i class="fas fa-pen-to-square"></i></a>` : ""}
+                <button data-id="${b.id}" class="lib-open btn-ghost w-7 h-7 rounded-lg text-[11px]" title="Open"><i class="fas fa-arrow-up-right-from-square"></i></button>
+                <button data-id="${b.id}" class="lib-del btn-ghost w-7 h-7 rounded-lg text-[11px] hover:text-red-600" title="Delete"><i class="fas fa-trash"></i></button>
+            </div>`;
+        }).join("");
+
+        document.querySelectorAll(".lib-open").forEach(btn =>
+            btn.addEventListener("click", () => {
+                currentJob = btn.dataset.id;
+                poll(currentJob);
+            }));
+        document.querySelectorAll(".lib-del").forEach(btn =>
+            btn.addEventListener("click", async () => {
+                if (!confirm("Delete this story book?")) return;
+                await fetch(`/api/stories/books/${btn.dataset.id}`, { method: "DELETE" });
+                loadLibrary();
+            }));
+    } catch (e) { /* library is non-critical */ }
+}
+
+/* ---------------- Actions ---------------- */
+
+$("btn-generate").addEventListener("click", async () => {
+    const cfg = readConfig();
+    if (!cfg.book_title) return alert("Book title is required.");
+    if (!cfg.topic) return alert("Topic is required.");
+    if (!cfg.stories.length) return alert("Add at least one story.");
+    for (const s of cfg.stories) {
+        if (!s.title) return alert("Every story needs a title.");
+    }
+    if (cfg.min_words > cfg.max_words) {
+        return alert("The minimum word count cannot be above the maximum.");
+    }
+
+    const thin = cfg.stories.filter(s =>
+        !s.context && !s.who && !s.year && !s.where).length;
+    if (thin && !confirm(
+        `${thin} of ${cfg.stories.length} stories have no context.\n\n` +
+        `They will be written from the model's own knowledge and every ` +
+        `uncertain detail flagged on the fact-check sheet. Continue?`)) return;
+
+    if (pollTimer) clearTimeout(pollTimer);
+    $("btn-generate").disabled = true;
+
+    try {
+        const r = await fetch("/api/stories/jobs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ config: cfg }),
+        });
+        const data = await r.json();
+        if (!r.ok) {
+            alert(data.error || "Could not start the build.");
+            $("btn-generate").disabled = false;
+            return;
+        }
+        currentJob = data.job_id;
+        poll(currentJob);
+        loadLibrary();
+    } catch (e) {
+        alert("Request failed: " + e.message);
+        $("btn-generate").disabled = false;
+    }
+});
+
+$("btn-stop").addEventListener("click", async () => {
+    if (!currentJob) return;
+    await fetch(`/api/stories/jobs/${currentJob}/stop`, { method: "POST" });
+});
+
+$("btn-refresh").addEventListener("click", loadLibrary);
+
+$("btn-export").addEventListener("click", () => {
+    const blob = new Blob([JSON.stringify(readConfig(), null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = ($("book_title").value.trim() || "stories_config") + ".json";
+    a.click();
+});
+
+$("btn-import").addEventListener("click", () => $("import-file").click());
+$("import-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+        applyConfig(JSON.parse(await file.text()));
+    } catch (err) {
+        alert("Could not read that config: " + err.message);
+    }
+    e.target.value = "";
+});
+
+["min_words", "max_words"].forEach(id =>
+    $(id).addEventListener("input", updateTotals));
+
+addStory();
+loadLibrary();
+</script>
+</body>
+</html>

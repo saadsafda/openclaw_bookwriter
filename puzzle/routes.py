@@ -142,6 +142,15 @@ def _run_build(job_id: str) -> None:
             "docx": str(docx_path),
         }
 
+        _log("Verifying every image is 300 DPI with no AI metadata")
+        image_problems = exporter.verify_print_images(book, out_dir)
+        if image_problems:
+            for problem in image_problems:
+                _log(f"WARNING: print check — {problem}")
+            job.warnings.extend(f"Print check — {p}" for p in image_problems)
+        else:
+            _log("Print check passed: all images 300 DPI, metadata clean")
+
         # KDP formatting is best-effort: a failure there must not lose the
         # manuscript we already produced.
         try:
@@ -766,6 +775,7 @@ def register(app) -> None:  # noqa: ANN001
                 "markdown": str(md_path),
                 "docx": str(docx_path),
             }
+            warnings.extend(exporter.verify_print_images(book, out_dir))
             try:
                 kdp = exporter.build_kdp_files(book, docx_path, out_dir)
                 outputs["kindle"] = kdp["kindle"]

@@ -24,6 +24,8 @@ from typing import Iterable, Optional
 
 from PIL import Image, ImageDraw, ImageFont
 
+from print_hygiene import sanitize_for_print
+
 from .engine import (
     PAGE_H_IN,
     PAGE_W_IN,
@@ -105,9 +107,14 @@ def _new_page() -> tuple[Image.Image, ImageDraw.ImageDraw]:
 
 
 def _save(img: Image.Image, path: Path) -> Path:
-    """Save grayscale at 300 DPI, as every asset in the spec requires."""
+    """Save grayscale at 300 DPI, as every asset in the spec requires.
+
+    The sanitize pass is what guarantees the DPI is exactly 300 and that no
+    metadata rides along; Pillow's own save is not sufficient on either count.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     img.save(str(path), format="PNG", dpi=(PRINT_DPI, PRINT_DPI), optimize=True)
+    sanitize_for_print(path, PRINT_DPI)
     return path
 
 

@@ -16,6 +16,8 @@ from docx.enum.section import WD_SECTION
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt
 
+from print_hygiene import PRINT_DPI, audit_tree, sanitize_for_print
+
 from .engine import (
     ANSWER_KEY_END_OF_BOOK,
     ANSWER_KEY_END_OF_CHAPTER,
@@ -147,6 +149,9 @@ def build_docx(book: TriviaBook, path: Path, *, image_width_in: float = 4.5) -> 
         _add_heading(doc, f"Chapter {chapter.number} — {chapter.title}", 1)
 
         if chapter.illustration_path and Path(chapter.illustration_path).exists():
+            # Last line of defence before embedding: chapter art is AI
+            # generated, so guarantee 300 DPI and no provenance metadata.
+            sanitize_for_print(chapter.illustration_path, PRINT_DPI)
             pic_para = doc.add_paragraph()
             pic_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
             pic_para.add_run().add_picture(
@@ -191,6 +196,22 @@ def build_docx(book: TriviaBook, path: Path, *, image_width_in: float = 4.5) -> 
     path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(path))
     return path
+
+
+def verify_print_images(book: TriviaBook, job_dir: Path) -> list[str]:
+    """Confirm every image in ``job_dir`` is 300 DPI and metadata-free.
+
+    Returns human-readable problems and records them on ``book.warnings`` so a
+    bad asset surfaces in the build log instead of reaching KDP unnoticed.
+    """
+    problems: list[str] = []
+    for path, issues in audit_tree(job_dir, PRINT_DPI).items():
+        rel = path.relative_to(job_dir) if path.is_relative_to(job_dir) else path
+        problems.append(f"{rel}: {'; '.join(issues)}")
+
+    for message in problems:
+        book.warnings.append(f"Print check — {message}")
+    return problems
 
 
 def build_kdp_files(

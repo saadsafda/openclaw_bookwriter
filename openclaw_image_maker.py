@@ -185,15 +185,16 @@ def build_image_prompt_from_paragraph(heading: str, paragraph_text: str, templat
 
 
 def prepare_image_for_print(image_path: Path, dpi: int = 300) -> None:
-    """Strip all EXIF/metadata and set DPI for print publishing."""
-    from PIL import Image
+    """Strip all EXIF/metadata and set DPI for print publishing.
 
-    with Image.open(image_path) as img:
-        # Create a clean copy with no metadata
-        clean = Image.new(img.mode, img.size)
-        clean.putdata(list(img.getdata()))
-        # Save with explicit DPI and no extra metadata
-        clean.save(image_path, dpi=(dpi, dpi))
+    Delegates to print_hygiene so AI art and in-house puzzle grids get the
+    identical treatment: every metadata block dropped (including the C2PA
+    provenance chunk that image models now embed) and the DPI pinned as
+    exactly as the format allows.
+    """
+    from print_hygiene import sanitize_for_print
+
+    sanitize_for_print(image_path, dpi)
 
 
 def find_cached_image(cache_dir: Path, cache_key: str) -> Path | None:

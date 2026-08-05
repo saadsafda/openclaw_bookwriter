@@ -341,6 +341,13 @@ def main() -> int:
     docx_path = export.build_docx(book, out_dir / "puzzle_book.docx")
     log(f"wrote {docx_path.name}, {md_path.name}, {json_path.name}")
 
+    image_problems = export.verify_print_images(book, out_dir)
+    if image_problems:
+        for problem in image_problems:
+            log(f"WARNING: print check — {problem}")
+    else:
+        log("print check passed: all images 300 DPI, metadata clean")
+
     if not args.no_kdp:
         try:
             kdp = export.build_kdp_files(book, docx_path, out_dir)

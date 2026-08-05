@@ -46,6 +46,9 @@ import launch_emails as launch_email_routes
 import book_editor as book_editor_routes
 import trivia as trivia_routes
 import puzzle as puzzle_routes
+import stories as stories_routes
+from PIL import Image
+from print_hygiene import PRINT_DPI, sanitize_for_print
 
 ROOT_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = ROOT_DIR / "web_uploads"
@@ -55,6 +58,10 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 PYTHON_BIN = ROOT_DIR / ".venv" / "bin" / "python"
 if not PYTHON_BIN.exists():
     PYTHON_BIN = Path(sys.executable)
+
+# QR codes are placed at this width in the paperback; the render must supply
+# enough pixels to be a true 300 DPI image at that size.
+QR_PRINT_WIDTH_IN = 3
 
 DEFAULTS: dict[str, Any] = {
     "agent": "main",
@@ -174,6 +181,7 @@ launch_email_routes.register(app)
 book_editor_routes.register(app)
 trivia_routes.register(app)
 puzzle_routes.register(app)
+stories_routes.register(app)
 
 
 def _timestamp() -> str:
@@ -1212,6 +1220,26 @@ def attach_qr_to_book(job_id: str) -> Any:
         })
 
 
+def _ensure_qr_print_ready(qr_png: Path, width_in: int = QR_PRINT_WIDTH_IN) -> None:
+    """Make a QR PNG a true 300 DPI image at its printed width, then sanitize.
+
+    QR codes are generated from a ``box_size`` in pixels, which routinely lands
+    under 300 DPI once placed at ``width_in`` inches. Tagging the DPI alone
+    would be a lie about a file that lacks the pixels, so it is resized with
+    NEAREST — smoothing the module edges would hurt scan reliability.
+    """
+    target_px = width_in * PRINT_DPI
+    with Image.open(qr_png) as im:
+        needs_upscale = im.width < target_px
+        if needs_upscale:
+            resized = im.resize((target_px, target_px), Image.NEAREST)
+        else:
+            resized = None
+    if resized is not None:
+        resized.save(str(qr_png), format="PNG")
+    sanitize_for_print(qr_png)
+
+
 def _append_qr_page(doc_path: Path, qr_png: Path, *, heading: str, caption: str) -> None:
     """Append a centred 'Scan this QR code' page to the given .docx in-place."""
     from docx.shared import Inches, Pt
@@ -1234,7 +1262,10 @@ def _append_qr_page(doc_path: Path, qr_png: Path, *, heading: str, caption: str)
     # Spacer
     doc.add_paragraph()
 
-    # QR image, centred
+    # QR image, centred. Upscaled and sanitized first: it is a printed image
+    # like any other, so it must be a true 300 DPI with no metadata. A
+    # user-configured QR can arrive at any box_size, so this is not optional.
+    _ensure_qr_print_ready(qr_png)
     img_para = doc.add_paragraph()
     img_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     img_para.add_run().add_picture(str(qr_png), width=Inches(3.0))
@@ -1299,6 +1330,7 @@ def _insert_paperback_bonus_page(doc_path: Path, qr_png: Path) -> None:
     title_run.font.size = Pt(36)
     bonus_para.add_run("\n\n")
 
+    _ensure_qr_print_ready(qr_png)
     qr_run = bonus_para.add_run()
     qr_run.add_picture(str(qr_png), width=Inches(3.0))
 
@@ -1387,7 +1419,9 @@ def _generate_qr_png(content: str, output_path: Path) -> None:
             front_color=(17, 24, 39),
         ),
     )
+
     img.save(str(output_path), format="PNG")
+    _ensure_qr_print_ready(output_path)
 
 
 def _do_landing_page_qr(job: Job, page_title: str) -> None:
