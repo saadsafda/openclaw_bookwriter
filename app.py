@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -65,7 +66,7 @@ if not PYTHON_BIN.exists():
 QR_PRINT_WIDTH_IN = 3
 
 DEFAULTS: dict[str, Any] = {
-    "agent": "main",
+    "agent": "Writer-Agent-1",
     "tone": "friendly, encouraging, and easy to understand",
     # WHAT the book is (subject, angle, audience) and HOW it must sound (tone,
     # register), kept separate: merged into one field the model absorbs the
@@ -97,6 +98,8 @@ DEFAULTS: dict[str, Any] = {
     # unconditionally). Turning it off reuses cached text for a heading whose
     # prompt is unchanged, which is much cheaper on a re-run.
     "skip_cache": True,
+    # Rewrite sections that already have text, instead of skipping them.
+    # Off by default: it regenerates (and pays for) the whole book.
     "force": False,
     "image_prompt_variant": "rich-scene-no-text",
     "image_model": "gpt-image-1",
@@ -519,10 +522,17 @@ def _run_kdp_formatting(job: Job, source_doc: Path) -> tuple[Path, Path]:
         str(cfg.get("author_placeholder", "Author Name")),
     ]
 
-    # The original outline is the authority on which lines are subheadings.
-    # Without it the formatter guesses from text shape and promotes AI-written
-    # prose (colon lead-ins, generated list items) into headings.
-    outline_path = Path(job.input_docx) if job.input_docx else None
+    # The original outline is the authority on which lines become headings, at
+    # BOTH levels. Prefer the pre-generation snapshot: the writer fills prose
+    # into input_docx itself, so that file now holds the finished book and using
+    # it here would list every generated paragraph as a legal heading — the
+    # check would pass everything and prose would be styled as chapter titles.
+    # Books created before the snapshot existed fall back to input_docx, which
+    # is still correct for an already-written book (never generated into).
+    snapshot_raw = str(cfg.get("outline_snapshot") or "")
+    outline_path = Path(snapshot_raw) if snapshot_raw else (
+        Path(job.input_docx) if job.input_docx else None
+    )
     if outline_path and outline_path.exists():
         cmd.extend(["--outline", str(outline_path)])
 
@@ -583,6 +593,14 @@ def _build_generation_cmd(job: Job, cfg: dict[str, Any], max_spend_usd: float) -
     # either way, so turning it off later still finds something to reuse.
     if cfg.get("skip_cache", True):
         cmd.append("--no-cache")
+    # Rewrite sections that ALREADY have text. --no-cache alone is not enough:
+    # the writer skips any heading whose body paragraph is non-empty, no matter
+    # what the cache says, so a finished book re-run without this changes
+    # nothing. Needed to push a prose-style change (paragraph shape, voice)
+    # through a book that is already written. Off by default because it pays
+    # for every section again.
+    if cfg.get("force", False):
+        cmd.append("--force")
     # Already-written book: never generate TEXT (--no-text). This is the fix
     # for a human-written book whose paragraph formatting confused the heading
     # detector into "filling in" content under real paragraphs (a 29k-word
@@ -1600,6 +1618,8 @@ def _build_cfg_from_form(form: Any) -> tuple[dict[str, Any] | None, str | None]:
         # Same checkbox-presence rule. The form always posts the whole config
         # panel, so an absent field genuinely means the user unchecked it.
         "skip_cache": form.get("skip_cache") is not None,
+        # Same checkbox-presence rule. Rewrites sections that already have text.
+        "force": form.get("force") is not None,
         "image_prompt_variant": (form.get("image_prompt_variant") or DEFAULTS["image_prompt_variant"]).strip() or DEFAULTS["image_prompt_variant"],
         "image_model": (form.get("image_model") or DEFAULTS["image_model"]).strip() or DEFAULTS["image_model"],
         "image_size": (form.get("image_size") or DEFAULTS["image_size"]).strip() or DEFAULTS["image_size"],
@@ -1645,6 +1665,23 @@ def _create_job_record(input_doc: Path, cfg: dict[str, Any], pre_written: bool) 
     job_id = uuid.uuid4().hex
     # Write in-place, same as the requested terminal command pattern.
     output_doc = input_doc
+
+    # Snapshot the outline BEFORE generation overwrites it. The writer fills
+    # prose into this very file, so by formatting time input_docx holds the
+    # finished book, and reading "the outline" from it would return every
+    # generated paragraph as a topic. The formatter uses that set as the
+    # authority on what may become a heading, so a stale copy silently turns
+    # the check off and lets prose be styled as chapter titles again.
+    outline_snapshot = ""
+    if input_doc.exists():
+        snapshot_path = UPLOAD_DIR / f"{job_id}_outline_source{input_doc.suffix}"
+        try:
+            shutil.copy2(str(input_doc), str(snapshot_path))
+            outline_snapshot = str(snapshot_path)
+        except Exception:
+            # Non-fatal: the formatter falls back to shape heuristics.
+            outline_snapshot = ""
+    cfg = {**cfg, "outline_snapshot": outline_snapshot}
 
     job = Job(
         id=job_id,

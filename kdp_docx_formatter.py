@@ -597,8 +597,19 @@ def _set_heading_styles_and_collect_bookmarks(
             pending_chapter_label_text = text.strip()
             continue
 
+        # When the source outline is known it is the authority for BOTH heading
+        # levels, not just Heading 2. The outline literally lists every heading
+        # in the book, so a line absent from it is generated body prose no matter
+        # what it looks like. Without this check the pattern tests below run
+        # against AI-written text and promote it: a paragraph opening "Summary"
+        # or "1. " matches FRONT_BACK_EXTENDED_RE / NUMBERED_TITLE_RE, and a
+        # short paragraph that happens to be bold or centered matches the format
+        # fallback. The only guard was a length test, which short paragraphs pass
+        # by definition, so real prose was silently restyled as a chapter title.
+        in_outline = (not outline_topics) or (_canonical_title_key(text) in outline_topics)
+
         # ── Heading 1 detection (smart) ─────────────────────────────────
-        is_main_heading = (
+        is_main_heading = in_outline and (
             pending_chapter_label
             or style_name.startswith("heading 1")
             or CHAPTER_RE.match(text) is not None
@@ -612,8 +623,9 @@ def _set_heading_styles_and_collect_bookmarks(
             or NUMBERED_TITLE_RE.match(text) is not None
         )
 
-        # Format-based fallback: short bold/large/caps line
-        if not is_main_heading and _looks_like_heading_by_format(p, text):
+        # Format-based fallback: short bold/large/caps line. Gated the same way,
+        # since generated prose can arrive bold or centered from an earlier pass.
+        if not is_main_heading and in_outline and _looks_like_heading_by_format(p, text):
             is_main_heading = True
 
         # Same length guard as Heading 2 below: a pre-applied "Heading 1" on a
