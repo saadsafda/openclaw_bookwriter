@@ -66,7 +66,12 @@ if not PYTHON_BIN.exists():
 QR_PRINT_WIDTH_IN = 3
 
 DEFAULTS: dict[str, Any] = {
-    "agent": "Writer-Agent-1",
+    # Must match the OpenClaw agent id EXACTLY: the dashboard selects the
+    # default with a case-sensitive `a.id === preferredAgent` comparison, and
+    # the writer passes this straight to `--agent`. Cased wrongly it silently
+    # matches nothing, the dropdown falls through to whatever agent is first
+    # in the list ("main"), and books get written by the wrong agent.
+    "agent": "writer-agent-1",
     "tone": "friendly, encouraging, and easy to understand",
     # WHAT the book is (subject, angle, audience) and HOW it must sound (tone,
     # register), kept separate: merged into one field the model absorbs the
