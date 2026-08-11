@@ -33,3 +33,5 @@ puzzle_outputs/
 puzzle_test_output/
 cover_outputs/
 cover_references/
+bird_sources/
+bird_outputs/

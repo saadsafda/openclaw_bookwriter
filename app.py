@@ -49,6 +49,7 @@ import trivia as trivia_routes
 import puzzle as puzzle_routes
 import stories as stories_routes
 import covers as covers_routes
+import birds as birds_routes
 from PIL import Image
 from print_hygiene import PRINT_DPI, sanitize_for_print
 
@@ -192,6 +193,7 @@ trivia_routes.register(app)
 puzzle_routes.register(app)
 stories_routes.register(app)
 covers_routes.register(app)
+birds_routes.register(app)
 
 
 def _timestamp() -> str:

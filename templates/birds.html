@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full antialiased">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bird Illustration Pipeline &middot; OpenClaw</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', system-ui, sans-serif; }
+        .bg-mesh {
+            background-color: #f6f8fb;
+            background-image:
+                radial-gradient(at 18% 12%, rgba(16, 185, 129, 0.10) 0px, transparent 50%),
+                radial-gradient(at 82% 18%, rgba(14, 165, 233, 0.09) 0px, transparent 50%),
+                radial-gradient(at 50% 90%, rgba(139, 92, 246, 0.08) 0px, transparent 55%);
+        }
+        .glass {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(18px) saturate(140%);
+            -webkit-backdrop-filter: blur(18px) saturate(140%);
+            border: 1px solid rgba(15, 23, 42, 0.08);
+        }
+        .field {
+            background: #ffffff;
+            border: 1px solid rgba(15, 23, 42, 0.14);
+            color: #0f172a;
+            transition: all 0.15s ease;
+        }
+        .field::placeholder { color: #94a3b8; }
+        .field:focus {
+            outline: none;
+            border-color: rgba(16, 185, 129, 0.65);
+            background: rgba(16, 185, 129, 0.04);
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.16);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #10b981 0%, #0ea5e9 60%, #8b5cf6 100%);
+            background-size: 200% 200%;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 24px -12px rgba(16, 185, 129, 0.75);
+        }
+        .btn-primary:hover { background-position: 100% 0; transform: translateY(-1px); }
+        .btn-primary:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+        .btn-ghost {
+            background: #ffffff;
+            border: 1px solid rgba(15, 23, 42, 0.12);
+            color: #334155;
+            transition: all 0.15s ease;
+        }
+        .btn-ghost:hover { background: #f1f5f9; border-color: rgba(15, 23, 42, 0.2); }
+        /* The checkerboard is how the operator confirms a real cutout at a
+           glance — the same signal as the chat window's transparent preview. */
+        .checker {
+            background-image:
+                linear-gradient(45deg, #e2e8f0 25%, transparent 25%),
+                linear-gradient(-45deg, #e2e8f0 25%, transparent 25%),
+                linear-gradient(45deg, transparent 75%, #e2e8f0 75%),
+                linear-gradient(-45deg, transparent 75%, #e2e8f0 75%);
+            background-size: 16px 16px;
+            background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+            background-color: #ffffff;
+        }
+        .src-tile {
+            position: relative;
+            aspect-ratio: 1 / 1;
+            border-radius: 0.6rem;
+            overflow: hidden;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: all .15s ease;
+            background: #f1f5f9;
+        }
+        .src-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .src-tile.selected { border-color: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,.18); }
+        .src-tile .cap {
+            position: absolute; inset: auto 0 0 0;
+            background: linear-gradient(transparent, rgba(15,23,42,.82));
+            color: #fff; font-size: 10px; line-height: 1.2;
+            padding: 14px 5px 4px; text-align: center;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .src-tile .rm {
+            position: absolute; top: 4px; right: 4px;
+            background: rgba(15,23,42,.72); color: #fff;
+            width: 22px; height: 22px; border-radius: 999px;
+            font-size: 11px; line-height: 22px; text-align: center;
+            opacity: 0; transition: opacity .15s ease;
+        }
+        .src-tile:hover .rm { opacity: 1; }
+        .plate-card {
+            aspect-ratio: 1 / 1;
+            border-radius: 0.6rem;
+            overflow: hidden;
+            border: 1px solid rgba(15, 23, 42, 0.10);
+            position: relative;
+        }
+        .plate-card img { width: 100%; height: 100%; object-fit: contain; display: block; }
+        .plate-actions {
+            position: absolute; inset: auto 0 0 0;
+            background: linear-gradient(transparent, rgba(15,23,42,.78));
+            padding: 26px 8px 8px; display: flex; gap: 6px; justify-content: center;
+            opacity: 0; transition: opacity .15s ease;
+        }
+        .plate-card:hover .plate-actions { opacity: 1; }
+        .plate-flag {
+            position: absolute; top: 5px; right: 5px;
+            background: #f59e0b; color: #fff;
+            font-size: 10px; font-weight: 700;
+            padding: 2px 6px; border-radius: 999px;
+        }
+        .spin { animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .dropzone { border: 2px dashed rgba(15,23,42,.18); transition: all .15s ease; }
+        .dropzone.hot { border-color: #10b981; background: rgba(16,185,129,.05); }
+        .bar { height: 6px; border-radius: 999px; background: #e2e8f0; overflow: hidden; }
+        .bar > div {
+            height: 100%; border-radius: 999px;
+            background: linear-gradient(90deg, #10b981, #0ea5e9);
+            transition: width .3s ease;
+        }
+    </style>
+</head>
+<body class="h-full bg-mesh">
+<div class="max-w-7xl mx-auto px-6 py-8">
+
+    <header class="mb-8 flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-extrabold text-slate-900 flex items-center gap-3">
+                <span class="w-9 h-9 rounded-xl btn-primary flex items-center justify-center text-white">
+                    <i class="fa-solid fa-dove text-sm"></i>
+                </span>
+                Bird Illustration Pipeline
+            </h1>
+            <p class="text-sm text-slate-500 mt-1">
+                Photos in &mdash; transparent PNG illustrations out, print-ready at 300&nbsp;DPI.
+            </p>
+        </div>
+        <a href="/" class="btn-ghost px-4 py-2 rounded-lg text-sm font-medium">
+            <i class="fa-solid fa-arrow-left mr-1.5"></i>Dashboard
+        </a>
+    </header>
+
+    <!-- Batch picker -->
+    <section class="glass rounded-2xl p-6 mb-6">
+        <div class="flex items-end gap-3 flex-wrap">
+            <div class="flex-1 min-w-[240px]">
+                <label class="block text-xs font-semibold text-slate-600 mb-1.5">Guide batch</label>
+                <select id="batchSelect" class="field w-full rounded-lg px-3 py-2 text-sm">
+                    <option value="">&mdash; select a batch &mdash;</option>
+                </select>
+            </div>
+            <div class="min-w-[200px]">
+                <label class="block text-xs font-semibold text-slate-600 mb-1.5">New batch</label>
+                <input id="newBatchName" type="text" class="field w-full rounded-lg px-3 py-2 text-sm"
+                       placeholder="Backyard Birds of Texas">
+            </div>
+            <button id="createBatch" class="btn-ghost px-4 py-2 rounded-lg text-sm font-medium">
+                <i class="fa-solid fa-plus mr-1.5"></i>Create
+            </button>
+            <button id="deleteBatch" class="btn-ghost px-3 py-2 rounded-lg text-sm font-medium text-rose-600">
+                <i class="fa-solid fa-trash"></i>
+            </button>
+        </div>
+        <p class="text-xs text-slate-500 mt-3">
+            <i class="fa-solid fa-circle-info mr-1"></i>
+            One batch per guide &mdash; each holds that guide's 200&ndash;300 bird photos.
+        </p>
+    </section>
+
+    <!-- Source photos -->
+    <section id="sourcesSection" class="glass rounded-2xl p-6 mb-6 hidden">
+        <div class="flex items-center justify-between mb-4">
+            <div>
+                <h2 class="font-bold text-slate-900">Bird Photos</h2>
+                <p class="text-xs text-slate-500 mt-0.5">
+                    Species names are read from the filenames &mdash; click a name to correct it.
+                </p>
+            </div>
+            <div class="flex items-center gap-2">
+                <button id="selectAll" class="btn-ghost px-3 py-1.5 rounded-lg text-xs font-medium">
+                    Select all
+                </button>
+                <label class="btn-primary text-white px-4 py-2 rounded-lg text-sm font-semibold cursor-pointer">
+                    <i class="fa-solid fa-plus mr-1.5"></i>Add photos
+                    <input id="fileInput" type="file" accept="image/*" multiple class="hidden">
+                </label>
+            </div>
+        </div>
+
+        <div id="dropzone" class="dropzone rounded-xl p-4">
+            <div id="srcGrid" class="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-10 gap-3"></div>
+            <p id="srcEmpty" class="text-center text-sm text-slate-400 py-8">
+                <i class="fa-regular fa-images text-2xl block mb-2"></i>
+                Drop bird photos here, or use <span class="font-medium">Add photos</span>.
+            </p>
+        </div>
+        <p id="srcCount" class="text-xs text-slate-500 mt-3"></p>
+    </section>
+
+    <div class="grid lg:grid-cols-5 gap-6">
+
+        <!-- Left: settings -->
+        <section class="lg:col-span-2 glass rounded-2xl p-6 h-fit">
+            <h2 class="font-bold text-slate-900 mb-4">Illustration</h2>
+
+            <label class="block text-xs font-semibold text-slate-600 mb-1.5">Style</label>
+            <select id="style" class="field w-full rounded-lg px-3 py-2 text-sm mb-4">
+                {% for s in styles %}
+                <option value="{{ s.key }}" {% if s.key == default_style %}selected{% endif %}>{{ s.label }}</option>
+                {% endfor %}
+            </select>
+
+            <label class="block text-xs font-semibold text-slate-600 mb-1.5">
+                Extra direction <span class="font-normal text-slate-400">(optional)</span>
+            </label>
+            <input id="notes" type="text" class="field w-full rounded-lg px-3 py-2 text-sm mb-4"
+                   placeholder="side profile, perched pose">
+
+            <div class="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1.5">Size</label>
+                    <select id="size" class="field w-full rounded-lg px-3 py-2 text-sm">
+                        {% for s in sizes %}
+                        <option value="{{ s }}" {% if s == default_size %}selected{% endif %}>{{ s }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1.5">Quality</label>
+                    <select id="quality" class="field w-full rounded-lg px-3 py-2 text-sm">
+                        {% for q in qualities %}
+                        <option value="{{ q }}" {% if q == default_quality %}selected{% endif %}>{{ q }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1.5">Photo fidelity</label>
+                    <select id="fidelity" class="field w-full rounded-lg px-3 py-2 text-sm">
+                        {% for f in fidelities %}
+                        <option value="{{ f }}" {% if f == default_fidelity %}selected{% endif %}>{{ f }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1.5">Parallel</label>
+                    <input id="workers" type="number" min="1" max="{{ max_workers }}"
+                           value="{{ default_workers }}"
+                           class="field w-full rounded-lg px-3 py-2 text-sm">
+                </div>
+            </div>
+
+            <label class="flex items-center gap-2 text-xs text-slate-600 mb-5">
+                <input id="trim" type="checkbox" checked class="rounded border-slate-300">
+                Trim transparent padding to the bird
+            </label>
+
+            <p class="text-xs text-slate-500 mb-4">
+                <i class="fa-solid fa-circle-info mr-1"></i>
+                <span class="font-medium">high</span> fidelity keeps each species' real plumage
+                colors. Run a handful at <span class="font-medium">medium</span> quality first to
+                confirm the style, then do the full guide.
+            </p>
+
+            <button id="previewBtn" class="btn-ghost w-full py-2.5 rounded-lg text-sm font-semibold">
+                <i class="fa-solid fa-eye mr-1.5"></i>Preview prompt
+            </button>
+            <pre id="promptPreview"
+                 class="hidden mt-3 text-[11px] leading-relaxed bg-slate-50 border border-slate-200 rounded-lg p-3 whitespace-pre-wrap text-slate-600"></pre>
+        </section>
+
+        <!-- Right: run + results -->
+        <section class="lg:col-span-3 space-y-6">
+            <div class="glass rounded-2xl p-6">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="font-bold text-slate-900">Generate</h2>
+                    <span id="selCount" class="text-xs text-slate-500"></span>
+                </div>
+
+                <button id="generateBtn"
+                        class="btn-primary text-white w-full py-3 rounded-lg text-sm font-bold">
+                    <i class="fa-solid fa-wand-magic-sparkles mr-2"></i>Generate illustrations
+                </button>
+
+                <div id="progressWrap" class="hidden mt-4">
+                    <div class="bar"><div id="bar" style="width:0%"></div></div>
+                    <div class="flex items-center justify-between mt-2">
+                        <p id="status" class="text-xs text-slate-500"></p>
+                        <button id="cancelBtn" class="text-xs text-rose-600 font-medium hover:underline">
+                            Stop
+                        </button>
+                    </div>
+                </div>
+                <p id="idleStatus" class="text-xs text-center text-slate-500 mt-3"></p>
+            </div>
+
+            <div id="resultsPanel" class="glass rounded-2xl p-6 hidden">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="font-bold text-slate-900">Plates</h2>
+                    <div class="flex items-center gap-3">
+                        <span id="resultsCount" class="text-xs text-slate-500"></span>
+                        <a id="zipLink" href="#"
+                           class="btn-ghost px-3 py-1.5 rounded-lg text-xs font-semibold">
+                            <i class="fa-solid fa-file-zipper mr-1.5"></i>PNGs
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Book export -->
+                <div class="border border-slate-200 rounded-xl p-4 mb-5 bg-slate-50/60">
+                    <h3 class="text-xs font-bold text-slate-700 mb-3">
+                        <i class="fa-solid fa-book-open mr-1.5"></i>Export as book (.docx)
+                    </h3>
+                    <div class="grid sm:grid-cols-3 gap-3 mb-3">
+                        <input id="bookTitle" type="text" class="field rounded-lg px-3 py-2 text-sm"
+                               placeholder="Book title">
+                        <input id="bookSubtitle" type="text" class="field rounded-lg px-3 py-2 text-sm"
+                               placeholder="Subtitle (optional)">
+                        <input id="bookAuthor" type="text" class="field rounded-lg px-3 py-2 text-sm"
+                               placeholder="Author (optional)">
+                    </div>
+                    <div class="flex items-center justify-between gap-3 flex-wrap">
+                        <label class="flex items-center gap-2 text-xs text-slate-600">
+                            <input id="includeFlagged" type="checkbox" class="rounded border-slate-300">
+                            Include plates flagged for manual cutout
+                        </label>
+                        <button id="docxBtn" class="btn-primary text-white px-4 py-2 rounded-lg text-xs font-bold">
+                            <i class="fa-solid fa-file-word mr-1.5"></i>Download .docx
+                        </button>
+                    </div>
+                    <p class="text-[11px] text-slate-500 mt-2">
+                        One bird per page &mdash; illustration and species name, ready for you to add
+                        the descriptive text in Word.
+                    </p>
+                </div>
+
+                <div id="plateGrid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4"></div>
+            </div>
+        </section>
+    </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let sources = [];
+let selected = new Set();
+let batchId = '';
+let jobId = null;
+let pollTimer = null;
+
+// ---- batches ----
+async function loadBatches(preferId) {
+    const res = await fetch('/api/birds/batches');
+    const data = await res.json();
+    const sel = $('batchSelect');
+    sel.innerHTML = '<option value="">&mdash; select a batch &mdash;</option>';
+    (data.batches || []).forEach(b => {
+        const opt = document.createElement('option');
+        opt.value = b.id;
+        opt.textContent = `${b.name} (${b.count})`;
+        sel.appendChild(opt);
+    });
+    const target = preferId || batchId;
+    if (target && (data.batches || []).some(b => b.id === target)) {
+        sel.value = target;
+    }
+    batchId = sel.value;
+    await loadSources();
+}
+
+$('batchSelect').addEventListener('change', async () => {
+    batchId = $('batchSelect').value;
+    selected.clear();
+    await loadSources();
+});
+
+$('createBatch').addEventListener('click', async () => {
+    const name = $('newBatchName').value.trim();
+    if (!name) { alert('Give the batch a name first.'); return; }
+    const res = await fetch('/api/birds/batches', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+    });
+    const data = await res.json();
+    $('newBatchName').value = '';
+    await loadBatches(data.batch && data.batch.id);
+});
+
+$('deleteBatch').addEventListener('click', async () => {
+    if (!batchId) return;
+    if (!confirm('Delete this batch and all its photos?')) return;
+    await fetch(`/api/birds/batches/${batchId}`, { method: 'DELETE' });
+    batchId = '';
+    await loadBatches();
+});
+
+// ---- source photos ----
+async function loadSources() {
+    if (!batchId) {
+        sources = [];
+        $('sourcesSection').classList.add('hidden');
+        renderSources();
+        return;
+    }
+    $('sourcesSection').classList.remove('hidden');
+    const res = await fetch(`/api/birds/batches/${batchId}`);
+    if (!res.ok) { sources = []; renderSources(); return; }
+    const data = await res.json();
+    sources = (data.batch && data.batch.sources) || [];
+    // Default to generating the whole batch — that is the normal run.
+    if (selected.size === 0) sources.forEach(s => selected.add(s.id));
+    renderSources();
+}
+
+function renderSources() {
+    const grid = $('srcGrid');
+    grid.innerHTML = '';
+    $('srcEmpty').style.display = sources.length ? 'none' : 'block';
+
+    sources.forEach(src => {
+        const tile = document.createElement('div');
+        tile.className = 'src-tile' + (selected.has(src.id) ? ' selected' : '');
+        tile.innerHTML =
+            `<img src="/api/birds/batches/${batchId}/sources/${src.id}/image" alt="${src.species}">` +
+            `<div class="cap">${src.species || 'unnamed'}</div>` +
+            `<div class="rm">&times;</div>`;
+
+        tile.addEventListener('click', (e) => {
+            if (e.target.classList.contains('rm')) return;
+            if (e.target.classList.contains('cap')) {
+                const name = prompt('Species name:', src.species || '');
+                if (name !== null) {
+                    fetch(`/api/birds/batches/${batchId}/sources/${src.id}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ species: name })
+                    }).then(loadSources);
+                }
+                return;
+            }
+            if (selected.has(src.id)) selected.delete(src.id);
+            else selected.add(src.id);
+            renderSources();
+        });
+
+        tile.querySelector('.rm').addEventListener('click', async (e) => {
+            e.stopPropagation();
+            await fetch(`/api/birds/batches/${batchId}/sources/${src.id}`, { method: 'DELETE' });
+            selected.delete(src.id);
+            await loadSources();
+        });
+
+        grid.appendChild(tile);
+    });
+
+    $('srcCount').textContent = sources.length
+        ? `${sources.length} photo${sources.length === 1 ? '' : 's'} in this batch.`
+        : '';
+    updateSelCount();
+}
+
+function updateSelCount() {
+    const n = selected.size;
+    $('selCount').textContent = n ? `${n} selected` : 'nothing selected';
+}
+
+$('selectAll').addEventListener('click', () => {
+    if (selected.size === sources.length) selected.clear();
+    else sources.forEach(s => selected.add(s.id));
+    renderSources();
+});
+
+// ---- upload ----
+async function upload(files) {
+    if (!batchId) { alert('Create or select a batch first.'); return; }
+    if (!files || !files.length) return;
+
+    const fd = new FormData();
+    for (const f of files) fd.append('files', f);
+    $('srcCount').textContent = `Uploading ${files.length} photo${files.length === 1 ? '' : 's'}…`;
+
+    const res = await fetch(`/api/birds/batches/${batchId}/sources`, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.error) alert(data.error);
+    else if (data.errors && data.errors.length) alert(data.errors.join('\n'));
+    // New photos join the selection so an upload-then-generate flow works.
+    (data.added || []).forEach(s => selected.add(s.id));
+    await loadSources();
+}
+
+$('fileInput').addEventListener('change', (e) => {
+    upload(e.target.files);
+    e.target.value = '';
+});
+
+const dz = $('dropzone');
+['dragenter', 'dragover'].forEach(ev =>
+    dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('hot'); }));
+['dragleave', 'drop'].forEach(ev =>
+    dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('hot'); }));
+dz.addEventListener('drop', (e) => upload(e.dataTransfer.files));
+
+// ---- prompt preview ----
+$('previewBtn').addEventListener('click', async () => {
+    const sample = sources.find(s => selected.has(s.id)) || sources[0];
+    const res = await fetch('/api/birds/prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            species: (sample && sample.species) || 'Northern Cardinal',
+            style: $('style').value,
+            notes: $('notes').value
+        })
+    });
+    const data = await res.json();
+    $('promptPreview').textContent = data.prompt || data.error || '';
+    $('promptPreview').classList.remove('hidden');
+});
+
+// ---- generation ----
+$('generateBtn').addEventListener('click', async () => {
+    if (!batchId) { alert('Select a batch first.'); return; }
+    if (selected.size === 0) { alert('Select at least one bird photo.'); return; }
+
+    const btn = $('generateBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner spin mr-2"></i>Starting…';
+    $('idleStatus').textContent = '';
+
+    const res = await fetch('/api/birds/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            batch_id: batchId,
+            source_ids: [...selected],
+            style: $('style').value,
+            notes: $('notes').value,
+            size: $('size').value,
+            quality: $('quality').value,
+            fidelity: $('fidelity').value,
+            workers: parseInt($('workers').value, 10) || 8,
+            trim: $('trim').checked
+        })
+    });
+    const data = await res.json();
+
+    if (data.error) {
+        alert(data.error);
+        resetButton();
+        return;
+    }
+
+    jobId = data.job_id;
+    $('progressWrap').classList.remove('hidden');
+    $('resultsPanel').classList.remove('hidden');
+    $('zipLink').href = `/api/birds/jobs/${jobId}/zip`;
+    // The batch is named after the guide, so it is the right default title.
+    if (!$('bookTitle').value.trim()) {
+        const opt = $('batchSelect').options[$('batchSelect').selectedIndex];
+        if (opt) $('bookTitle').value = opt.textContent.replace(/\s*\(\d+\)\s*$/, '');
+    }
+    poll();
+});
+
+$('cancelBtn').addEventListener('click', async () => {
+    if (!jobId) return;
+    if (!confirm('Stop after the birds already in flight finish?')) return;
+    await fetch(`/api/birds/jobs/${jobId}/cancel`, { method: 'POST' });
+    $('status').textContent = 'Stopping — letting in-flight birds finish…';
+});
+
+// ---- book export ----
+$('docxBtn').addEventListener('click', () => {
+    if (!jobId) return;
+    const params = new URLSearchParams();
+    if ($('bookTitle').value.trim()) params.set('title', $('bookTitle').value.trim());
+    if ($('bookSubtitle').value.trim()) params.set('subtitle', $('bookSubtitle').value.trim());
+    if ($('bookAuthor').value.trim()) params.set('author', $('bookAuthor').value.trim());
+    if ($('includeFlagged').checked) params.set('include_flagged', '1');
+    // A plain navigation lets the browser handle the file save, and surfaces
+    // the server's JSON error inline if the build fails.
+    window.location = `/api/birds/jobs/${jobId}/docx?${params.toString()}`;
+});
+
+function resetButton() {
+    const btn = $('generateBtn');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles mr-2"></i>Generate illustrations';
+}
+
+async function poll() {
+    if (!jobId) return;
+    const res = await fetch(`/api/birds/jobs/${jobId}`);
+    const job = await res.json();
+
+    if (job.error && job.status === 'error') {
+        $('status').textContent = job.error;
+        $('idleStatus').textContent = job.error;
+        resetButton();
+        return;
+    }
+
+    const run = job.run;
+    if (run) {
+        const pct = run.total ? Math.round((run.settled_count / run.total) * 100) : 0;
+        $('bar').style.width = `${pct}%`;
+        $('status').textContent =
+            `${run.done_count} done · ${run.error_count} failed of ${run.total}` +
+            (run.flagged_count ? ` · ${run.flagged_count} need a manual cutout` : '');
+        renderPlates(run);
+    } else {
+        $('status').textContent = `Queued ${job.total || ''}…`;
+    }
+
+    if (job.status === 'done') {
+        resetButton();
+        $('idleStatus').textContent = run && run.cancelled
+            ? 'Stopped. Finished plates are ready to download.'
+            : 'Run complete.';
+        return;
+    }
+    pollTimer = setTimeout(poll, 1500);
+}
+
+function renderPlates(run) {
+    const grid = $('plateGrid');
+    grid.innerHTML = '';
+
+    run.plates.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'plate-card checker';
+
+        if (p.status === 'done' && p.filename) {
+            card.innerHTML =
+                `<img src="/api/birds/jobs/${jobId}/image/${p.filename}" alt="${p.species}">` +
+                (p.warning ? `<div class="plate-flag" title="${p.warning}">CUTOUT</div>` : '') +
+                `<div class="plate-actions">` +
+                `<a class="btn-ghost px-2.5 py-1 rounded text-xs font-medium" ` +
+                `href="/api/birds/jobs/${jobId}/download/${p.filename}">` +
+                `<i class="fa-solid fa-download mr-1"></i>PNG</a></div>`;
+        } else if (p.status === 'error') {
+            card.className = 'plate-card';
+            card.innerHTML =
+                `<div class="w-full h-full flex flex-col items-center justify-center text-center px-2 bg-rose-50">` +
+                `<i class="fa-solid fa-triangle-exclamation text-rose-400 mb-1"></i>` +
+                `<span class="text-[10px] text-rose-600 leading-tight">${p.species || 'bird'}</span>` +
+                `<span class="text-[9px] text-rose-400 leading-tight mt-1">${(p.error || '').slice(0, 60)}</span>` +
+                `</div>`;
+        } else {
+            card.className = 'plate-card';
+            card.innerHTML =
+                `<div class="w-full h-full flex flex-col items-center justify-center bg-slate-50">` +
+                (p.status === 'running'
+                    ? `<i class="fa-solid fa-spinner spin text-slate-300"></i>`
+                    : `<i class="fa-regular fa-clock text-slate-300"></i>`) +
+                `<span class="text-[10px] text-slate-400 mt-1.5">${p.species || ''}</span>` +
+                `</div>`;
+        }
+        grid.appendChild(card);
+    });
+
+    $('resultsCount').textContent = `${run.done_count}/${run.total}`;
+}
+
+loadBatches();
+</script>
+</body>
+</html>

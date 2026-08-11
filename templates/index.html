@@ -243,18 +243,72 @@
                 </div>
             </div>
             <div class="flex items-center gap-0.5">
-                <a href="/stories" class="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition" title="Stories Generator" aria-label="Stories Generator">
-                    <i class="fas fa-feather-pointed text-sm"></i>
-                </a>
-                <a href="/trivia" class="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition" title="Trivia &amp; Facts Generator" aria-label="Trivia and Facts Generator">
-                    <i class="fas fa-circle-question text-sm"></i>
-                </a>
-                <a href="/puzzle" class="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition" title="Puzzle &amp; Activity Book Generator" aria-label="Puzzle and Activity Book Generator">
-                    <i class="fas fa-puzzle-piece text-sm"></i>
-                </a>
-                <a href="/qr-code" class="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition" title="QR Code Generator" aria-label="QR Code Generator">
-                    <i class="fas fa-qrcode text-sm"></i>
-                </a>
+                <!-- Every generator in one menu. The row of icons stopped
+                     scaling once covers and birds joined the set. -->
+                <div class="relative">
+                    <button id="generatorsBtn" type="button"
+                        class="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition flex items-center gap-1"
+                        title="Generators" aria-label="Generators" aria-haspopup="true" aria-expanded="false">
+                        <i class="fas fa-wand-magic-sparkles text-sm"></i>
+                        <i id="generatorsChevron" class="fas fa-chevron-down text-[9px] transition-transform"></i>
+                    </button>
+                    <div id="generatorsMenu"
+                        class="hidden absolute right-0 top-full mt-2 z-50 w-60 bg-gray-950 border border-white/10 rounded-lg shadow-2xl py-1.5">
+                        <div class="px-3 py-1 text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Book Types</div>
+                        <a href="/" class="flex items-start gap-2.5 px-3 py-2 text-gray-300 hover:text-white hover:bg-white/5 transition">
+                            <i class="fas fa-book text-xs w-4 mt-0.5 text-indigo-400"></i>
+                            <span class="leading-tight">
+                                <span class="block text-xs font-medium">Prose Book</span>
+                                <span class="block text-[10px] text-gray-500">Full-length written book</span>
+                            </span>
+                        </a>
+                        <a href="/stories" class="flex items-start gap-2.5 px-3 py-2 text-gray-300 hover:text-white hover:bg-white/5 transition">
+                            <i class="fas fa-feather-pointed text-xs w-4 mt-0.5 text-indigo-400"></i>
+                            <span class="leading-tight">
+                                <span class="block text-xs font-medium">Stories</span>
+                                <span class="block text-[10px] text-gray-500">Story collections</span>
+                            </span>
+                        </a>
+                        <a href="/trivia" class="flex items-start gap-2.5 px-3 py-2 text-gray-300 hover:text-white hover:bg-white/5 transition">
+                            <i class="fas fa-circle-question text-xs w-4 mt-0.5 text-indigo-400"></i>
+                            <span class="leading-tight">
+                                <span class="block text-xs font-medium">Trivia &amp; Facts</span>
+                                <span class="block text-[10px] text-gray-500">Fun facts and trivia books</span>
+                            </span>
+                        </a>
+                        <a href="/puzzle" class="flex items-start gap-2.5 px-3 py-2 text-gray-300 hover:text-white hover:bg-white/5 transition">
+                            <i class="fas fa-puzzle-piece text-xs w-4 mt-0.5 text-indigo-400"></i>
+                            <span class="leading-tight">
+                                <span class="block text-xs font-medium">Puzzle &amp; Activity</span>
+                                <span class="block text-[10px] text-gray-500">Mazes, word search, crosswords</span>
+                            </span>
+                        </a>
+
+                        <div class="h-px bg-white/10 my-1.5"></div>
+                        <div class="px-3 py-1 text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Assets</div>
+                        <a href="/birds" class="flex items-start gap-2.5 px-3 py-2 text-gray-300 hover:text-white hover:bg-white/5 transition">
+                            <i class="fas fa-dove text-xs w-4 mt-0.5 text-emerald-400"></i>
+                            <span class="leading-tight">
+                                <span class="block text-xs font-medium">Bird Illustrations</span>
+                                <span class="block text-[10px] text-gray-500">Photos to transparent PNGs</span>
+                            </span>
+                        </a>
+                        <a href="/covers" class="flex items-start gap-2.5 px-3 py-2 text-gray-300 hover:text-white hover:bg-white/5 transition">
+                            <i class="fas fa-image text-xs w-4 mt-0.5 text-emerald-400"></i>
+                            <span class="leading-tight">
+                                <span class="block text-xs font-medium">Book Covers</span>
+                                <span class="block text-[10px] text-gray-500">Style variations from references</span>
+                            </span>
+                        </a>
+                        <a href="/qr-code" class="flex items-start gap-2.5 px-3 py-2 text-gray-300 hover:text-white hover:bg-white/5 transition">
+                            <i class="fas fa-qrcode text-xs w-4 mt-0.5 text-emerald-400"></i>
+                            <span class="leading-tight">
+                                <span class="block text-xs font-medium">QR Codes</span>
+                                <span class="block text-[10px] text-gray-500">Codes for back matter</span>
+                            </span>
+                        </a>
+                    </div>
+                </div>
                 <div class="relative group">
                     <button id="btn-new-book" class="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition" aria-label="Start a new book">
                         <i class="fas fa-plus text-sm"></i>
@@ -2634,6 +2688,29 @@
                     qrAttachLabel.innerHTML = '<i class="fas fa-check mr-1"></i> Attach selected';
                 }
             });
+
+            // ----- Sidebar "Generators" dropdown -----
+            const generatorsBtn = document.getElementById("generatorsBtn");
+            const generatorsMenu = document.getElementById("generatorsMenu");
+            const generatorsChevron = document.getElementById("generatorsChevron");
+            function closeGeneratorsMenu() {
+                generatorsMenu.classList.add("hidden");
+                generatorsBtn.setAttribute("aria-expanded", "false");
+                if (generatorsChevron) generatorsChevron.style.transform = "";
+            }
+            if (generatorsBtn) {
+                generatorsBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    const willOpen = generatorsMenu.classList.contains("hidden");
+                    generatorsMenu.classList.toggle("hidden");
+                    generatorsBtn.setAttribute("aria-expanded", willOpen ? "true" : "false");
+                    if (generatorsChevron) generatorsChevron.style.transform = willOpen ? "rotate(180deg)" : "";
+                });
+                document.addEventListener("click", (e) => {
+                    if (!generatorsMenu.classList.contains("hidden") && !e.target.closest("#generatorsBtn") && !e.target.closest("#generatorsMenu")) closeGeneratorsMenu();
+                });
+                document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeGeneratorsMenu(); });
+            }
 
             // ----- Header "Download" dropdown -----
             const downloadMenuBtn = document.getElementById("downloadMenuBtn");
