@@ -61,6 +61,10 @@
         .bke-btn:hover { background:#fff7ed; color:#b45309; border-color:rgba(245,158,11,.30); }
         .bke-btn-text { font-size:11.5px; font-weight:600; padding:0 9px; }
         .bke-sep { width:1px; height:20px; background:rgba(15,23,42,.12); margin:0 4px; }
+        .bke-wordcount {
+            margin-left:auto; padding:0 4px; font-size:11.5px;
+            font-weight:600; color:#64748b; white-space:nowrap;
+        }
         .bke-select {
             height:28px; border-radius:7px; border:1px solid rgba(15,23,42,.14);
             background:#fff; color:#334155; font-size:12px; padding:0 5px;
@@ -404,8 +408,11 @@ function renderOutline() {
     const c = BOOK.counts || {};
     const total = Object.values(c).reduce((a, b) => a + b, 0);
     const pages = (BOOK.page_estimate || {}).total_pages;
+    // Words are only known once the manuscript has been rendered at least once.
+    const words = widget ? widget.wordCount() : 0;
     $("outline-stats").innerHTML =
-        `${total} items${pages ? ` · ~${pages} pages` : ""}`;
+        `${total} items${pages ? ` · ~${pages} pages` : ""}` +
+        (words ? `<br><span class="font-semibold text-slate-700">${words.toLocaleString()} words total</span>` : "");
 }
 
 // -- preview -------------------------------------------------------------
@@ -940,6 +947,7 @@ function ensureWidget() {
                 setSaveState(msg);
                 if (/^Saved \d/.test(msg || "")) manuscriptTouched = true;
             },
+            onWordCount: () => renderOutline(),
         });
     }
     return widget;

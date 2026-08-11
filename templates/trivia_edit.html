@@ -364,7 +364,28 @@ function renderOutline() {
 
     const tq = BOOK.chapters.reduce((s,c) => s + c.trivia.length, 0);
     const tf = BOOK.chapters.reduce((s,c) => s + c.facts.length, 0);
-    $("outline-stats").textContent = `${tq} questions · ${tf} facts total`;
+    $("outline-stats").innerHTML =
+        `${tq} questions · ${tf} facts total<br>` +
+        `<span class="font-semibold text-slate-700">${totalWords().toLocaleString()} words total</span>`;
+}
+
+function countWords(text) {
+    const m = String(text == null ? "" : text).trim().match(/[^\s]+/g);
+    return m ? m.length : 0;
+}
+
+// Every piece of prose that ends up in the printed book: chapter titles, the
+// questions with all four choices, and the "Did You Know" facts.
+function totalWords() {
+    return BOOK.chapters.reduce((sum, ch) => {
+        let n = countWords(ch.chapter_title);
+        ch.trivia.forEach(q => {
+            n += countWords(q.question);
+            ["A","B","C","D"].forEach(L => { n += countWords((q.choices || {})[L]); });
+        });
+        ch.facts.forEach(f => { n += countWords(f.fact); });
+        return sum + n;
+    }, 0);
 }
 
 function currentChapter() {
@@ -521,7 +542,7 @@ async function saveQuestion(id, patch) {
         const i = ch.trivia.findIndex(x => x.id === id);
         if (i >= 0) ch.trivia[i] = r.question;
         setSaveState("Saved");
-        renderPreview(); renderSelection();
+        renderPreview(); renderSelection(); renderOutline();
     } catch (e) {
         setSaveState("");
         toast(e.message, "err");
@@ -541,7 +562,7 @@ async function saveFact(id, patch) {
         const i = ch.facts.findIndex(x => x.id === id);
         if (i >= 0) ch.facts[i] = r.fact;
         setSaveState("Saved");
-        renderSelection();
+        renderSelection(); renderOutline();
     } catch (e) {
         setSaveState("");
         toast(e.message, "err");

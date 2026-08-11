@@ -62,6 +62,10 @@
         .bke-btn:hover { background: #eef2ff; color: #4338ca; border-color: rgba(99,102,241,.25); }
         .bke-btn-text { font-size: 11.5px; font-weight: 600; padding: 0 9px; }
         .bke-sep { width: 1px; height: 20px; background: rgba(15,23,42,.12); margin: 0 4px; }
+        .bke-wordcount {
+            margin-left: auto; padding: 0 4px; font-size: 11.5px;
+            font-weight: 600; color: #64748b; white-space: nowrap;
+        }
         .bke-select {
             height: 28px; border-radius: 7px; border: 1px solid rgba(15,23,42,.14);
             background: #fff; color: #334155; font-size: 12px; padding: 0 5px;
@@ -494,6 +498,7 @@ function ensureWidget() {
         widget = new BookEditorWidget($("bk-body"), {
             contentUrl: id => `/api/books/${id}/content`,
             onStatus: msg => setSaveState(msg),
+            onWordCount: () => renderOutlineStats(),
         });
     }
     return widget;
@@ -570,7 +575,11 @@ function renderOutline() {
 function renderOutlineStats() {
     const ch = headings.filter(h => h.level === "chapter").length;
     const sec = headings.length - ch;
-    $("outline-stats").textContent = `${ch} chapters · ${sec} sections`;
+    // Words come from the live document, so this tracks unsaved edits too.
+    const words = widget ? widget.wordCount() : 0;
+    $("outline-stats").innerHTML =
+        `${ch} chapters · ${sec} sections<br>` +
+        `<span class="font-semibold text-slate-700">${words.toLocaleString()} words total</span>`;
 }
 
 function jumpToHeading(name) {

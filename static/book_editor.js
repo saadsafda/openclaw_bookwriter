@@ -134,6 +134,10 @@
                              '<i class="fas fa-list-ul"></i> Contents');
       cBtn.classList.add('bke-btn-text');
       t.appendChild(cBtn);
+
+      // Live word count for the whole manuscript, pinned to the right.
+      this.wordCountEl = el('span', { class: 'bke-wordcount', title: 'Total words in this book' }, '');
+      t.appendChild(this.wordCountEl);
       const tocBtn = this._btn(null, 'Insert / refresh a Table of Contents page in the document',
                                () => this._refreshTOC(), '<i class="fas fa-stream"></i> Insert/Refresh TOC');
       tocBtn.classList.add('bke-btn-text');
@@ -184,6 +188,27 @@
         row.appendChild(inp);
         this.outline.appendChild(row);
       });
+    }
+
+    // ---- word count ----
+    // Counted off the rendered paragraphs rather than `this.blocks` so the
+    // number tracks what the user is typing, not what was last loaded.
+    wordCount() {
+      let n = 0;
+      this.canvas.querySelectorAll('[contenteditable]').forEach(p => {
+        const words = (p.innerText || '').trim().match(/[^\s]+/g);
+        if (words) n += words.length;
+      });
+      return n;
+    }
+
+    _refreshWordCount() {
+      const n = this.wordCount();
+      if (this.wordCountEl) {
+        this.wordCountEl.textContent = `${n.toLocaleString()} words`;
+      }
+      if (this.cfg.onWordCount) this.cfg.onWordCount(n);
+      return n;
     }
 
     _paraByIndex(idx) {
@@ -346,6 +371,7 @@
           if (after !== before) { p.innerHTML = after; this._markDirty(p); n++; }
         }
       });
+      this._refreshWordCount();
       this.status(`Replaced in ${n} paragraph(s).`);
     }
 
@@ -391,13 +417,20 @@
         if (b.list) { div.dataset.list = b.list; div.classList.add(b.list === 'number' ? 'bke-li-number' : 'bke-li-bullet'); }
         if (b.indent) { div.dataset.indent = b.indent; div.style.paddingLeft = (b.indent * 0.5) + 'in'; }
         div.innerHTML = b.html || esc(b.text || '');
-        div.addEventListener('input', () => this._markDirty(div));
+        div.addEventListener('input', () => { this._markDirty(div); this._queueWordCount(); });
         div.addEventListener('focus', () => { this._lastPara = div; this._syncToolbar(div); });
         div.addEventListener('keyup', () => this._syncToolbar(div));
         div.addEventListener('mouseup', () => this._syncToolbar(div));
         page.appendChild(div);
       });
       this.canvas.appendChild(page);
+      this._refreshWordCount();
+    }
+
+    // Recounting walks every paragraph, so keep it off the keystroke path.
+    _queueWordCount() {
+      clearTimeout(this._wcTimer);
+      this._wcTimer = setTimeout(() => this._refreshWordCount(), 300);
     }
 
     _syncToolbar(p) {
