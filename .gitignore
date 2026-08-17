@@ -11,6 +11,7 @@ __pycache__/
 
 # Virtual environments
 .venv/
+.venv_rembg/
 venv/
 ENV/
 env/
@@ -28,3 +29,10 @@ env/
 # Build/output directories
 web_outputs/
 web_uploads/
+trivia_outputs/
+puzzle_outputs/
+puzzle_test_output/
+cover_outputs/
+cover_references/
+bird_sources/
+bird_outputs/

@@ -1,0 +1,111 @@
+{
+  "book_title": "World's Dumbest Criminals",
+  "topic": "real, documented criminal cases where the culprit was undone by their own bad decisions",
+  "audience": "general adult reader who enjoys true crime and humour",
+  "tone": "comedic true-crime, family-friendly",
+  "min_words": 300,
+  "max_words": 500,
+  "global_context": "Keep it family-friendly. Never mock victims. The joke is always the criminal's decision-making, never anyone getting hurt.",
+  "sidebar_enabled": true,
+  "sidebar_label": "Dumb Move Breakdown",
+  "sidebar_instruction": "two or three sentences picking apart exactly where the plan went wrong",
+  "closer_enabled": true,
+  "closer_label": "Lesson Not Learned",
+  "closer_instruction": "one wry closing line about what the criminal clearly failed to learn",
+  "illustrations": false,
+  "illustrate_every_story": false,
+  "check_duplicates": true,
+  "agent": "main",
+  "stories": [
+    {
+      "number": 1,
+      "title": "The $1 Bank Robbery for Health Care",
+      "context": "Verone, a 59-year-old unemployed former Coca-Cola delivery driver with no health insurance, walked into an RBC Bank, handed the teller a note demanding exactly one dollar, then calmly sat down in the lobby and waited for police. His plan: get a three-year prison sentence so he could receive free medical care for his back, foot, and a growth on his chest. He even mailed a letter to the local newspaper announcing the robbery in advance.\nBecause he only stole $1, the charge was a misdemeanor, not a felony — so his “three-year health care plan” collapsed and he served only about a year.",
+      "who": "James Richard Verone",
+      "year": "2011",
+      "where": "Gastonia, North Carolina, USA",
+      "sources": "ABC News (June 2011), Snopes fact-check, WBTV, Gaston Gazette."
+    },
+    {
+      "number": 2,
+      "title": "The Lemon Juice Invisibility Bandit",
+      "context": "Wheeler robbed two banks in broad daylight with no mask — because he had smeared lemon juice on his face. Since lemon juice works as invisible ink, he believed it would make his face invisible to security cameras. He was arrested hours after his face aired on the evening news, and was genuinely baffled: “But I wore the juice!”\nHe was so confident in junk science that he smiled directly at the cameras. His case famously inspired the psychology research behind the Dunning-Kruger effect.",
+      "who": "McArthur Wheeler",
+      "year": "1995",
+      "where": "Pittsburgh, Pennsylvania, USA",
+      "sources": "Pittsburgh Post-Gazette (1996), Dunning & Kruger's 1999 academic paper, numerous retrospectives."
+    },
+    {
+      "number": 3,
+      "title": "The Robber Who Left His Phone Number",
+      "context": "The 18-year-old walked into Velasquez Mufflers For Less wearing a mask and waving a gun, demanding money. Employees told him the cash was in a safe only the manager could open — and the manager wasn't in. So Zarate left his phone number and asked them to call him when the boss returned. Employees called the police instead, then called Zarate back. He returned in the same mask and was met by plainclothes officers.\nHe literally gave his victims his contact information and made an appointment to be arrested.",
+      "who": "Ruben Zarate",
+      "year": "2008",
+      "where": "Chicago, Illinois, USA",
+      "sources": "Chicago Tribune (March 2008), CBS News dumb criminals coverage."
+    },
+    {
+      "number": 4,
+      "title": "The Robbers Who Phoned Ahead",
+      "context": "Bailey, 27, called a People's United Bank ahead of time and told the teller to have a bag of money ready for pickup so the robbery would go faster. The bank staff called police, who arrived before the robbers did. Bailey and his teenage accomplice showed up about ten minutes after their call and were arrested in the parking lot.\nThey gave the bank — and the police — advance notice of their own robbery, like ordering takeout. Police described it as spectacularly bad planning.",
+      "who": "Albert Bailey (and a juvenile accomplice)",
+      "year": "2010",
+      "where": "Fairfield, Connecticut, USA",
+      "sources": "Associated Press (March 2010), Connecticut Post, NBC Connecticut."
+    },
+    {
+      "number": 5,
+      "title": "The Facebook Burglar",
+      "context": "Parker broke into a home and stole two diamond rings. But mid-burglary, he stopped to log into his Facebook account on the victim's home computer — and left without logging out. The homeowner found his profile open on her screen and handed police his identity on a silver platter.\nHe committed the perfect self-snitch: he left a signed digital confession at the crime scene. It's considered one of the first “caught by social media” arrests ever.",
+      "who": "Jonathan Parker",
+      "year": "2009",
+      "where": "Martinsburg, West Virginia, USA",
+      "sources": "Martinsburg Journal (September 2009), CNN, Time magazine coverage."
+    },
+    {
+      "number": 6,
+      "title": "Caught Red-Handed — Literally",
+      "context": "Grant handed a teller at a Capital One bank a note written on a withdrawal slip demanding money, and walked out with $2,500. What he didn't know: the teller had slipped an exploding dye pack in with the cash. Seconds after leaving the property, the pack detonated in a huge cloud of red-pink smoke, captured on video, staining him and the money. The viral footage led to community tips and his arrest two days later.\nHe strolled casually down the street while a bright red smoke cloud billowed out of his backpack, essentially becoming a walking crime-scene flare. The police director's own words: he was caught “red-handed.”",
+      "who": "Esau Grant",
+      "year": "2021",
+      "where": "Newark, New Jersey, USA",
+      "sources": "NBC New York (July 2021), Patch Newark, Newark Department of Public Safety video, Essex County Prosecutor's conviction announcement."
+    },
+    {
+      "number": 7,
+      "title": "The GPS Getaway That Went Nowhere",
+      "context": "Paetsch robbed a Wells Fargo bank, grabbing $25,000 from six cash drawers — along with a hidden GPS tracking device buried in the stacks of bills. Police tracked the signal in real time to a busy intersection, where they stopped and searched roughly 20 cars at gunpoint until the tracker led them straight to Paetsch and the stolen cash.\nHe thought he'd made a clean getaway while the money in his car was broadcasting his exact location to police the entire time.",
+      "who": "Christian Paetsch",
+      "year": "2012",
+      "where": "Aurora, Colorado, USA",
+      "sources": "Denver Post (June 2012), Sentinel Colorado, federal court records (his traffic-stop challenge made legal news)."
+    },
+    {
+      "number": 8,
+      "title": "The Vandal Who Signed His Work",
+      "context": "Addison, 18, and a friend broke into a children's campsite, trashed the place, sprayed fire extinguishers everywhere, and caused significant damage. Before leaving, Addison grabbed a marker and proudly wrote “Peter Addison was here” on the wall. Police checked their records for the name and arrested him almost immediately.\nHe turned a crime scene into an autographed confession. The police officer on the case joked that it was one of the easiest crimes ever solved.",
+      "who": "Peter Addison",
+      "year": "2007",
+      "where": "Adlington, Cheshire, England, UK",
+      "sources": "BBC News (October 2007), The Telegraph, Manchester Evening News."
+    },
+    {
+      "number": 9,
+      "title": "The Demand Note With His Name On It",
+      "context": "Harrell robbed a U.S. Bank branch by handing the teller a demand note — written on the back of his own official state BMV paperwork, complete with his full name and address. The teller reportedly even knew him and addressed him by name during the robbery. He walked out with $206 and was arrested days later.\nHis robbery note doubled as a business card. He handed police everything they needed to find him, in his own handwriting, on a government document.",
+      "who": "Michael Harrell",
+      "year": "2019",
+      "where": "Cleveland, Ohio, USA",
+      "sources": "Cleveland.com (July 2019), FBI Cleveland field office statements, WEWS News 5 Cleveland."
+    },
+    {
+      "number": 10,
+      "title": "The Gun Store Robbery With a Cop Inside",
+      "context": "Zaback decided to rob H&J Leather & Firearms — a gun store — armed with a pistol. Problems: a marked police car was parked directly in front of the store, and a uniformed police officer was standing at the counter having coffee. Zaback walked in anyway, announced a hold-up, and fired a shot. The officer and the store clerk, both armed (in a store full of armed customers), returned fire, and Zaback did not survive his own plan.\nHe chose to rob the single most heavily armed retail environment possible, ignored a police cruiser at the front door, and drew on a uniformed officer. It's frequently cited as the ultimate “wrong store, wrong day” story.",
+      "who": "David Zaback",
+      "year": "1990",
+      "where": "Renton, Washington, USA",
+      "sources": "Seattle Times (January 1990), Associated Press archives."
+    }
+  ]
+}

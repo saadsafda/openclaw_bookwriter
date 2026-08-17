@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full antialiased">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cover Generator &middot; OpenClaw</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', system-ui, sans-serif; }
+        .bg-mesh {
+            background-color: #f6f8fb;
+            background-image:
+                radial-gradient(at 18% 12%, rgba(139, 92, 246, 0.10) 0px, transparent 50%),
+                radial-gradient(at 82% 18%, rgba(236, 72, 153, 0.08) 0px, transparent 50%),
+                radial-gradient(at 50% 90%, rgba(14, 165, 233, 0.09) 0px, transparent 55%);
+        }
+        .glass {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(18px) saturate(140%);
+            -webkit-backdrop-filter: blur(18px) saturate(140%);
+            border: 1px solid rgba(15, 23, 42, 0.08);
+        }
+        .field {
+            background: #ffffff;
+            border: 1px solid rgba(15, 23, 42, 0.14);
+            color: #0f172a;
+            transition: all 0.15s ease;
+        }
+        .field::placeholder { color: #94a3b8; }
+        .field:focus {
+            outline: none;
+            border-color: rgba(139, 92, 246, 0.65);
+            background: rgba(139, 92, 246, 0.04);
+            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.16);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 60%, #0ea5e9 100%);
+            background-size: 200% 200%;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 24px -12px rgba(139, 92, 246, 0.75);
+        }
+        .btn-primary:hover { background-position: 100% 0; transform: translateY(-1px); }
+        .btn-primary:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+        .btn-ghost {
+            background: #ffffff;
+            border: 1px solid rgba(15, 23, 42, 0.12);
+            color: #334155;
+            transition: all 0.15s ease;
+        }
+        .btn-ghost:hover { background: #f1f5f9; border-color: rgba(15, 23, 42, 0.2); }
+        .ref-tile {
+            position: relative;
+            aspect-ratio: 2 / 3;
+            border-radius: 0.6rem;
+            overflow: hidden;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: all .15s ease;
+            background: #f1f5f9;
+        }
+        .ref-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .ref-tile.selected { border-color: #8b5cf6; box-shadow: 0 0 0 3px rgba(139,92,246,.18); }
+        .ref-tile .rm {
+            position: absolute; top: 4px; right: 4px;
+            background: rgba(15,23,42,.72); color: #fff;
+            width: 22px; height: 22px; border-radius: 999px;
+            font-size: 11px; line-height: 22px; text-align: center;
+            opacity: 0; transition: opacity .15s ease;
+        }
+        .ref-tile:hover .rm { opacity: 1; }
+        .cover-card {
+            aspect-ratio: 2 / 3;
+            border-radius: 0.6rem;
+            overflow: hidden;
+            background: #f1f5f9;
+            border: 1px solid rgba(15, 23, 42, 0.10);
+            position: relative;
+        }
+        .cover-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .cover-actions {
+            position: absolute; inset: auto 0 0 0;
+            background: linear-gradient(transparent, rgba(15,23,42,.78));
+            padding: 26px 8px 8px; display: flex; gap: 6px; justify-content: center;
+            opacity: 0; transition: opacity .15s ease;
+        }
+        .cover-card:hover .cover-actions { opacity: 1; }
+        .spin { animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .dropzone { border: 2px dashed rgba(15,23,42,.18); transition: all .15s ease; }
+        .dropzone.hot { border-color: #8b5cf6; background: rgba(139,92,246,.05); }
+    </style>
+</head>
+<body class="h-full bg-mesh">
+<div class="max-w-7xl mx-auto px-6 py-8">
+
+    <header class="mb-8 flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-extrabold text-slate-900 flex items-center gap-3">
+                <span class="w-9 h-9 rounded-xl btn-primary flex items-center justify-center text-white">
+                    <i class="fa-solid fa-book-open text-sm"></i>
+                </span>
+                Cover Generator
+            </h1>
+            <p class="text-sm text-slate-500 mt-1">
+                Ten style variations from your proven covers &mdash; print-ready at 300&nbsp;DPI.
+            </p>
+        </div>
+        <a href="/" class="btn-ghost px-4 py-2 rounded-lg text-sm font-medium">
+            <i class="fa-solid fa-arrow-left mr-1.5"></i>Dashboard
+        </a>
+    </header>
+
+    <!-- Reference library -->
+    <section class="glass rounded-2xl p-6 mb-6">
+        <div class="flex items-center justify-between mb-4">
+            <div>
+                <h2 class="font-bold text-slate-900">Reference Library</h2>
+                <p class="text-xs text-slate-500 mt-0.5">
+                    Upload your proven covers once. Every book reuses them &mdash; each reference
+                    produces one style variation.
+                </p>
+            </div>
+            <div class="flex items-center gap-2">
+                <button id="selectAll" class="btn-ghost px-3 py-1.5 rounded-lg text-xs font-medium">
+                    Select all
+                </button>
+                <label class="btn-primary text-white px-4 py-2 rounded-lg text-sm font-semibold cursor-pointer">
+                    <i class="fa-solid fa-plus mr-1.5"></i>Add covers
+                    <input id="fileInput" type="file" accept="image/*" multiple class="hidden">
+                </label>
+            </div>
+        </div>
+
+        <div id="dropzone" class="dropzone rounded-xl p-4">
+            <div id="refGrid" class="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-10 gap-3"></div>
+            <p id="refEmpty" class="text-center text-sm text-slate-400 py-8">
+                <i class="fa-regular fa-images text-2xl block mb-2"></i>
+                Drop cover images here, or use <span class="font-medium">Add covers</span>.
+            </p>
+        </div>
+        <p id="refCount" class="text-xs text-slate-500 mt-3"></p>
+    </section>
+
+    <div class="grid lg:grid-cols-5 gap-6">
+
+        <!-- Left: setup -->
+        <section class="lg:col-span-2 glass rounded-2xl p-6 h-fit">
+            <h2 class="font-bold text-slate-900 mb-4">Book</h2>
+
+            <label class="block text-xs font-semibold text-slate-600 mb-1.5">Book type</label>
+            <select id="bookType" class="field w-full rounded-lg px-3 py-2 text-sm mb-4">
+                {% for p in profiles %}
+                <option value="{{ p.key }}" {% if p.key == default_type %}selected{% endif %}>{{ p.label }}</option>
+                {% endfor %}
+            </select>
+
+            <label class="block text-xs font-semibold text-slate-600 mb-1.5">Book title</label>
+            <input id="title" type="text" class="field w-full rounded-lg px-3 py-2 text-sm mb-4"
+                   placeholder="THE CRAZY CAT LADY PUZZLE BOOK">
+
+            <div class="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1.5">Topic</label>
+                    <input id="topic" type="text" class="field w-full rounded-lg px-3 py-2 text-sm"
+                           placeholder="cats">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1.5">Audience</label>
+                    <input id="audience" type="text" class="field w-full rounded-lg px-3 py-2 text-sm"
+                           placeholder="cat lovers">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 mb-5">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1.5">Size</label>
+                    <select id="size" class="field w-full rounded-lg px-3 py-2 text-sm">
+                        {% for s in sizes %}
+                        <option value="{{ s }}" {% if s == default_size %}selected{% endif %}>{{ s }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1.5">Quality</label>
+                    <select id="quality" class="field w-full rounded-lg px-3 py-2 text-sm">
+                        {% for q in qualities %}
+                        <option value="{{ q }}" {% if q == default_quality %}selected{% endif %}>{{ q }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <p class="text-xs text-slate-500 -mt-3 mb-5">
+                <i class="fa-solid fa-circle-info mr-1"></i>
+                Use <span class="font-medium">medium</span> to browse styles cheaply, then
+                re-run the winner at <span class="font-medium">high</span>.
+            </p>
+
+            <button id="draftBtn" class="btn-ghost w-full py-2.5 rounded-lg text-sm font-semibold">
+                <i class="fa-solid fa-wand-magic-sparkles mr-1.5"></i>Draft prompt
+            </button>
+        </section>
+
+        <!-- Right: prompt + results -->
+        <section class="lg:col-span-3 space-y-6">
+            <div class="glass rounded-2xl p-6">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="font-bold text-slate-900">Cover prompt</h2>
+                    <span id="promptBadge" class="text-xs px-2 py-1 rounded-md bg-slate-100 text-slate-500">
+                        template
+                    </span>
+                </div>
+                <textarea id="prompt" rows="11"
+                          class="field w-full rounded-lg px-3 py-2.5 text-sm font-mono leading-relaxed"
+                          placeholder="Click &quot;Draft prompt&quot; &mdash; or write your own. This text is fully editable."></textarea>
+
+                <button id="generateBtn"
+                        class="btn-primary text-white w-full py-3 rounded-lg text-sm font-bold mt-4">
+                    <i class="fa-solid fa-images mr-2"></i>Generate covers
+                </button>
+                <p id="status" class="text-xs text-center text-slate-500 mt-3"></p>
+            </div>
+
+            <div id="resultsPanel" class="glass rounded-2xl p-6 hidden">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="font-bold text-slate-900">Variations</h2>
+                    <span id="resultsCount" class="text-xs text-slate-500"></span>
+                </div>
+                <div id="coverGrid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4"></div>
+            </div>
+        </section>
+    </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let references = [];
+let selected = new Set();
+let pollTimer = null;
+
+// ---- reference library ----
+async function loadReferences() {
+    const res = await fetch('/api/covers/references');
+    const data = await res.json();
+    references = data.references || [];
+    if (selected.size === 0) references.forEach(r => selected.add(r.id));
+    renderReferences();
+}
+
+function renderReferences() {
+    const grid = $('refGrid');
+    grid.innerHTML = '';
+    $('refEmpty').classList.toggle('hidden', references.length > 0);
+
+    references.forEach(ref => {
+        const tile = document.createElement('div');
+        tile.className = 'ref-tile' + (selected.has(ref.id) ? ' selected' : '');
+        tile.title = ref.label;
+        tile.innerHTML =
+            `<img src="/api/covers/references/${ref.id}/image" alt="${ref.label}">` +
+            `<div class="rm" data-del="${ref.id}"><i class="fa-solid fa-xmark"></i></div>`;
+        tile.addEventListener('click', (e) => {
+            if (e.target.closest('[data-del]')) return;
+            selected.has(ref.id) ? selected.delete(ref.id) : selected.add(ref.id);
+            renderReferences();
+        });
+        tile.querySelector('[data-del]').addEventListener('click', async () => {
+            if (!confirm(`Remove "${ref.label}" from the library?`)) return;
+            await fetch(`/api/covers/references/${ref.id}`, { method: 'DELETE' });
+            selected.delete(ref.id);
+            loadReferences();
+        });
+        grid.appendChild(tile);
+    });
+
+    const n = selected.size;
+    $('refCount').textContent = references.length
+        ? `${n} of ${references.length} selected — this run will produce ${n} cover${n === 1 ? '' : 's'}.`
+        : '';
+}
+
+async function uploadFiles(files) {
+    if (!files || !files.length) return;
+    const fd = new FormData();
+    for (const f of files) fd.append('files', f);
+    $('status').textContent = 'Uploading references…';
+    const res = await fetch('/api/covers/references', { method: 'POST', body: fd });
+    const data = await res.json();
+    $('status').textContent = data.error ? data.error : '';
+    (data.added || []).forEach(r => selected.add(r.id));
+    loadReferences();
+}
+
+$('fileInput').addEventListener('change', (e) => uploadFiles(e.target.files));
+$('selectAll').addEventListener('click', () => {
+    selected = new Set(references.map(r => r.id));
+    renderReferences();
+});
+
+const dz = $('dropzone');
+['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => {
+    e.preventDefault(); dz.classList.add('hot');
+}));
+['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => {
+    e.preventDefault(); dz.classList.remove('hot');
+}));
+dz.addEventListener('drop', e => uploadFiles(e.dataTransfer.files));
+
+// ---- prompt ----
+$('draftBtn').addEventListener('click', async () => {
+    const title = $('title').value.trim();
+    if (!title) { $('status').textContent = 'Enter a book title first.'; return; }
+
+    const btn = $('draftBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner spin mr-1.5"></i>Drafting…';
+
+    const res = await fetch('/api/covers/prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            title,
+            book_type: $('bookType').value,
+            topic: $('topic').value,
+            audience: $('audience').value,
+            draft: true
+        })
+    });
+    const data = await res.json();
+    if (data.error) {
+        $('status').textContent = data.error;
+    } else {
+        $('prompt').value = data.prompt;
+        const badge = $('promptBadge');
+        badge.textContent = data.drafted ? 'AI drafted · editable' : 'template · editable';
+        badge.className = data.drafted
+            ? 'text-xs px-2 py-1 rounded-md bg-violet-100 text-violet-700'
+            : 'text-xs px-2 py-1 rounded-md bg-slate-100 text-slate-500';
+    }
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles mr-1.5"></i>Draft prompt';
+});
+
+// ---- generation ----
+$('generateBtn').addEventListener('click', async () => {
+    const title = $('title').value.trim();
+    const prompt = $('prompt').value.trim();
+    if (!title)  { $('status').textContent = 'Enter a book title first.'; return; }
+    if (!prompt) { $('status').textContent = 'Draft or write a cover prompt first.'; return; }
+    if (selected.size === 0) { $('status').textContent = 'Select at least one reference cover.'; return; }
+
+    const btn = $('generateBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner spin mr-2"></i>Generating…';
+
+    const res = await fetch('/api/covers/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            title, prompt,
+            book_type: $('bookType').value,
+            size: $('size').value,
+            quality: $('quality').value,
+            reference_ids: Array.from(selected)
+        })
+    });
+    const data = await res.json();
+    if (data.error) {
+        $('status').textContent = data.error;
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-images mr-2"></i>Generate covers';
+        return;
+    }
+    pollJob(data.job_id);
+});
+
+function pollJob(jobId) {
+    clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+        const res = await fetch(`/api/covers/jobs/${jobId}`);
+        const job = await res.json();
+
+        if (job.status === 'running' || job.status === 'queued') {
+            $('status').textContent = `Generating ${job.done_count}/${job.total || '…'} covers…`;
+        }
+        if (job.run) renderCovers(jobId, job.run);
+
+        if (job.status === 'done' || job.status === 'error') {
+            clearInterval(pollTimer);
+            const btn = $('generateBtn');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-images mr-2"></i>Generate covers';
+            $('status').textContent = job.status === 'error'
+                ? job.error
+                : `Done — ${job.done_count} cover${job.done_count === 1 ? '' : 's'} ready at 300 DPI.`;
+        }
+    }, 1500);
+}
+
+function renderCovers(jobId, run) {
+    $('resultsPanel').classList.remove('hidden');
+    $('resultsCount').textContent = `${run.done_count}/${run.total}`;
+    const grid = $('coverGrid');
+    grid.innerHTML = '';
+
+    run.variations.forEach(v => {
+        const card = document.createElement('div');
+        card.className = 'cover-card';
+
+        if (v.status === 'done') {
+            card.innerHTML =
+                `<img src="/api/covers/jobs/${jobId}/image/${v.filename}" alt="Cover ${v.index + 1}">` +
+                `<div class="cover-actions">` +
+                `<a class="btn-ghost px-2.5 py-1 rounded text-xs font-medium" ` +
+                `href="/api/covers/jobs/${jobId}/download/${v.filename}">` +
+                `<i class="fa-solid fa-download mr-1"></i>Save</a></div>`;
+        } else if (v.status === 'error') {
+            card.innerHTML =
+                `<div class="w-full h-full flex flex-col items-center justify-center text-center p-3">` +
+                `<i class="fa-solid fa-triangle-exclamation text-amber-500 mb-2"></i>` +
+                `<span class="text-[11px] text-slate-500 leading-tight">${v.error || 'Failed'}</span></div>`;
+        } else {
+            card.innerHTML =
+                `<div class="w-full h-full flex items-center justify-center">` +
+                `<i class="fa-solid fa-spinner spin text-slate-300 text-xl"></i></div>`;
+        }
+        grid.appendChild(card);
+    });
+}
+
+loadReferences();
+</script>
+</body>
+</html>

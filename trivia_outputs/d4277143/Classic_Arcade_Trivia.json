@@ -1,0 +1,780 @@
+{
+  "book_title": "Classic Arcade Trivia",
+  "topic": "golden-age arcade video games (1978-1989)",
+  "audience": "general adult, casual retro gamer",
+  "difficulty": "medium",
+  "answer_key_position": "end_of_book",
+  "config": {
+    "book_title": "Classic Arcade Trivia",
+    "topic": "golden-age arcade video games (1978-1989)",
+    "audience": "general adult, casual retro gamer",
+    "difficulty": "medium",
+    "answer_key_position": "end_of_book",
+    "illustrations": true,
+    "editing_pass": false,
+    "chapters": [
+      {
+        "chapter_number": 1,
+        "chapter_title": "Pac-Man",
+        "chapter_scope": "Pac-Man and its sequels: development, characters, records, cabinet design",
+        "trivia_count": 8,
+        "fact_count": 12,
+        "illustration_prompt_hint": "vintage arcade cabinet and maze motif"
+      },
+      {
+        "chapter_number": 2,
+        "chapter_title": "Donkey Kong",
+        "chapter_scope": "Donkey Kong: origins, Nintendo's US launch, level design, high-score history",
+        "trivia_count": 8,
+        "fact_count": 12,
+        "illustration_prompt_hint": "barrels and steel girder platforms"
+      },
+      {
+        "chapter_number": 3,
+        "chapter_title": "Space Invaders",
+        "chapter_scope": "Space Invaders: Taito's design, Japanese release, cultural impact",
+        "trivia_count": 8,
+        "fact_count": 12,
+        "illustration_prompt_hint": "pixel alien formation and retro starfield"
+      }
+    ],
+    "agent": "main",
+    "thinking": "",
+    "local": false,
+    "timeout_s": 600,
+    "use_judge": true,
+    "image_model": "gpt-image-1",
+    "image_size": "1024x1024",
+    "image_quality": "high",
+    "illustration_style_hint": ""
+  },
+  "chapters": [
+    {
+      "chapter_number": 1,
+      "chapter_title": "Pac-Man",
+      "chapter_scope": "Pac-Man and its sequels: development, characters, records, cabinet design",
+      "illustration_path": "/Users/mac/ChaseProject/openclaw_bookwriter/trivia_outputs/d4277143/illustrations/ch1_illustration.png",
+      "illustration_prompt": "Illustration for a book chapter about Pac-Man in the context of golden-age arcade video games (1978-1989). Subject: vintage arcade cabinet and maze motif. Style: clean editorial illustration, rich saturated color, subtle texture, strong central subject on an uncluttered background. Absolutely no people, no human figures, no faces, no hands, and no body parts of any kind. Absolutely no text, letters, numbers, words, labels, captions, signatures, watermarks, frames, or borders anywhere in the image. Depict only objects, equipment, scenery, or symbolic items.",
+      "trivia": [
+        {
+          "id": "ch1_q01",
+          "chapter": 1,
+          "question": "What was the original Japanese title of Pac-Man when it was first released by Namco in 1980?",
+          "choices": {
+            "A": "Pakku-Man",
+            "B": "Paku-Paku",
+            "C": "Puck Man",
+            "D": "Pak Pak"
+          },
+          "correct_answer": "C",
+          "fact_seed": "original_japanese_title_puck_man"
+        },
+        {
+          "id": "ch1_q02",
+          "chapter": 1,
+          "question": "Who is credited as the lead designer and creator of Pac-Man?",
+          "choices": {
+            "A": "Shigeru Miyamoto",
+            "B": "Toru Iwatani",
+            "C": "Gunpei Yokoi",
+            "D": "Masanobu Endō"
+          },
+          "correct_answer": "B",
+          "fact_seed": "creator_toru_iwatani"
+        },
+        {
+          "id": "ch1_q03",
+          "chapter": 1,
+          "question": "What happens when a player reaches Level 256 in the original Pac-Man arcade game?",
+          "choices": {
+            "A": "The game resets to Level 1 with faster ghosts",
+            "B": "A special bonus cutscene plays and the score doubles",
+            "C": "The game freezes and displays a 'CONGRATULATIONS' message",
+            "D": "The right half of the screen becomes garbled and the level is unbeatable"
+          },
+          "correct_answer": "D",
+          "fact_seed": "level_256_kill_screen"
+        },
+        {
+          "id": "ch1_q04",
+          "chapter": 1,
+          "question": "Which of the four ghosts in Pac-Man is programmed to move semi-randomly rather than directly pursuing the player?",
+          "choices": {
+            "A": "Clyde (orange)",
+            "B": "Inky (cyan)",
+            "C": "Blinky (red)",
+            "D": "Pinky (pink)"
+          },
+          "correct_answer": "A",
+          "fact_seed": "clyde_random_movement_pattern"
+        },
+        {
+          "id": "ch1_q05",
+          "chapter": 1,
+          "question": "What was the sequel released in 1982 that introduced a female Pac-Man character named Sue among the ghosts?",
+          "choices": {
+            "A": "Pac-Land",
+            "B": "Super Pac-Man",
+            "C": "Ms. Pac-Man",
+            "D": "Jr. Pac-Man"
+          },
+          "correct_answer": "C",
+          "fact_seed": "ms_pacman_introduced_sue_ghost"
+        },
+        {
+          "id": "ch1_q06",
+          "chapter": 1,
+          "question": "In the original Pac-Man, how many dots (pellets) must the player eat to clear a standard level?",
+          "choices": {
+            "A": "200",
+            "B": "256",
+            "C": "240",
+            "D": "220"
+          },
+          "correct_answer": "C",
+          "fact_seed": "total_dots_per_level_240"
+        },
+        {
+          "id": "ch1_q07",
+          "chapter": 1,
+          "question": "Which company developed and released Ms. Pac-Man before it was officially licensed by Namco?",
+          "choices": {
+            "A": "Williams Electronics",
+            "B": "Midway Manufacturing",
+            "C": "Atari Inc.",
+            "D": "Coleco Industries"
+          },
+          "correct_answer": "B",
+          "fact_seed": "midway_developed_ms_pacman"
+        },
+        {
+          "id": "ch1_q08",
+          "chapter": 1,
+          "question": "What is the first bonus fruit that appears in Level 1 of the original Pac-Man?",
+          "choices": {
+            "A": "Apple",
+            "B": "Strawberry",
+            "C": "Orange",
+            "D": "Cherry"
+          },
+          "correct_answer": "D",
+          "fact_seed": "first_bonus_fruit_cherry"
+        }
+      ],
+      "facts": [
+        {
+          "id": "ch1_f001",
+          "chapter": 1,
+          "fact": "Toru Iwatani has stated that the shape of Pac-Man was inspired by a pizza with one slice removed, though he has also noted the Japanese character for mouth (口) as an influence.",
+          "fact_seed": "pizza_slice_shape_inspiration"
+        },
+        {
+          "id": "ch1_f002",
+          "chapter": 1,
+          "fact": "Pac-Man generated over $2.5 billion in quarters by the 1990s, making it one of the highest-grossing arcade machines ever produced.",
+          "fact_seed": "billions_in_quarter_revenue"
+        },
+        {
+          "id": "ch1_f003",
+          "chapter": 1,
+          "fact": "The ghosts in Pac-Man each have both a Japanese and an English nickname, with Blinky's Japanese name being \"Oikake\" meaning \"chaser.\"",
+          "fact_seed": "ghost_japanese_nicknames"
+        },
+        {
+          "id": "ch1_f004",
+          "chapter": 1,
+          "fact": "In 1982, a patient named \"PAC-MAN Fever\" by Buckner & Garcia reached number 9 on the Billboard Hot 100, becoming one of the few video-game-themed songs to chart that high.",
+          "fact_seed": "pacman_fever_billboard_hit"
+        },
+        {
+          "id": "ch1_f005",
+          "chapter": 1,
+          "fact": "Ms. Pac-Man originated as an unauthorized modification kit called \"Crazy Otto\" created by the General Computer Corporation, which Midway later licensed and rebranded.",
+          "fact_seed": "crazy_otto_origin_of_ms_pacman"
+        },
+        {
+          "id": "ch1_f006",
+          "chapter": 1,
+          "fact": "The original Pac-Man cabinet was produced in two main art styles: a solid yellow cabinet for the Japanese Puck Man release and a predominantly blue cabinet with colorful side art for the Midway-distributed American version.",
+          "fact_seed": "cabinet_art_differences_japan_vs_us"
+        },
+        {
+          "id": "ch1_f007",
+          "chapter": 1,
+          "fact": "Super Pac-Man, released by Namco in 1982, replaced the dot-eating mechanic with keys and locked doors, making it the first official sequel to significantly change the core gameplay formula.",
+          "fact_seed": "super_pacman_keys_doors_mechanic"
+        },
+        {
+          "id": "ch1_f008",
+          "chapter": 1,
+          "fact": "Billy Mitchell claimed the first verified perfect score of 3,333,360 points in Pac-Man on July 3, 1999, eating every dot, power pellet, fruit, and ghost across all 256 levels.",
+          "fact_seed": "perfect_score_3333360"
+        },
+        {
+          "id": "ch1_f009",
+          "chapter": 1,
+          "fact": "Ms. Pac-Man introduced four different maze layouts that cycled throughout the game, whereas the original Pac-Man used only a single maze design for every level.",
+          "fact_seed": "ms_pacman_four_maze_layouts"
+        },
+        {
+          "id": "ch1_f010",
+          "chapter": 1,
+          "fact": "Jr. Pac-Man, released by Bally Midway in 1983 without Namco's authorization, featured scrolling mazes that were wider than the screen — a first for the series.",
+          "fact_seed": "jr_pacman_scrolling_wider_mazes"
+        },
+        {
+          "id": "ch1_f011",
+          "chapter": 1,
+          "fact": "The Pac-Man arcade board runs on a Zilog Z80 processor clocked at approximately 3.072 MHz, the same CPU family used in many other early-1980s arcade titles.",
+          "fact_seed": "z80_cpu_hardware"
+        },
+        {
+          "id": "ch1_f012",
+          "chapter": 1,
+          "fact": "Between the intermission cutscenes in Pac-Man, a brief animation shows Blinky chasing Pac-Man and then fleeing after Pac-Man eats a power pellet — these were among the earliest narrative cutscenes in arcade gaming.",
+          "fact_seed": "intermission_cutscenes_early_narrative"
+        }
+      ]
+    },
+    {
+      "chapter_number": 2,
+      "chapter_title": "Donkey Kong",
+      "chapter_scope": "Donkey Kong: origins, Nintendo's US launch, level design, high-score history",
+      "illustration_path": "/Users/mac/ChaseProject/openclaw_bookwriter/trivia_outputs/d4277143/illustrations/ch2_illustration.png",
+      "illustration_prompt": "Illustration for a book chapter about Donkey Kong in the context of golden-age arcade video games (1978-1989). Subject: barrels and steel girder platforms. Style: clean editorial illustration, rich saturated color, subtle texture, strong central subject on an uncluttered background. Absolutely no people, no human figures, no faces, no hands, and no body parts of any kind. Absolutely no text, letters, numbers, words, labels, captions, signatures, watermarks, frames, or borders anywhere in the image. Depict only objects, equipment, scenery, or symbolic items. | EDIT: can you please make real donkay kong game style picture | EDIT: can you please make real donkay kong game style picture with there main charecters",
+      "trivia": [
+        {
+          "id": "ch2_q01",
+          "chapter": 2,
+          "question": "Who designed the original Donkey Kong arcade game, released by Nintendo in 1981?",
+          "choices": {
+            "A": "Gunpei Yokoi",
+            "B": "Hiroshi Yamauchi",
+            "C": "Shigeru Miyamoto",
+            "D": "Satoru Iwata"
+          },
+          "correct_answer": "C",
+          "fact_seed": "miyamoto_designed_donkey_kong"
+        },
+        {
+          "id": "ch2_q02",
+          "chapter": 2,
+          "question": "What was the original name of the player character in Donkey Kong before he became known as Mario?",
+          "choices": {
+            "A": "Jumpman",
+            "B": "Hammerboy",
+            "C": "Mr. Video",
+            "D": "Ossan"
+          },
+          "correct_answer": "A",
+          "fact_seed": "player_character_originally_jumpman"
+        },
+        {
+          "id": "ch2_q03",
+          "chapter": 2,
+          "question": "How many distinct screen levels does the original Donkey Kong arcade game contain before they repeat?",
+          "choices": {
+            "A": "3",
+            "B": "5",
+            "C": "6",
+            "D": "4"
+          },
+          "correct_answer": "D",
+          "fact_seed": "four_unique_levels"
+        },
+        {
+          "id": "ch2_q04",
+          "chapter": 2,
+          "question": "Which company sued Nintendo over Donkey Kong, claiming the character infringed on their King Kong intellectual property?",
+          "choices": {
+            "A": "Atari Inc.",
+            "B": "Universal City Studios",
+            "C": "Columbia Pictures",
+            "D": "Paramount Pictures"
+          },
+          "correct_answer": "B",
+          "fact_seed": "universal_king_kong_lawsuit"
+        },
+        {
+          "id": "ch2_q05",
+          "chapter": 2,
+          "question": "What is the primary tool the player can pick up to temporarily smash obstacles in the original Donkey Kong?",
+          "choices": {
+            "A": "A wrench",
+            "B": "A fire extinguisher",
+            "C": "A hammer",
+            "D": "A shield"
+          },
+          "correct_answer": "C",
+          "fact_seed": "hammer_powerup_item"
+        },
+        {
+          "id": "ch2_q06",
+          "chapter": 2,
+          "question": "In 2007, which player dethroned Billy Mitchell's long-standing Donkey Kong high-score record, igniting one of gaming's most famous rivalries?",
+          "choices": {
+            "A": "Todd Rogers",
+            "B": "Walter Day",
+            "C": "Hank Chien",
+            "D": "Steve Wiebe"
+          },
+          "correct_answer": "D",
+          "fact_seed": "steve_wiebe_dethroned_mitchell"
+        },
+        {
+          "id": "ch2_q07",
+          "chapter": 2,
+          "question": "What was the name of the damsel in distress that the player must rescue in the original Donkey Kong?",
+          "choices": {
+            "A": "Peach",
+            "B": "Pauline",
+            "C": "Daisy",
+            "D": "Lady"
+          },
+          "correct_answer": "B",
+          "fact_seed": "damsel_named_pauline"
+        },
+        {
+          "id": "ch2_q08",
+          "chapter": 2,
+          "question": "Nintendo originally intended Donkey Kong to be a licensed game based on which existing cartoon character before the deal fell through?",
+          "choices": {
+            "A": "Popeye",
+            "B": "Astro Boy",
+            "C": "Mighty Mouse",
+            "D": "Felix the Cat"
+          },
+          "correct_answer": "A",
+          "fact_seed": "originally_planned_as_popeye_game"
+        }
+      ],
+      "facts": [
+        {
+          "id": "ch2_f001",
+          "chapter": 2,
+          "fact": "Nintendo's warehouse in Tukwila, Washington, had roughly 2,000 unsold Radar Scope cabinets that were converted into Donkey Kong machines for the U.S. launch in 1981.",
+          "fact_seed": "radar_scope_cabinets_converted"
+        },
+        {
+          "id": "ch2_f002",
+          "chapter": 2,
+          "fact": "The Jumpman character was renamed \"Mario\" after Mario Segale, the landlord of Nintendo of America's warehouse in Tukwila, who reportedly confronted staff over late rent.",
+          "fact_seed": "mario_named_after_landlord_segale"
+        },
+        {
+          "id": "ch2_f003",
+          "chapter": 2,
+          "fact": "Donkey Kong was the first arcade game to feature multiple distinct stage types that told a visual story as the player progressed, rather than repeating a single screen with increasing difficulty.",
+          "fact_seed": "first_arcade_with_narrative_stages"
+        },
+        {
+          "id": "ch2_f004",
+          "chapter": 2,
+          "fact": "Nintendo's lawyer John Kirby successfully defended the company against Universal's King Kong lawsuit, and the attorney was later honored as the namesake of Nintendo's character Kirby.",
+          "fact_seed": "lawyer_john_kirby_namesake"
+        },
+        {
+          "id": "ch2_f005",
+          "chapter": 2,
+          "fact": "The original Donkey Kong arcade hardware runs on a Zilog Z80 main CPU paired with an Intel 8035 microcontroller dedicated to handling sound effects and music.",
+          "fact_seed": "z80_and_8035_hardware_specs"
+        },
+        {
+          "id": "ch2_f006",
+          "chapter": 2,
+          "fact": "In the cement factory stage (often called the \"pie factory\"), the hazards sliding along conveyor belts are actually cement tubs, though players have long nicknamed them pies.",
+          "fact_seed": "cement_tubs_nicknamed_pies"
+        },
+        {
+          "id": "ch2_f007",
+          "chapter": 2,
+          "fact": "Donkey Kong has a kill screen at Level 22, where a programming oversight gives the player only a few seconds on the timer — far too little to complete the stage — effectively ending every game.",
+          "fact_seed": "kill_screen_at_level_22"
+        },
+        {
+          "id": "ch2_f008",
+          "chapter": 2,
+          "fact": "Ikegami Tsushinki, a Japanese electronics firm, was contracted to engineer the arcade circuit board for Donkey Kong and later sued Nintendo, claiming ownership of the game's underlying code.",
+          "fact_seed": "ikegami_tsushinki_code_dispute"
+        },
+        {
+          "id": "ch2_f009",
+          "chapter": 2,
+          "fact": "Donkey Kong earned approximately $280 million in U.S. arcade revenue within its first year, making it Nintendo's breakthrough hit in the American market.",
+          "fact_seed": "280_million_first_year_us_revenue"
+        },
+        {
+          "id": "ch2_f010",
+          "chapter": 2,
+          "fact": "The 2007 documentary \"The King of Kong: A Fistful of Quarters\" brought the Donkey Kong high-score rivalry to mainstream audiences and was theatrically released by Picturehouse.",
+          "fact_seed": "king_of_kong_documentary_2007"
+        },
+        {
+          "id": "ch2_f011",
+          "chapter": 2,
+          "fact": "In January 2018, Robbie Lakeman set a verified Donkey Kong high score of 1,247,700 points, which stood as the official record recognized by Twin Galaxies at the time.",
+          "fact_seed": "robbie_lakeman_record_1247700"
+        },
+        {
+          "id": "ch2_f012",
+          "chapter": 2,
+          "fact": "The Donkey Kong arcade cabinet was released in both upright and cocktail-table configurations, with the cocktail version featuring a screen that flipped orientation between turns for two-player games.",
+          "fact_seed": "cocktail_cabinet_flipping_screen"
+        }
+      ]
+    },
+    {
+      "chapter_number": 3,
+      "chapter_title": "Space Invaders",
+      "chapter_scope": "Space Invaders: Taito's design, Japanese release, cultural impact",
+      "illustration_path": "/Users/mac/ChaseProject/openclaw_bookwriter/trivia_outputs/d4277143/illustrations/ch3_illustration.png",
+      "illustration_prompt": "Illustration for a book chapter about Space Invaders in the context of golden-age arcade video games (1978-1989). Subject: pixel alien formation and retro starfield. Style: clean editorial illustration, rich saturated color, subtle texture, strong central subject on an uncluttered background. Absolutely no people, no human figures, no faces, no hands, and no body parts of any kind. Absolutely no text, letters, numbers, words, labels, captions, signatures, watermarks, frames, or borders anywhere in the image. Depict only objects, equipment, scenery, or symbolic items. | EDIT: make the background a deeper blue",
+      "trivia": [
+        {
+          "id": "ch3_q01",
+          "chapter": 3,
+          "question": "Who designed Space Invaders for Taito Corporation?",
+          "choices": {
+            "A": "Shigeru Miyamoto",
+            "B": "Gunpei Yokoi",
+            "C": "Tomohiro Nishikado",
+            "D": "Toru Iwatani"
+          },
+          "correct_answer": "C",
+          "fact_seed": "nishikado_designed_space_invaders"
+        },
+        {
+          "id": "ch3_q02",
+          "chapter": 3,
+          "question": "In what year was Space Invaders originally released in Japanese arcades?",
+          "choices": {
+            "A": "1978",
+            "B": "1979",
+            "C": "1980",
+            "D": "1977"
+          },
+          "correct_answer": "A",
+          "fact_seed": "released_in_japan_1978"
+        },
+        {
+          "id": "ch3_q03",
+          "chapter": 3,
+          "question": "Why do the aliens in Space Invaders speed up as the player destroys more of them?",
+          "choices": {
+            "A": "A timer in the code triggers a speed increase every 30 seconds",
+            "B": "The hardware renders fewer sprites faster, causing the remaining aliens to move more quickly",
+            "C": "Each alien type is programmed with a different base speed that becomes apparent as rows are cleared",
+            "D": "The game reads a difficulty table that raises speed at preset kill thresholds"
+          },
+          "correct_answer": "B",
+          "fact_seed": "speedup_from_fewer_sprites_hardware"
+        },
+        {
+          "id": "ch3_q04",
+          "chapter": 3,
+          "question": "How many horizontal rows of alien invaders appear at the start of each round in the original Space Invaders?",
+          "choices": {
+            "A": "4",
+            "B": "6",
+            "C": "3",
+            "D": "5"
+          },
+          "correct_answer": "D",
+          "fact_seed": "five_rows_of_invaders"
+        },
+        {
+          "id": "ch3_q05",
+          "chapter": 3,
+          "question": "Space Invaders is widely credited with causing a shortage of which coin in Japan due to the game's enormous popularity?",
+          "choices": {
+            "A": "The 10-yen coin",
+            "B": "The 50-yen coin",
+            "C": "The 500-yen coin",
+            "D": "The 100-yen coin"
+          },
+          "correct_answer": "D",
+          "fact_seed": "100_yen_coin_shortage_legend"
+        },
+        {
+          "id": "ch3_q06",
+          "chapter": 3,
+          "question": "Which company licensed Space Invaders for manufacture and distribution in North America?",
+          "choices": {
+            "A": "Midway",
+            "B": "Atari",
+            "C": "Bally",
+            "D": "Williams"
+          },
+          "correct_answer": "A",
+          "fact_seed": "midway_licensed_us_distribution"
+        },
+        {
+          "id": "ch3_q07",
+          "chapter": 3,
+          "question": "What was the maximum number of points awarded for hitting the mystery UFO that crosses the top of the screen in Space Invaders?",
+          "choices": {
+            "A": "500",
+            "B": "200",
+            "C": "100",
+            "D": "300"
+          },
+          "correct_answer": "D",
+          "fact_seed": "mystery_ufo_max_300_points"
+        },
+        {
+          "id": "ch3_q08",
+          "chapter": 3,
+          "question": "Which home console port of Space Invaders, released in 1980, is widely credited as the first 'killer app' that dramatically boosted its platform's hardware sales?",
+          "choices": {
+            "A": "ColecoVision",
+            "B": "Atari 2600",
+            "C": "Intellivision",
+            "D": "Magnavox Odyssey²"
+          },
+          "correct_answer": "B",
+          "fact_seed": "atari_2600_killer_app_port"
+        }
+      ],
+      "facts": [
+        {
+          "id": "ch3_f001",
+          "chapter": 3,
+          "fact": "Tomohiro Nishikado originally envisioned the enemies as human soldiers, but Taito management objected to shooting people, so he redesigned them as alien creatures inspired by H.G. Wells' \"The War of the Worlds\" and ocean creatures like squids and crabs.",
+          "fact_seed": "enemies_redesigned_from_soldiers_to_aliens"
+        },
+        {
+          "id": "ch3_f002",
+          "chapter": 3,
+          "fact": "Space Invaders was the first arcade game to save and display a persistent high score, establishing the competitive score-chasing culture that defined 1980s arcades.",
+          "fact_seed": "first_game_with_persistent_high_score"
+        },
+        {
+          "id": "ch3_f003",
+          "chapter": 3,
+          "fact": "The player's laser cannon in Space Invaders can only have one shot on screen at a time, a deliberate design constraint Nishikado imposed to increase tension and difficulty.",
+          "fact_seed": "one_shot_on_screen_at_a_time"
+        },
+        {
+          "id": "ch3_f004",
+          "chapter": 3,
+          "fact": "The four protective shields (bunkers) in Space Invaders are gradually eroded pixel by pixel from both enemy fire above and the player's own shots from below.",
+          "fact_seed": "shields_erode_pixel_by_pixel"
+        },
+        {
+          "id": "ch3_f005",
+          "chapter": 3,
+          "fact": "Space Invaders earned an estimated $3.8 billion in revenue by 1982, surpassing the box-office gross of \"Star Wars\" during the same period.",
+          "fact_seed": "revenue_surpassed_star_wars"
+        },
+        {
+          "id": "ch3_f006",
+          "chapter": 3,
+          "fact": "The iconic four-note descending heartbeat sound in Space Invaders was one of the earliest examples of dynamic game audio, with its tempo increasing in sync with the aliens' accelerating movement.",
+          "fact_seed": "dynamic_heartbeat_audio_tempo"
+        },
+        {
+          "id": "ch3_f007",
+          "chapter": 3,
+          "fact": "Japan's Space Invaders craze in 1978–1979 spawned thousands of dedicated \"Invader Houses\" — small storefronts converted entirely into rows of Space Invaders cocktail cabinets.",
+          "fact_seed": "invader_houses_dedicated_parlors"
+        },
+        {
+          "id": "ch3_f008",
+          "chapter": 3,
+          "fact": "Space Invaders Part II, released by Taito in 1979, introduced intermission screens between rounds and split-color invaders, but kept the core gameplay almost identical to the original.",
+          "fact_seed": "part_ii_1979_intermissions_color"
+        },
+        {
+          "id": "ch3_f009",
+          "chapter": 3,
+          "fact": "The Japanese arcade industry's total annual revenue roughly doubled from 1978 to 1979, with Space Invaders credited as the primary driver of that explosive growth.",
+          "fact_seed": "japanese_arcade_revenue_doubled"
+        },
+        {
+          "id": "ch3_f010",
+          "chapter": 3,
+          "fact": "Nishikado hand-drew and programmed every sprite in Space Invaders himself because Taito did not employ dedicated graphic artists for game development at the time.",
+          "fact_seed": "nishikado_drew_all_sprites_himself"
+        },
+        {
+          "id": "ch3_f011",
+          "chapter": 3,
+          "fact": "Early Space Invaders cabinets used a black-and-white CRT with colored cellophane strips overlaid on the screen to simulate color graphics for different screen regions.",
+          "fact_seed": "cellophane_strips_simulated_color"
+        },
+        {
+          "id": "ch3_f012",
+          "chapter": 3,
+          "fact": "Taito produced approximately 100,000 Space Invaders arcade cabinets in Japan alone by 1980, and licensed versions pushed the worldwide total to an estimated 360,000 units.",
+          "fact_seed": "360000_cabinets_produced_worldwide"
+        }
+      ]
+    }
+  ],
+  "answer_key": [
+    {
+      "chapter_number": 1,
+      "chapter_title": "Pac-Man",
+      "answers": [
+        {
+          "id": "ch1_q01",
+          "number": 1,
+          "correct_answer": "C",
+          "correct_text": "Puck Man"
+        },
+        {
+          "id": "ch1_q02",
+          "number": 2,
+          "correct_answer": "B",
+          "correct_text": "Toru Iwatani"
+        },
+        {
+          "id": "ch1_q03",
+          "number": 3,
+          "correct_answer": "D",
+          "correct_text": "The right half of the screen becomes garbled and the level is unbeatable"
+        },
+        {
+          "id": "ch1_q04",
+          "number": 4,
+          "correct_answer": "A",
+          "correct_text": "Clyde (orange)"
+        },
+        {
+          "id": "ch1_q05",
+          "number": 5,
+          "correct_answer": "C",
+          "correct_text": "Ms. Pac-Man"
+        },
+        {
+          "id": "ch1_q06",
+          "number": 6,
+          "correct_answer": "C",
+          "correct_text": "240"
+        },
+        {
+          "id": "ch1_q07",
+          "number": 7,
+          "correct_answer": "B",
+          "correct_text": "Midway Manufacturing"
+        },
+        {
+          "id": "ch1_q08",
+          "number": 8,
+          "correct_answer": "D",
+          "correct_text": "Cherry"
+        }
+      ]
+    },
+    {
+      "chapter_number": 2,
+      "chapter_title": "Donkey Kong",
+      "answers": [
+        {
+          "id": "ch2_q01",
+          "number": 1,
+          "correct_answer": "C",
+          "correct_text": "Shigeru Miyamoto"
+        },
+        {
+          "id": "ch2_q02",
+          "number": 2,
+          "correct_answer": "A",
+          "correct_text": "Jumpman"
+        },
+        {
+          "id": "ch2_q03",
+          "number": 3,
+          "correct_answer": "D",
+          "correct_text": "4"
+        },
+        {
+          "id": "ch2_q04",
+          "number": 4,
+          "correct_answer": "B",
+          "correct_text": "Universal City Studios"
+        },
+        {
+          "id": "ch2_q05",
+          "number": 5,
+          "correct_answer": "C",
+          "correct_text": "A hammer"
+        },
+        {
+          "id": "ch2_q06",
+          "number": 6,
+          "correct_answer": "D",
+          "correct_text": "Steve Wiebe"
+        },
+        {
+          "id": "ch2_q07",
+          "number": 7,
+          "correct_answer": "B",
+          "correct_text": "Pauline"
+        },
+        {
+          "id": "ch2_q08",
+          "number": 8,
+          "correct_answer": "A",
+          "correct_text": "Popeye"
+        }
+      ]
+    },
+    {
+      "chapter_number": 3,
+      "chapter_title": "Space Invaders",
+      "answers": [
+        {
+          "id": "ch3_q01",
+          "number": 1,
+          "correct_answer": "C",
+          "correct_text": "Tomohiro Nishikado"
+        },
+        {
+          "id": "ch3_q02",
+          "number": 2,
+          "correct_answer": "A",
+          "correct_text": "1978"
+        },
+        {
+          "id": "ch3_q03",
+          "number": 3,
+          "correct_answer": "B",
+          "correct_text": "The hardware renders fewer sprites faster, causing the remaining aliens to move more quickly"
+        },
+        {
+          "id": "ch3_q04",
+          "number": 4,
+          "correct_answer": "D",
+          "correct_text": "5"
+        },
+        {
+          "id": "ch3_q05",
+          "number": 5,
+          "correct_answer": "D",
+          "correct_text": "The 100-yen coin"
+        },
+        {
+          "id": "ch3_q06",
+          "number": 6,
+          "correct_answer": "A",
+          "correct_text": "Midway"
+        },
+        {
+          "id": "ch3_q07",
+          "number": 7,
+          "correct_answer": "D",
+          "correct_text": "300"
+        },
+        {
+          "id": "ch3_q08",
+          "number": 8,
+          "correct_answer": "B",
+          "correct_text": "Atari 2600"
+        }
+      ]
+    }
+  ],
+  "warnings": [],
+  "usage": {}
+}

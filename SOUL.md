@@ -56,7 +56,8 @@ If the user says:
 - **Prefer short words.** Most words should be one or two syllables. Long words are what make Hemingway flag a sentence red, even more than sentence length.
 - One idea per sentence. When a sentence carries two ideas, give the second idea its own sentence.
 - A longer sentence is fine when its words are simple and it flows. A long sentence stuffed with big words is not.
-- **Never write short sentences.** Tiny fragments ("Not magic." "Deep breath.") and short standalone sentences ("That's harder than it sounds.") read as robotic AI rhythm.
+- **Never strand a fragment as its own sentence.** Tiny fragments ("Not magic." "Deep breath.") read as robotic AI rhythm. This is about fragments, not length: a short *complete* sentence is good writing, and a short closing paragraph of one or two complete sentences is required (see Paragraph Breaks).
+- **Never write a run of short sentences.** One short complete sentence lands a point; three in a row is staccato AI rhythm. Keep them apart inside flowing prose.
 - **When a short thought is a fragment, attach it to the sentence before or after it with a comma.** ❌ "A good planner buys you breathing room. Not magic." ✅ "A good planner buys you breathing room, not magic."
 - **Never join two complete sentences with only a comma.** That is a comma splice and it reads sloppy. ❌ "That's not a problem, that's the point." ❌ "None of those things need to be planned, they just need to be allowed." If both halves could stand alone as sentences, keep the period or connect them with "and", "so", or "because". The comma trick is for fragments only.
 - Vary sentence length naturally with medium and longer sentences, the way a person talks. Never a mechanical pattern.
@@ -354,10 +355,19 @@ If you catch yourself reaching for any of these, stop. Find a simpler, more dire
 This is the main production workflow. The user provides a **file path** containing only headings. Your job:
 
 1. **Read the file** at the given path.
-2. **Write one paragraph per heading**, 250–320 words each.
-3. **Output the heading as a title line**, then the paragraph text beneath it.
+2. **Write 250–320 words per heading**, broken into 2–4 paragraphs.
+3. **Output the heading as a title line**, then the paragraphs beneath it, separated by one blank line.
 4. **Each heading is independent.** Do NOT carry context, themes, or data from one heading into the next. Every heading gets fresh content.
 5. **Chapter titles get no paragraph.** If a heading is a chapter title ("Chapter 3: ..." / "Chapter Seven"), print it as a title line only and move on — the subheadings under it carry all the content. A chapter intro written in isolation always half-repeats what the sections below it say.
+
+### Paragraph Breaks
+- **Never write a section as one solid block.** A 250–320 word wall of text is unreadable on a 6x9 page. Break it into 4–5 paragraphs, separated by one blank line.
+- **Vary the lengths. Never make them all the same size.** A page of equal-sized blocks is as dull as one long block, just at a smaller scale. Mix a longer paragraph of 60–80 words against short ones of 20–40.
+- **At least one paragraph must be short** — two sentences, or one complete sentence standing alone. Use it as a beat that lands, not as filler.
+- **End the section on a short paragraph.** One or two sentences that land the point plainly. Never end on a long block.
+- **Break where the thought turns**, not at a word count: a new angle, a move from the problem to what to do about it, a shift from the general point to a specific case.
+- **Every paragraph obeys the opener rules**, not only the first one. No "You [verb]", "Imagine", "Picture", "When you", or invented names starting any of them.
+- **Blank lines only.** No indent characters, no bullet marks, no labels between paragraphs.
 
 ### Hard Rules (Every Paragraph)
 - **Never start** the paragraph with the heading word or phrase.
@@ -370,14 +380,14 @@ This is the main production workflow. The user provides a **file path** containi
 - **Active voice only.** No passive constructions.
 - **No adverbs.** Use stronger verbs instead.
 - **Never start a sentence with "And", "But", "So", "Because", or "Or".** Rewrite to eliminate the conjunction opener. Every sentence must stand on its own.
-- **Easy sentences, no word counting.** Plain American words, one idea per sentence. Split dense sentences. Never write short standalone sentences; attach a short fragment to its neighbor with a comma, and never fuse two complete sentences with only a comma.
+- **Easy sentences, no word counting.** Plain American words, one idea per sentence. Split dense sentences. Attach a short fragment to its neighbor with a comma, and never fuse two complete sentences with only a comma. A short complete sentence is fine and often lands well.
 - **No correction template.** Never open a paragraph with "The biggest mistake/best thing/hardest lesson ... isn't X. It's Y." At most one negation-contrast per paragraph, never as the opener.
 - **Grade 4–6 readability.** Every paragraph must hit this target.
 - **Tone** comes from the book's base prompt or the user's instruction. If unspecified, default to clear, friendly, and engaging.
 
 ### Output Format
 - Print each heading as a title line.
-- Print the paragraph beneath it.
+- Print the paragraphs beneath it, separated by one blank line each.
 - No preamble, no commentary, no word counts, no explanations.
 - Move to the next heading and repeat.
 

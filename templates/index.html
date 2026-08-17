@@ -243,9 +243,72 @@
                 </div>
             </div>
             <div class="flex items-center gap-0.5">
-                <a href="/qr-code" class="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition" title="QR Code Generator" aria-label="QR Code Generator">
-                    <i class="fas fa-qrcode text-sm"></i>
-                </a>
+                <!-- Every generator in one menu. The row of icons stopped
+                     scaling once covers and birds joined the set. -->
+                <div class="relative">
+                    <button id="generatorsBtn" type="button"
+                        class="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition flex items-center gap-1"
+                        title="Generators" aria-label="Generators" aria-haspopup="true" aria-expanded="false">
+                        <i class="fas fa-wand-magic-sparkles text-sm"></i>
+                        <i id="generatorsChevron" class="fas fa-chevron-down text-[9px] transition-transform"></i>
+                    </button>
+                    <div id="generatorsMenu"
+                        class="hidden absolute right-0 top-full mt-2 z-50 w-60 bg-gray-950 border border-white/10 rounded-lg shadow-2xl py-1.5">
+                        <div class="px-3 py-1 text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Book Types</div>
+                        <a href="/" class="flex items-start gap-2.5 px-3 py-2 text-gray-300 hover:text-white hover:bg-white/5 transition">
+                            <i class="fas fa-book text-xs w-4 mt-0.5 text-indigo-400"></i>
+                            <span class="leading-tight">
+                                <span class="block text-xs font-medium">Prose Book</span>
+                                <span class="block text-[10px] text-gray-500">Full-length written book</span>
+                            </span>
+                        </a>
+                        <a href="/stories" class="flex items-start gap-2.5 px-3 py-2 text-gray-300 hover:text-white hover:bg-white/5 transition">
+                            <i class="fas fa-feather-pointed text-xs w-4 mt-0.5 text-indigo-400"></i>
+                            <span class="leading-tight">
+                                <span class="block text-xs font-medium">Stories</span>
+                                <span class="block text-[10px] text-gray-500">Story collections</span>
+                            </span>
+                        </a>
+                        <a href="/trivia" class="flex items-start gap-2.5 px-3 py-2 text-gray-300 hover:text-white hover:bg-white/5 transition">
+                            <i class="fas fa-circle-question text-xs w-4 mt-0.5 text-indigo-400"></i>
+                            <span class="leading-tight">
+                                <span class="block text-xs font-medium">Trivia &amp; Facts</span>
+                                <span class="block text-[10px] text-gray-500">Fun facts and trivia books</span>
+                            </span>
+                        </a>
+                        <a href="/puzzle" class="flex items-start gap-2.5 px-3 py-2 text-gray-300 hover:text-white hover:bg-white/5 transition">
+                            <i class="fas fa-puzzle-piece text-xs w-4 mt-0.5 text-indigo-400"></i>
+                            <span class="leading-tight">
+                                <span class="block text-xs font-medium">Puzzle &amp; Activity</span>
+                                <span class="block text-[10px] text-gray-500">Mazes, word search, crosswords</span>
+                            </span>
+                        </a>
+
+                        <div class="h-px bg-white/10 my-1.5"></div>
+                        <div class="px-3 py-1 text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Assets</div>
+                        <a href="/birds" class="flex items-start gap-2.5 px-3 py-2 text-gray-300 hover:text-white hover:bg-white/5 transition">
+                            <i class="fas fa-dove text-xs w-4 mt-0.5 text-emerald-400"></i>
+                            <span class="leading-tight">
+                                <span class="block text-xs font-medium">Bird Illustrations</span>
+                                <span class="block text-[10px] text-gray-500">Photos to transparent PNGs</span>
+                            </span>
+                        </a>
+                        <a href="/covers" class="flex items-start gap-2.5 px-3 py-2 text-gray-300 hover:text-white hover:bg-white/5 transition">
+                            <i class="fas fa-image text-xs w-4 mt-0.5 text-emerald-400"></i>
+                            <span class="leading-tight">
+                                <span class="block text-xs font-medium">Book Covers</span>
+                                <span class="block text-[10px] text-gray-500">Style variations from references</span>
+                            </span>
+                        </a>
+                        <a href="/qr-code" class="flex items-start gap-2.5 px-3 py-2 text-gray-300 hover:text-white hover:bg-white/5 transition">
+                            <i class="fas fa-qrcode text-xs w-4 mt-0.5 text-emerald-400"></i>
+                            <span class="leading-tight">
+                                <span class="block text-xs font-medium">QR Codes</span>
+                                <span class="block text-[10px] text-gray-500">Codes for back matter</span>
+                            </span>
+                        </a>
+                    </div>
+                </div>
                 <div class="relative group">
                     <button id="btn-new-book" class="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition" aria-label="Start a new book">
                         <i class="fas fa-plus text-sm"></i>
@@ -360,6 +423,19 @@
                             <label class="relative inline-flex items-center cursor-pointer">
                                 <input type="checkbox" name="skip_cache" id="skip-cache-toggle" class="sr-only peer" {% if defaults.skip_cache %}checked{% endif %}>
                                 <div class="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-600 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-gradient-to-r peer-checked:from-indigo-500 peer-checked:to-purple-500"></div>
+                            </label>
+                        </div>
+
+                        <div class="soft-divider"></div>
+
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="text-xs font-semibold text-gray-200">Rewrite Existing Text</h3>
+                                <p class="text-[10px] text-gray-500 mt-0.5">Regenerate sections that already have text. Needed to apply a new paragraph style to a finished book. Costs a full re-run</p>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" name="force" id="force-toggle" class="sr-only peer" {% if defaults.force %}checked{% endif %}>
+                                <div class="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-600 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-gradient-to-r peer-checked:from-amber-500 peer-checked:to-orange-500"></div>
                             </label>
                         </div>
 
@@ -689,28 +765,6 @@
         <div class="absolute bottom-0 inset-x-0 bg-gradient-to-t from-[#f7f8fb] via-[#f7f8fb]/95 to-transparent pt-12 pb-2 px-4 md:px-8 pointer-events-none">
             <div class="max-w-4xl mx-auto relative group pointer-events-auto">
                 
-                <div id="replace-menu" class="hidden absolute bottom-full left-0 mb-4 bg-white border border-gray-200 rounded-2xl shadow-xl w-full max-h-80 flex flex-col z-20 overflow-hidden transform origin-bottom transition-all">
-                    <div class="px-5 py-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
-                        <h4 class="font-semibold text-gray-800 text-sm"><i class="fas fa-images text-indigo-500 mr-2"></i> Select Headings to Replace</h4>
-                        <div class="flex gap-2">
-                           <button id="select-all" class="text-xs text-indigo-600 hover:underline">Select All</button>
-                           <button id="select-none" class="text-xs text-gray-500 hover:underline">Clear</button>
-                           <button id="close-replace" class="text-gray-400 hover:text-gray-700 ml-2"><i class="fas fa-times"></i></button>
-                        </div>
-                    </div>
-                    <div class="overflow-y-auto custom-scrollbar flex-1 p-2" id="headings-list"></div>
-                    <div class="px-4 py-3 border-t border-gray-100 bg-gray-50">
-                        <label for="imageGuidance" class="block text-xs font-semibold text-gray-600 mb-1"><i class="fas fa-pencil-alt text-indigo-400 mr-1"></i> Image Guidance <span class="font-normal text-gray-400">(optional)</span></label>
-                        <textarea id="imageGuidance" rows="2" class="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none placeholder-gray-400" placeholder="e.g. &quot;show a cozy dinner scene, not a proposal&quot; or &quot;use a garden setting with flowers&quot;"></textarea>
-                    </div>
-                    <div class="p-3 border-t border-gray-100 bg-white flex justify-between items-center">
-                        <span class="text-xs text-gray-500 font-medium" id="selected-count">0 selected</span>
-                        <button id="btn-submit-replace" class="px-5 py-2 transition-colors duration-200 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl shadow-sm disabled:opacity-50">
-                            Generate New Images
-                        </button>
-                    </div>
-                </div>
-
                 <div id="listing-menu" class="hidden absolute bottom-full left-0 mb-4 bg-white border border-gray-200 rounded-2xl shadow-xl w-full flex flex-col z-20 overflow-hidden transform origin-bottom transition-all">
                     <div class="px-5 py-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
                         <h4 class="font-semibold text-gray-800 text-sm"><i class="fas fa-list-alt text-amber-500 mr-2"></i> Generate Publishing Listing</h4>
@@ -729,30 +783,6 @@
                     </div>
                 </div>
 
-                <div id="rewrite-menu" class="hidden absolute bottom-full left-0 mb-4 bg-white border border-gray-200 rounded-2xl shadow-xl w-full max-h-[min(34rem,75vh)] flex flex-col z-20 overflow-hidden transform origin-bottom transition-all">
-                    <div class="px-5 py-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center flex-none">
-                        <h4 class="font-semibold text-gray-800 text-sm"><i class="fas fa-pen-nib text-emerald-500 mr-2"></i> Select Headings to Rewrite</h4>
-                        <div class="flex gap-2">
-                           <button id="rw-select-all" class="text-xs text-emerald-600 hover:underline">Select All</button>
-                           <button id="rw-select-none" class="text-xs text-gray-500 hover:underline">Clear</button>
-                           <button id="close-rewrite" class="text-gray-400 hover:text-gray-700 ml-2"><i class="fas fa-times"></i></button>
-                        </div>
-                    </div>
-                    <!-- Only the heading list scrolls. Guidance and the submit
-                         row are pinned below it so they stay reachable no
-                         matter how long the list is. -->
-                    <div class="overflow-y-auto custom-scrollbar flex-1 min-h-0 p-2" id="rw-headings-list"></div>
-                    <div class="px-4 py-3 border-t border-gray-100 bg-gray-50 flex-none">
-                        <label for="rewriteGuidance" class="block text-xs font-semibold text-gray-600 mb-1"><i class="fas fa-pencil-alt text-emerald-400 mr-1"></i> Rewrite Guidance <span class="font-normal text-gray-400">(optional)</span></label>
-                        <textarea id="rewriteGuidance" rows="2" class="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300 resize-none placeholder-gray-400" placeholder="e.g. &quot;make it more humorous&quot; or &quot;focus on practical tips, less theory&quot;"></textarea>
-                    </div>
-                    <div class="p-3 border-t border-gray-100 bg-white flex justify-between items-center flex-none">
-                        <span class="text-xs text-gray-500 font-medium" id="rw-selected-count">0 selected</span>
-                        <button id="btn-submit-rewrite" class="px-5 py-2 transition-colors duration-200 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-xl shadow-sm disabled:opacity-50">
-                            Rewrite Paragraphs
-                        </button>
-                    </div>
-                </div>
 
                 <!-- Pre-write confirmation: what the AI thinks each book is.
                      One section per uploaded file. Editable before writing. -->
@@ -784,17 +814,11 @@
                     <button id="btn-generate-listing" class="hidden btn-lift px-3.5 py-1.5 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-100 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="Generate subtitles, description & categories">
                         <i class="fas fa-list-alt"></i> Pub Listing
                     </button>
-                    <button id="btn-show-rewrite" class="hidden btn-lift px-3.5 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-100 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="Rewrite paragraph text for selected headings">
-                        <i class="fas fa-pen-nib"></i> Rewrite text…
-                    </button>
-                    <button id="btn-show-replace" class="hidden btn-lift px-3.5 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-100 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="Start Image Replacement manually">
-                        <i class="fas fa-magic"></i> Replace image…
-                    </button>
                     <button id="btn-landing-qr" class="hidden btn-lift px-3.5 py-1.5 bg-pink-50 text-pink-700 hover:bg-pink-100 border border-pink-100 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="Create WordPress landing page, QR code for paperback, and link for Kindle">
                         <i class="fas fa-qrcode"></i> QR
                     </button>
-                    <button id="btn-view-edit" class="hidden btn-lift px-3.5 py-1.5 bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="View and edit the full book text">
-                        <i class="fas fa-book-open"></i> View / Edit book
+                    <button id="btn-view-edit" class="hidden btn-lift px-3.5 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-100 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="Read the book, edit the text, rewrite sections and replace images — all in one place">
+                        <i class="fas fa-pen-to-square"></i> Edit book
                     </button>
                     <button id="btn-reapply-format" class="hidden btn-lift px-3.5 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-100 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="Re-run KDP formatting and rebuild the Kindle + Paperback files from the current book text">
                         <i class="fas fa-wand-magic-sparkles"></i> Reapply format
@@ -890,14 +914,6 @@
             const btnGenerate = document.getElementById("btn-generate");
             const btnNewBook = document.getElementById("btn-new-book");
             const btnGenerateListing = document.getElementById("btn-generate-listing");
-            const btnShowReplace = document.getElementById("btn-show-replace");
-            const btnSubmitReplace = document.getElementById("btn-submit-replace");
-            const replaceMenu = document.getElementById("replace-menu");
-            const headingsList = document.getElementById("headings-list");
-            const btnShowRewrite = document.getElementById("btn-show-rewrite");
-            const btnSubmitRewrite = document.getElementById("btn-submit-rewrite");
-            const rewriteMenu = document.getElementById("rewrite-menu");
-            const rwHeadingsList = document.getElementById("rw-headings-list");
             const listingMenu = document.getElementById("listing-menu");
             const btnSubmitListing = document.getElementById("btn-submit-listing");
             const btnCloseListing = document.getElementById("close-listing");
@@ -1834,171 +1850,12 @@
             };
 
             function syncHeadings(headings) {
-                if(!headings || headings.length === 0) {
-                    btnShowReplace.classList.add('hidden');
-                    btnShowRewrite.classList.add('hidden');
-                    btnGenerateListing.classList.add('hidden');
-                    btnLandingQr.classList.add('hidden');
-                    if (btnViewEdit) btnViewEdit.classList.add('hidden');
-                    if (btnReapplyFormat) btnReapplyFormat.classList.add('hidden');
-                    return;
-                }
-                btnShowReplace.classList.remove('hidden');
-                btnShowRewrite.classList.remove('hidden');
-                btnGenerateListing.classList.remove('hidden');
-                btnLandingQr.classList.remove('hidden');
-                if (btnViewEdit) btnViewEdit.classList.remove('hidden');
-                if (btnReapplyFormat) btnReapplyFormat.classList.remove('hidden');
-                
-                const currentStr = JSON.stringify(headings);
-                if(currentStr === JSON.stringify(state.knownHeadings)) return;
-                
-                state.knownHeadings = headings;
-                headingsList.innerHTML = '';
-                rwHeadingsList.innerHTML = '';
-                
-                headings.forEach((h, i) => {
-                    // Image replace list
-                    const div = document.createElement("div");
-                    div.className = "flex items-start gap-3 p-2 hover:bg-gray-50 rounded-lg cursor-pointer";
-                    div.innerHTML = `
-                        <input id="hchk-${i}" type="checkbox" value="${escapeHtml(h)}" class="h-4 w-4 mt-0.5 text-indigo-600 rounded border-gray-300 cursor-pointer">
-                        <label for="hchk-${i}" class="text-sm text-gray-700 cursor-pointer flex-1 select-none">${escapeHtml(h)}</label>
-                    `;
-                    div.addEventListener('click', (e) => {
-                        if(e.target.tagName !== 'INPUT' && e.target.tagName !== 'LABEL') {
-                            const chk = div.querySelector('input');
-                            chk.checked = !chk.checked;
-                        }
-                        updateSelectedCount();
-                    });
-                    headingsList.appendChild(div);
-                });
-                updateSelectedCount();
+                const has = !!(headings && headings.length);
+                [btnGenerateListing, btnLandingQr, btnViewEdit, btnReapplyFormat]
+                    .forEach(b => { if (b) b.classList.toggle('hidden', !has); });
+                if (has) state.knownHeadings = headings;
             }
 
-            // The rewrite list is loaded separately from the image list: image
-            // headings are chapter-level only, and a chapter title has no body
-            // paragraph of its own, so that list offered nothing rewritable.
-            async function loadRewritableHeadings() {
-                if (!state.jobId) return;
-                rwHeadingsList.innerHTML = '<div class="p-4 text-xs text-gray-400">Loading headings…</div>';
-                let items = [];
-                try {
-                    const res = await fetch(`/api/jobs/${state.jobId}/rewritable-headings`);
-                    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Could not load headings");
-                    items = (await res.json()).headings || [];
-                } catch (e) {
-                    rwHeadingsList.innerHTML = `<div class="p-4 text-xs text-red-500">${escapeHtml(e.message)}</div>`;
-                    return;
-                }
-
-                rwHeadingsList.innerHTML = '';
-                if (!items.length) {
-                    rwHeadingsList.innerHTML = '<div class="p-4 text-xs text-gray-400">No rewritable sections found.</div>';
-                    updateRwSelectedCount();
-                    return;
-                }
-
-                items.forEach((item, i) => {
-                    const isChapter = item.level === 'chapter';
-                    // Chapter rows drive their subheadings; the checkbox is
-                    // tagged with the chapter name so the cascade can find its
-                    // children (and a child can find its parent) by data attr.
-                    const chapterName = isChapter ? item.heading : (item.chapter || '');
-
-                    // A chapter title with no body of its own still gets a
-                    // checkbox when it has subheadings, because its only job
-                    // then is to select them all at once.
-                    const row = document.createElement("div");
-                    row.className = "flex items-start gap-3 p-2 hover:bg-gray-50 rounded-lg cursor-pointer"
-                        + (isChapter ? " mt-2" : " ml-6");
-                    const label = isChapter
-                        ? `<span class="font-semibold text-gray-800">${escapeHtml(item.heading)}</span>`
-                        : escapeHtml(item.heading);
-                    const preview = item.preview
-                        ? `<span class="block text-[11px] text-gray-400 mt-0.5 truncate">${escapeHtml(item.preview)}</span>`
-                        : '';
-                    // A bodyless chapter is a grouping control only — checking
-                    // it must not queue a rewrite for a paragraph that isn't
-                    // there, so it is excluded from the submitted selection.
-                    const noBody = !item.has_body;
-                    row.innerHTML = `
-                        <input id="rwchk-${i}" type="checkbox" value="${escapeHtml(item.heading)}"
-                               data-role="${isChapter ? 'chapter' : 'section'}"
-                               data-chapter="${escapeHtml(chapterName)}"
-                               ${noBody ? 'data-no-body="1"' : ''}
-                               class="h-4 w-4 mt-0.5 text-emerald-600 rounded border-gray-300 cursor-pointer">
-                        <label for="rwchk-${i}" class="text-sm text-gray-700 cursor-pointer flex-1 select-none min-w-0">${label}${preview}${
-                            noBody ? '<span class="block text-[10px] text-gray-400 mt-0.5 italic">Selects the sections below</span>' : ''
-                        }</label>
-                    `;
-
-                    const chk = row.querySelector('input');
-                    chk.addEventListener('change', () => {
-                        if (isChapter) cascadeChapter(chk);
-                        else syncChapterFromSections(chk.dataset.chapter);
-                        updateRwSelectedCount();
-                    });
-                    row.addEventListener('click', (e) => {
-                        if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'LABEL') {
-                            chk.checked = !chk.checked;
-                            chk.dispatchEvent(new Event('change'));
-                        }
-                    });
-                    rwHeadingsList.appendChild(row);
-                });
-                updateRwSelectedCount();
-            }
-
-            // Headings are arbitrary author text (quotes, colons, brackets), so
-            // match on dataset values in JS rather than interpolating them into
-            // a CSS attribute selector.
-            function rwSectionsOf(chapterName) {
-                if (!chapterName) return [];
-                return Array.from(rwHeadingsList.querySelectorAll('input[data-role="section"]'))
-                    .filter(s => s.dataset.chapter === chapterName);
-            }
-
-            // Checking a chapter checks every subheading under it; unchecking
-            // clears them.
-            function cascadeChapter(chapterChk) {
-                rwSectionsOf(chapterChk.value).forEach(s => { s.checked = chapterChk.checked; });
-            }
-
-            // Unchecking any subheading unchecks its chapter; re-checking them
-            // all ticks the chapter back on.
-            function syncChapterFromSections(chapterName) {
-                if (!chapterName) return;
-                const chapterChk = Array.from(
-                    rwHeadingsList.querySelectorAll('input[data-role="chapter"]')
-                ).find(c => c.value === chapterName);
-                if (!chapterChk) return;
-                const sections = rwSectionsOf(chapterName);
-                if (!sections.length) return;
-                chapterChk.checked = sections.every(s => s.checked);
-            }
-
-            function updateSelectedCount() {
-                const count = headingsList.querySelectorAll('input:checked').length;
-                document.getElementById('selected-count').textContent = `${count} selected`;
-                btnSubmitReplace.disabled = count === 0;
-            }
-
-            // A checked chapter that has no body of its own is a grouping
-            // control, not a rewrite target — count and submit its sections
-            // instead, or the job queues a heading with no paragraph to replace.
-            function rwSelectedHeadings() {
-                return Array.from(rwHeadingsList.querySelectorAll('input:checked'))
-                    .filter(i => !i.dataset.noBody)
-                    .map(i => i.value);
-            }
-
-            function updateRwSelectedCount() {
-                const count = rwSelectedHeadings().length;
-                document.getElementById('rw-selected-count').textContent = `${count} selected`;
-                btnSubmitRewrite.disabled = count === 0;
-            }
 
             async function pollJob() {
                 if (!state.jobId || state.isPolling) return;
@@ -2548,44 +2405,9 @@
                 }
             });
 
-            btnShowReplace.addEventListener('click', () => {
-                replaceMenu.classList.remove('hidden');
-            });
-            document.getElementById('close-replace').addEventListener('click', () => {
-                replaceMenu.classList.add('hidden');
-            });
-            
-            document.getElementById('select-all').addEventListener('click', () => {
-                headingsList.querySelectorAll('input').forEach(i => i.checked = true);
-                updateSelectedCount();
-            });
-            document.getElementById('select-none').addEventListener('click', () => {
-                headingsList.querySelectorAll('input').forEach(i => i.checked = false);
-                updateSelectedCount();
-            });
-
-            btnShowRewrite.addEventListener('click', () => {
-                rewriteMenu.classList.remove('hidden');
-                loadRewritableHeadings();
-            });
-            document.getElementById('close-rewrite').addEventListener('click', () => {
-                rewriteMenu.classList.add('hidden');
-            });
-            document.getElementById('rw-select-all').addEventListener('click', () => {
-                rwHeadingsList.querySelectorAll('input').forEach(i => i.checked = true);
-                updateRwSelectedCount();
-            });
-            document.getElementById('rw-select-none').addEventListener('click', () => {
-                rwHeadingsList.querySelectorAll('input').forEach(i => i.checked = false);
-                updateRwSelectedCount();
-            });
-
             // Open/close the listing menu (button shows the form with optional context)
             btnGenerateListing.addEventListener('click', () => {
                 if(!state.jobId) return;
-                // Close other menus
-                replaceMenu.classList.add('hidden');
-                rewriteMenu.classList.add('hidden');
                 listingMenu.classList.toggle('hidden');
                 if(!listingMenu.classList.contains('hidden')) {
                     setTimeout(() => listingContext?.focus(), 50);
@@ -2757,84 +2579,6 @@
                 addMessage('bot', html);
             }
 
-            btnSubmitReplace.addEventListener('click', async () => {
-                if(!state.jobId) return;
-                
-                const selected = Array.from(headingsList.querySelectorAll('input:checked')).map(i => i.value);
-                if(selected.length === 0) return;
-                
-                replaceMenu.classList.add('hidden');
-                const guidance = (document.getElementById("imageGuidance")?.value || "").trim();
-                const ul = selected.map(s => `<li>${escapeHtml(s)}</li>`).join('');
-                let replaceMsg = `Replace images for:<ul class="list-disc ml-5 mt-1 text-xs opacity-90">${ul}</ul>`;
-                if (guidance) replaceMsg += `<p class="mt-2 text-xs text-indigo-600"><i class="fas fa-pencil-alt mr-1"></i> Guidance: "${escapeHtml(guidance)}"</p>`;
-                addMessage('user', replaceMsg);
-                const payload = {
-                    headings: selected,
-                    image_prompt_variant: document.getElementById("imagePromptVariant").value,
-                    image_model: document.getElementById("imageModel").value,
-                    image_size: document.getElementById("imageSize").value,
-                    image_quality: document.getElementById("imageQuality").value,
-                    image_width: 5.5,
-                    image_guidance: guidance
-                };
-
-                currentLogBox = null;
-                setStatusBadge("Replacing images...", "running");
-
-                try {
-                    const res = await fetch(`/api/jobs/${state.jobId}/replace-images`, {
-                        method: "POST",
-                        headers: {"Content-Type": "application/json"},
-                        body: JSON.stringify(payload)
-                    });
-                    if(!res.ok) {
-                        const data = await res.json();
-                        throw new Error(data.error);
-                    }
-                } catch(e) {
-                    addMessage('bot', `<span class="text-red-500 font-bold">Error:</span> ${escapeHtml(e.message)}`);
-                    setStatusBadge("Replacement failed", "error");
-                }
-            });
-
-            btnSubmitRewrite.addEventListener('click', async () => {
-                if(!state.jobId) return;
-                
-                const selected = rwSelectedHeadings();
-                if(selected.length === 0) return;
-                
-                rewriteMenu.classList.add('hidden');
-                const guidance = (document.getElementById("rewriteGuidance")?.value || "").trim();
-                const ul = selected.map(s => `<li>${escapeHtml(s)}</li>`).join('');
-                let rewriteMsg = `Rewrite paragraphs for:<ul class="list-disc ml-5 mt-1 text-xs opacity-90">${ul}</ul>`;
-                if (guidance) rewriteMsg += `<p class="mt-2 text-xs text-emerald-600"><i class="fas fa-pen-nib mr-1"></i> Guidance: "${escapeHtml(guidance)}"</p>`;
-                addMessage('user', rewriteMsg);
-
-                const payload = {
-                    headings: selected,
-                    rewrite_guidance: guidance
-                };
-
-                currentLogBox = null;
-                setStatusBadge("Rewriting paragraphs...", "running");
-
-                try {
-                    const res = await fetch(`/api/jobs/${state.jobId}/rewrite-paragraphs`, {
-                        method: "POST",
-                        headers: {"Content-Type": "application/json"},
-                        body: JSON.stringify(payload)
-                    });
-                    if(!res.ok) {
-                        const data = await res.json();
-                        throw new Error(data.error);
-                    }
-                } catch(e) {
-                    addMessage('bot', `<span class="text-red-500 font-bold">Error:</span> ${escapeHtml(e.message)}`);
-                    setStatusBadge("Rewrite failed", "error");
-                }
-            });
-
             // ----- Attach QR code modal -----
             const qrModal = document.getElementById("qrModal");
             const qrPickerGrid = document.getElementById("qrPickerGrid");
@@ -2944,6 +2688,29 @@
                     qrAttachLabel.innerHTML = '<i class="fas fa-check mr-1"></i> Attach selected';
                 }
             });
+
+            // ----- Sidebar "Generators" dropdown -----
+            const generatorsBtn = document.getElementById("generatorsBtn");
+            const generatorsMenu = document.getElementById("generatorsMenu");
+            const generatorsChevron = document.getElementById("generatorsChevron");
+            function closeGeneratorsMenu() {
+                generatorsMenu.classList.add("hidden");
+                generatorsBtn.setAttribute("aria-expanded", "false");
+                if (generatorsChevron) generatorsChevron.style.transform = "";
+            }
+            if (generatorsBtn) {
+                generatorsBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    const willOpen = generatorsMenu.classList.contains("hidden");
+                    generatorsMenu.classList.toggle("hidden");
+                    generatorsBtn.setAttribute("aria-expanded", willOpen ? "true" : "false");
+                    if (generatorsChevron) generatorsChevron.style.transform = willOpen ? "rotate(180deg)" : "";
+                });
+                document.addEventListener("click", (e) => {
+                    if (!generatorsMenu.classList.contains("hidden") && !e.target.closest("#generatorsBtn") && !e.target.closest("#generatorsMenu")) closeGeneratorsMenu();
+                });
+                document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeGeneratorsMenu(); });
+            }
 
             // ----- Header "Download" dropdown -----
             const downloadMenuBtn = document.getElementById("downloadMenuBtn");
@@ -3130,10 +2897,7 @@
             }
 
             btnLandingQr.addEventListener("click", () => {
-                // Close other menus
-                replaceMenu.classList.add("hidden");
-                rewriteMenu.classList.add("hidden");
-                listingMenu.classList.add("hidden");
+                listingMenu.classList.add("hidden");   // close the other menu
                 openLandingQrModal();
             });
             landingQrClose.addEventListener("click", closeLandingQrModal);
@@ -3289,68 +3053,17 @@
         </div>
     </div>
 
-    <!-- Book viewer / editor modal -->
-    <div id="book-modal" class="hidden fixed inset-0 z-[80] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[94vh]">
-            <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-indigo-50 to-white">
-                <div class="min-w-0">
-                    <h3 id="bk-title" class="font-bold text-lg text-gray-900 truncate">Book</h3>
-                    <p class="text-xs text-gray-500 mt-0.5">Edit body text inline. Headings &amp; images are read-only.</p>
-                </div>
-                <div class="flex items-center gap-2">
-                    <select id="bk-which" class="text-xs border border-gray-200 rounded-lg px-2 py-1">
-                        <option value="final">Final</option>
-                        <option value="kindle">Kindle</option>
-                        <option value="paperback">Paperback</option>
-                    </select>
-                    <button id="bk-close" class="text-gray-400 hover:text-gray-700 text-xl"><i class="fas fa-times"></i></button>
-                </div>
-            </div>
-            <div id="bk-body" class="flex-1 overflow-hidden flex flex-col min-h-0"></div>
-            <div class="px-6 py-3 border-t border-gray-100 bg-gray-50 flex justify-between items-center">
-                <span id="bk-status" class="text-xs text-gray-500"></span>
-                <div class="flex gap-2">
-                    <button id="bk-close2" class="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-xl transition">Close</button>
-                    <button id="bk-save" class="px-5 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm transition"><i class="fas fa-save mr-1"></i> Save edits</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script src="/static/book_editor.js"></script>
     <script>
-    // -------------------- Book viewer / editor (Write page) --------------------
+    // -------------------- Edit book --------------------
+    // Rewriting text, replacing images and reading/editing the book all live on
+    // one page now (/books/<id>/edit), mirroring the trivia editor.
     (function () {
-        const modal = document.getElementById('book-modal');
-        function open() { modal.classList.remove('hidden'); }
-        function close() { modal.classList.add('hidden'); }
-        document.getElementById('bk-close').addEventListener('click', close);
-        document.getElementById('bk-close2').addEventListener('click', close);
-        modal.addEventListener('click', e => { if (e.target === modal) close(); });
-
-        let widget = null;
-        function ensure() {
-            if (!widget) {
-                widget = new BookEditorWidget(document.getElementById('bk-body'), {
-                    contentUrl: id => `/api/books/${id}/content`,
-                    onStatus: msg => { document.getElementById('bk-status').textContent = msg; },
-                });
-            }
-            return widget;
-        }
-        document.getElementById('bk-save').addEventListener('click', () => { if (widget) widget.save(); });
-        document.getElementById('bk-which').addEventListener('change', () => {
-            if (widget && widget.id) widget.load(widget.id, document.getElementById('bk-which').value, document.getElementById('bk-title').textContent);
-        });
         const btn = document.getElementById('btn-view-edit');
-        if (btn) btn.addEventListener('click', () => {
+        if (!btn) return;
+        btn.addEventListener('click', () => {
             const bookId = (window.state && window.state.jobId) || null;
             if (!bookId) { alert('Load or finish a book first.'); return; }
-            const which = document.getElementById('bk-which').value || 'final';
-            document.getElementById('bk-title').textContent = document.getElementById('current-doc-title')?.textContent || 'Book';
-            document.getElementById('bk-status').textContent = '';
-            open();
-            ensure().load(bookId, which, document.getElementById('bk-title').textContent);
+            window.location.href = `/books/${bookId}/edit`;
         });
     })();
     </script>

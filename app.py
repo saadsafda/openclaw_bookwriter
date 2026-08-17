@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -44,6 +45,13 @@ import publications as pub_routes
 import review_automation as review_routes
 import launch_emails as launch_email_routes
 import book_editor as book_editor_routes
+import trivia as trivia_routes
+import puzzle as puzzle_routes
+import stories as stories_routes
+import covers as covers_routes
+import birds as birds_routes
+from PIL import Image
+from print_hygiene import PRINT_DPI, sanitize_for_print
 
 ROOT_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = ROOT_DIR / "web_uploads"
@@ -54,8 +62,17 @@ PYTHON_BIN = ROOT_DIR / ".venv" / "bin" / "python"
 if not PYTHON_BIN.exists():
     PYTHON_BIN = Path(sys.executable)
 
+# QR codes are placed at this width in the paperback; the render must supply
+# enough pixels to be a true 300 DPI image at that size.
+QR_PRINT_WIDTH_IN = 3
+
 DEFAULTS: dict[str, Any] = {
-    "agent": "main",
+    # Must match the OpenClaw agent id EXACTLY: the dashboard selects the
+    # default with a case-sensitive `a.id === preferredAgent` comparison, and
+    # the writer passes this straight to `--agent`. Cased wrongly it silently
+    # matches nothing, the dropdown falls through to whatever agent is first
+    # in the list ("main"), and books get written by the wrong agent.
+    "agent": "writer-agent-1",
     "tone": "friendly, encouraging, and easy to understand",
     # WHAT the book is (subject, angle, audience) and HOW it must sound (tone,
     # register), kept separate: merged into one field the model absorbs the
@@ -87,6 +104,8 @@ DEFAULTS: dict[str, Any] = {
     # unconditionally). Turning it off reuses cached text for a heading whose
     # prompt is unchanged, which is much cheaper on a re-run.
     "skip_cache": True,
+    # Rewrite sections that already have text, instead of skipping them.
+    # Off by default: it regenerates (and pays for) the whole book.
     "force": False,
     "image_prompt_variant": "rich-scene-no-text",
     "image_model": "gpt-image-1",
@@ -170,6 +189,11 @@ review_routes.register(app)
 review_routes.start_background_tick()
 launch_email_routes.register(app)
 book_editor_routes.register(app)
+trivia_routes.register(app)
+puzzle_routes.register(app)
+stories_routes.register(app)
+covers_routes.register(app)
+birds_routes.register(app)
 
 
 def _timestamp() -> str:
@@ -505,10 +529,17 @@ def _run_kdp_formatting(job: Job, source_doc: Path) -> tuple[Path, Path]:
         str(cfg.get("author_placeholder", "Author Name")),
     ]
 
-    # The original outline is the authority on which lines are subheadings.
-    # Without it the formatter guesses from text shape and promotes AI-written
-    # prose (colon lead-ins, generated list items) into headings.
-    outline_path = Path(job.input_docx) if job.input_docx else None
+    # The original outline is the authority on which lines become headings, at
+    # BOTH levels. Prefer the pre-generation snapshot: the writer fills prose
+    # into input_docx itself, so that file now holds the finished book and using
+    # it here would list every generated paragraph as a legal heading — the
+    # check would pass everything and prose would be styled as chapter titles.
+    # Books created before the snapshot existed fall back to input_docx, which
+    # is still correct for an already-written book (never generated into).
+    snapshot_raw = str(cfg.get("outline_snapshot") or "")
+    outline_path = Path(snapshot_raw) if snapshot_raw else (
+        Path(job.input_docx) if job.input_docx else None
+    )
     if outline_path and outline_path.exists():
         cmd.extend(["--outline", str(outline_path)])
 
@@ -569,6 +600,14 @@ def _build_generation_cmd(job: Job, cfg: dict[str, Any], max_spend_usd: float) -
     # either way, so turning it off later still finds something to reuse.
     if cfg.get("skip_cache", True):
         cmd.append("--no-cache")
+    # Rewrite sections that ALREADY have text. --no-cache alone is not enough:
+    # the writer skips any heading whose body paragraph is non-empty, no matter
+    # what the cache says, so a finished book re-run without this changes
+    # nothing. Needed to push a prose-style change (paragraph shape, voice)
+    # through a book that is already written. Off by default because it pays
+    # for every section again.
+    if cfg.get("force", False):
+        cmd.append("--force")
     # Already-written book: never generate TEXT (--no-text). This is the fix
     # for a human-written book whose paragraph formatting confused the heading
     # detector into "filling in" content under real paragraphs (a 29k-word
@@ -918,6 +957,25 @@ def settings_page() -> str:
     return render_template("settings.html")
 
 
+@app.get("/books/<book_id>/edit")
+def book_edit_page(book_id: str) -> Any:
+    """Full-page book editor.
+
+    Replaces the three separate post-write controls (rewrite text, replace
+    image, view/edit book) with one screen, mirroring the trivia editor.
+    """
+    book = bookdb.get_book(book_id)
+    if not book:
+        abort(404)
+    return render_template(
+        "book_edit.html",
+        book_id=book_id,
+        book_title=book.get("title") or "Book",
+        prompt_variants=sorted(image_maker.PROMPT_VARIANTS.keys()),
+        defaults=DEFAULTS,
+    )
+
+
 _QR_EC_LEVELS = {
     "L": ERROR_CORRECT_L,
     "M": ERROR_CORRECT_M,
@@ -1189,6 +1247,26 @@ def attach_qr_to_book(job_id: str) -> Any:
         })
 
 
+def _ensure_qr_print_ready(qr_png: Path, width_in: int = QR_PRINT_WIDTH_IN) -> None:
+    """Make a QR PNG a true 300 DPI image at its printed width, then sanitize.
+
+    QR codes are generated from a ``box_size`` in pixels, which routinely lands
+    under 300 DPI once placed at ``width_in`` inches. Tagging the DPI alone
+    would be a lie about a file that lacks the pixels, so it is resized with
+    NEAREST — smoothing the module edges would hurt scan reliability.
+    """
+    target_px = width_in * PRINT_DPI
+    with Image.open(qr_png) as im:
+        needs_upscale = im.width < target_px
+        if needs_upscale:
+            resized = im.resize((target_px, target_px), Image.NEAREST)
+        else:
+            resized = None
+    if resized is not None:
+        resized.save(str(qr_png), format="PNG")
+    sanitize_for_print(qr_png)
+
+
 def _append_qr_page(doc_path: Path, qr_png: Path, *, heading: str, caption: str) -> None:
     """Append a centred 'Scan this QR code' page to the given .docx in-place."""
     from docx.shared import Inches, Pt
@@ -1211,7 +1289,10 @@ def _append_qr_page(doc_path: Path, qr_png: Path, *, heading: str, caption: str)
     # Spacer
     doc.add_paragraph()
 
-    # QR image, centred
+    # QR image, centred. Upscaled and sanitized first: it is a printed image
+    # like any other, so it must be a true 300 DPI with no metadata. A
+    # user-configured QR can arrive at any box_size, so this is not optional.
+    _ensure_qr_print_ready(qr_png)
     img_para = doc.add_paragraph()
     img_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     img_para.add_run().add_picture(str(qr_png), width=Inches(3.0))
@@ -1276,6 +1357,7 @@ def _insert_paperback_bonus_page(doc_path: Path, qr_png: Path) -> None:
     title_run.font.size = Pt(36)
     bonus_para.add_run("\n\n")
 
+    _ensure_qr_print_ready(qr_png)
     qr_run = bonus_para.add_run()
     qr_run.add_picture(str(qr_png), width=Inches(3.0))
 
@@ -1364,7 +1446,9 @@ def _generate_qr_png(content: str, output_path: Path) -> None:
             front_color=(17, 24, 39),
         ),
     )
+
     img.save(str(output_path), format="PNG")
+    _ensure_qr_print_ready(output_path)
 
 
 def _do_landing_page_qr(job: Job, page_title: str) -> None:
@@ -1541,6 +1625,8 @@ def _build_cfg_from_form(form: Any) -> tuple[dict[str, Any] | None, str | None]:
         # Same checkbox-presence rule. The form always posts the whole config
         # panel, so an absent field genuinely means the user unchecked it.
         "skip_cache": form.get("skip_cache") is not None,
+        # Same checkbox-presence rule. Rewrites sections that already have text.
+        "force": form.get("force") is not None,
         "image_prompt_variant": (form.get("image_prompt_variant") or DEFAULTS["image_prompt_variant"]).strip() or DEFAULTS["image_prompt_variant"],
         "image_model": (form.get("image_model") or DEFAULTS["image_model"]).strip() or DEFAULTS["image_model"],
         "image_size": (form.get("image_size") or DEFAULTS["image_size"]).strip() or DEFAULTS["image_size"],
@@ -1586,6 +1672,23 @@ def _create_job_record(input_doc: Path, cfg: dict[str, Any], pre_written: bool) 
     job_id = uuid.uuid4().hex
     # Write in-place, same as the requested terminal command pattern.
     output_doc = input_doc
+
+    # Snapshot the outline BEFORE generation overwrites it. The writer fills
+    # prose into this very file, so by formatting time input_docx holds the
+    # finished book, and reading "the outline" from it would return every
+    # generated paragraph as a topic. The formatter uses that set as the
+    # authority on what may become a heading, so a stale copy silently turns
+    # the check off and lets prose be styled as chapter titles again.
+    outline_snapshot = ""
+    if input_doc.exists():
+        snapshot_path = UPLOAD_DIR / f"{job_id}_outline_source{input_doc.suffix}"
+        try:
+            shutil.copy2(str(input_doc), str(snapshot_path))
+            outline_snapshot = str(snapshot_path)
+        except Exception:
+            # Non-fatal: the formatter falls back to shape heuristics.
+            outline_snapshot = ""
+    cfg = {**cfg, "outline_snapshot": outline_snapshot}
 
     job = Job(
         id=job_id,

@@ -20,6 +20,7 @@ import hashlib
 import json
 import mimetypes
 import os
+import random
 import re
 import subprocess
 import sys
@@ -27,7 +28,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, List, Optional
 from urllib.parse import urlparse, unquote_to_bytes
 from urllib.request import Request, urlopen
 
@@ -203,6 +204,43 @@ def find_body_paragraph_after(paragraphs: list, index: int, max_scan: int = 6):
     return None
 
 
+def find_body_paragraph_run_after(paragraphs: list, index: int, max_scan: int = 6) -> list:
+    """Return every body paragraph belonging to the heading at `index`.
+
+    A section is now written as several paragraphs, so a rewrite that replaces
+    only the first one would leave the older paragraphs stranded underneath the
+    new text. This walks the whole run, stopping at the next heading, so the
+    caller can replace the section as a unit. Returns [] when there is no body.
+    """
+    first = find_body_paragraph_after(paragraphs, index, max_scan=max_scan)
+    if first is None:
+        return []
+    run = [first]
+    start = paragraphs.index(first) + 1
+    for j in range(start, len(paragraphs)):
+        cand = paragraphs[j]
+        if is_heading_paragraph(cand) or is_subheading_paragraph(cand):
+            break
+        if paragraph_has_image(cand):
+            break
+        if not (cand.text or "").strip():
+            # A blank spacer may sit between paragraphs or may end the section.
+            # Keep scanning, but do not claim the spacer itself.
+            continue
+        if not paragraph_looks_like_body(cand):
+            break
+        run.append(cand)
+    return run
+
+
+def delete_paragraph(paragraph) -> None:
+    """Remove a paragraph from its document."""
+    element = paragraph._p
+    parent = element.getparent()
+    if parent is not None:
+        parent.remove(element)
+
+
 def insert_paragraph_after(paragraph, text: str, style: str = "Normal") -> Paragraph:
     """
     Insert a new paragraph right after `paragraph`.
@@ -223,6 +261,36 @@ def insert_paragraph_after(paragraph, text: str, style: str = "Normal") -> Parag
     return new_para
 
 
+def write_body_paragraphs(
+    anchor, text: str, existing=None, style: str = "Normal"
+) -> Any:
+    """Write `text` under `anchor` as one DOCX paragraph per prose paragraph.
+
+    Assigning the whole section to a single paragraph is what turned generated
+    sections into walls of text: Word has no concept of a blank line inside a
+    paragraph, so every break the model wrote was lost on the page. Each chunk
+    gets its own `w:p` instead, which is what the KDP formatter's first-line
+    indent and paragraph spacing key off.
+
+    `existing` is an empty body paragraph already sitting under the heading; it
+    is reused for the first chunk so the document does not accumulate a blank
+    line. Returns the last paragraph written, which callers use as the anchor
+    for anything that follows (an image, the next insert).
+    """
+    chunks = split_into_paragraphs(text)
+    if not chunks:
+        return existing if existing is not None else anchor
+
+    if existing is not None:
+        existing.text = chunks[0]
+        last = existing
+    else:
+        last = insert_paragraph_after(anchor, chunks[0], style=style)
+    for chunk in chunks[1:]:
+        last = insert_paragraph_after(last, chunk, style=style)
+    return last
+
+
 def paragraph_has_image(paragraph: Paragraph) -> bool:
     return bool(paragraph._p.xpath(".//w:drawing"))
 
@@ -237,13 +305,14 @@ def clear_paragraph(paragraph: Paragraph) -> None:
 
 
 def prepare_image_for_print(image_path: Path, dpi: int = 300) -> None:
-    """Strip all EXIF/metadata and set DPI for print publishing."""
-    from PIL import Image
+    """Strip all EXIF/metadata and set DPI for print publishing.
 
-    with Image.open(image_path) as img:
-        clean = Image.new(img.mode, img.size)
-        clean.putdata(list(img.getdata()))
-        clean.save(image_path, dpi=(dpi, dpi))
+    Shared implementation lives in print_hygiene so every image embedded in a
+    DOCX gets the same guarantees as the rest of the pipeline.
+    """
+    from print_hygiene import sanitize_for_print
+
+    sanitize_for_print(image_path, dpi)
 
 
 def set_paragraph_image(paragraph: Paragraph, image_path: Path, width_inches: float) -> None:
@@ -681,6 +750,56 @@ _STRUCTURE_BANS = (
 )
 
 
+# A single 250-320 word block reads as a wall of text on a 6x9 page: the reader
+# gets no landing spots and every section looks identical. Real published prose
+# breaks on shifts of thought. The model will not do this on its own — asked for
+# "one paragraph" it returns one block — so the break is requested explicitly and
+# the count is tied to length so short subheading sections do not get chopped up.
+#
+# Paragraph LENGTH is deliberately uneven. An even 60-110 words each produces a
+# page of identical grey slabs, which is the same monotony problem as the single
+# block, just at a smaller scale. Published narrative nonfiction mixes a long
+# middle paragraph against short beats and lands a section on a two-line closer,
+# so the instruction asks for that mix explicitly rather than a uniform target.
+def _paragraph_break_block(words_min: int, words_max: int) -> str:
+    """Instruction telling the model to break the section into short, uneven
+    paragraphs.
+
+    Blank lines are the contract between the model and the writer: the caller
+    splits on them to make real DOCX paragraphs. The model is told the exact
+    separator because a single newline or an indent character does not survive
+    the round trip.
+    """
+    midpoint = (words_min + words_max) // 2
+    if midpoint <= 140:
+        target = "2 or 3 paragraphs"
+    elif midpoint <= 260:
+        target = "3 or 4 paragraphs"
+    else:
+        target = "4 or 5 paragraphs"
+    return (
+        f"PARAGRAPH BREAKS (required):\n"
+        f"- Do NOT write the section as one solid block of text. Break it into "
+        f"{target}, separated by ONE BLANK LINE between them.\n"
+        f"- Vary the paragraph lengths. Do NOT make them all the same size: a "
+        f"page of equal-sized blocks is as dull as one long block. Mix a longer "
+        f"paragraph of 60 to 80 words with short ones of 20 to 40 words.\n"
+        f"- At least one paragraph in the section must be SHORT: two sentences, "
+        f"or even one full sentence standing alone as its own paragraph. Use it "
+        f"as a beat that lands, not as filler.\n"
+        f"- Prefer ending the section on a short paragraph, one or two sentences "
+        f"that land the point plainly. Do not end on a long block.\n"
+        f"- Break where the thought actually turns: a new angle, a shift from the "
+        f"problem to what to do about it, a move from the general point to a "
+        f"specific case. Do not break at an arbitrary word count.\n"
+        f"- Every paragraph after the first must still follow the opener rules "
+        f"above. Do not start any of them with 'You [verb]', 'Imagine', "
+        f"'Picture', 'When you', or an invented person's name.\n"
+        f"- Use blank lines only. No indentation characters, no bullet marks, no "
+        f"headings or labels between the paragraphs.\n\n"
+    )
+
+
 def _book_context_block(
     book_context: str = "", book_premise: str = "", book_voice: str = ""
 ) -> str:
@@ -740,7 +859,8 @@ def build_prompt(
         f"work in a well-edited published book: natural, warm, and human, but polished and never gimmicky.\n\n"
         f"{_book_context_block(book_context, book_premise, book_voice)}"
         f"Section topic: {heading}\n\n"
-        f"Write ONE paragraph, {words_min}–{words_max} words.\n\n"
+        f"Write {words_min}–{words_max} words on this topic, broken into several "
+        f"paragraphs as described below.\n\n"
         f"VOICE & STYLE (critical):\n"
         f"- Write complete, well-formed sentences that flow into each other. The paragraph must read as "
         f"one connected line of thought, not a series of punchy statements.\n"
@@ -764,18 +884,21 @@ def build_prompt(
         f"- Ground the writing in concrete, specific detail rather than vague generalities.\n"
         f"- Use 'you' or 'we' naturally when it fits the context.\n"
         f"- Write in a {tone} tone: confident, grounded, and unpretentious.\n\n"
-        f"PARAGRAPH SHAPE (follow for this paragraph):\n"
+        f"SECTION SHAPE (the opening move applies to the FIRST paragraph, the "
+        f"closing move to the LAST):\n"
         f"- {opening_move}\n"
         f"- {closing_move}\n"
-        f"- Do not run the paragraph through the formula of big claim, then real-life "
+        f"- Do not run the section through the formula of big claim, then real-life "
         f"analogy, then exercise, then uplifting pep-talk closer. Real chapters vary "
         f"their shape.\n\n"
+        f"{_paragraph_break_block(words_min, words_max)}"
         f"HARD BANS:\n"
-        f"- NEVER write short standalone sentences. When a short thought is a fragment, "
-        f"attach it to the sentence before or after it with a comma "
-        f"(write 'A good planner buys you breathing room, not magic.' not "
-        f"'...breathing room. Not magic.'). If the short thought is a complete sentence, "
-        f"expand it or connect it with a word like 'and', 'so', or 'because'.\n"
+        f"- NEVER strand a FRAGMENT as its own sentence. When a short thought is "
+        f"not a complete sentence, attach it to the sentence before or after it "
+        f"with a comma (write 'A good planner buys you breathing room, not magic.' "
+        f"not '...breathing room. Not magic.'). This is about fragments only: a "
+        f"short COMPLETE sentence is good writing, and a short paragraph of one or "
+        f"two complete sentences is required by the paragraph rules above.\n"
         f"{_STRUCTURE_BANS}"
         f"- NO dense sentences full of long words; they score 'very hard to read'. Keep the "
         f"wording simple and split heavy sentences.\n"
@@ -785,7 +908,8 @@ def build_prompt(
         f"- NO references to images, photos, diagrams, or illustrations.\n"
         f"- DO NOT repeat the section topic word-for-word.\n"
         f"- DO NOT use any of these overused AI phrases:\n{_BANNED_SET}\n\n"
-        f"Output ONLY the paragraph. No title, no label, no preamble."
+        f"Output ONLY the paragraphs, separated by blank lines. No title, no label, "
+        f"no preamble."
     )
 
 
@@ -804,7 +928,8 @@ def build_subheading_prompt(
         f"work in a well-edited published book: natural, warm, and human, but polished and never gimmicky.\n\n"
         f"{_book_context_block(book_context, book_premise, book_voice)}"
         f"Specific point to cover: {clean}\n\n"
-        f"Write ONE paragraph, {words_min}–{words_max} words, on this specific point.\n\n"
+        f"Write {words_min}–{words_max} words on this specific point, broken into "
+        f"several paragraphs as described below.\n\n"
         f"VOICE & STYLE (critical):\n"
         f"- Write complete, well-formed sentences that flow into each other. The paragraph must read as "
         f"one connected line of thought, not a series of punchy statements.\n"
@@ -828,18 +953,21 @@ def build_subheading_prompt(
         f"- Ground the advice in concrete, specific detail rather than vague generalities.\n"
         f"- Use 'you' or 'we' naturally when it fits the context.\n"
         f"- Write in a {tone} tone: confident, grounded, and unpretentious.\n\n"
-        f"PARAGRAPH SHAPE (follow for this paragraph):\n"
+        f"SECTION SHAPE (the opening move applies to the FIRST paragraph, the "
+        f"closing move to the LAST):\n"
         f"- {opening_move}\n"
         f"- {closing_move}\n"
-        f"- Do not run the paragraph through the formula of big claim, then real-life "
+        f"- Do not run the section through the formula of big claim, then real-life "
         f"analogy, then exercise, then uplifting pep-talk closer. Real chapters vary "
         f"their shape.\n\n"
+        f"{_paragraph_break_block(words_min, words_max)}"
         f"HARD BANS:\n"
-        f"- NEVER write short standalone sentences. When a short thought is a fragment, "
-        f"attach it to the sentence before or after it with a comma "
-        f"(write 'A good planner buys you breathing room, not magic.' not "
-        f"'...breathing room. Not magic.'). If the short thought is a complete sentence, "
-        f"expand it or connect it with a word like 'and', 'so', or 'because'.\n"
+        f"- NEVER strand a FRAGMENT as its own sentence. When a short thought is "
+        f"not a complete sentence, attach it to the sentence before or after it "
+        f"with a comma (write 'A good planner buys you breathing room, not magic.' "
+        f"not '...breathing room. Not magic.'). This is about fragments only: a "
+        f"short COMPLETE sentence is good writing, and a short paragraph of one or "
+        f"two complete sentences is required by the paragraph rules above.\n"
         f"{_STRUCTURE_BANS}"
         f"- NO dense sentences full of long words; they score 'very hard to read'. Keep the "
         f"wording simple and split heavy sentences.\n"
@@ -850,7 +978,8 @@ def build_subheading_prompt(
         f"- DO NOT repeat the point text word-for-word.\n"
         f"- DO NOT use any of these overused AI phrases:\n{_BANNED_SET}\n\n"
         f"- Stay tightly focused on this specific point only.\n"
-        f"Output ONLY the paragraph. No title, no label, no preamble."
+        f"Output ONLY the paragraphs, separated by blank lines. No title, no label, "
+        f"no preamble."
     )
 
 
@@ -882,6 +1011,63 @@ def _strip_banned_phrases(text: str) -> str:
             kept.append(result)
         out_lines.append(" ".join(s for s in kept if s))
     return "\n".join(out_lines)
+
+
+# Minimum words a chunk must have to stand as its own paragraph.
+#
+# Deliberately very low. Short one- and two-sentence paragraphs are REQUESTED by
+# the prompt now — they are the beat that lands a section — so this rule must not
+# second-guess them. It exists only to sweep up genuine debris: a stray label, a
+# dangling half-line, a word left over from a botched break. A merge threshold
+# set anywhere near a real sentence length would quietly undo the whole shape the
+# prompt asks for, which is exactly the wall-of-text problem returning by a side
+# door.
+MIN_PARAGRAPH_WORDS = 4
+
+
+def normalize_paragraph_breaks(text: str) -> str:
+    """Collapse the model's spacing into exactly one blank line per break.
+
+    Models are inconsistent about how they separate paragraphs: sometimes one
+    newline, sometimes three, sometimes a line of spaces. Everything downstream
+    (the sentence-level fixers, the DOCX splitter) keys off a blank line, so the
+    spacing is normalized once here rather than defended against everywhere.
+    """
+    if not (text or "").strip():
+        return (text or "").strip()
+    blocks = [
+        " ".join(ln.strip() for ln in block.split("\n") if ln.strip())
+        for block in re.split(r"\n\s*\n", text.replace("\r\n", "\n").strip())
+    ]
+    return "\n\n".join(b for b in blocks if b)
+
+
+def split_into_paragraphs(text: str) -> List[str]:
+    """Split generated section text into the paragraphs to write as separate
+    DOCX paragraphs.
+
+    Blank lines are the split point. A single unbroken block returns a
+    one-element list, so callers keep working when the model ignores the break
+    instruction or when text comes from an older cache entry written before
+    paragraph breaks were requested.
+    """
+    if not (text or "").strip():
+        return []
+    chunks = [c.strip() for c in re.split(r"\n\s*\n", (text or "").strip()) if c.strip()]
+    if not chunks:
+        return []
+    # Merge runaway orphans back up so no paragraph is a stranded single line.
+    merged: List[str] = [chunks[0]]
+    for chunk in chunks[1:]:
+        if len(chunk.split()) < MIN_PARAGRAPH_WORDS:
+            merged[-1] = merged[-1] + " " + chunk
+        else:
+            merged.append(chunk)
+    # A short first chunk has nothing above it to merge into, so it folds down.
+    if len(merged) > 1 and len(merged[0].split()) < MIN_PARAGRAPH_WORDS:
+        merged[1] = merged[0] + " " + merged[1]
+        merged.pop(0)
+    return merged
 
 
 def humanize_text(text: str) -> str:
@@ -1067,14 +1253,16 @@ def humanize_text(text: str) -> str:
     text = re.sub(r"\. \.", ".", text)
     text = re.sub(r"\.\.", ".", text)
     text = re.sub(r", ,", ",", text)
-    # Fix orphan punctuation from removed phrases
-    text = re.sub(r"\s+([.,;:!?])", r"\1", text)
+    # Fix orphan punctuation from removed phrases. Restricted to spaces and
+    # tabs: a bare \s+ here would swallow the newline before a line that starts
+    # with punctuation and silently weld two paragraphs together.
+    text = re.sub(r"[ \t]+([.,;:!?])", r"\1", text)
     # Fix sentences starting with lowercase after period
     def _cap(m):
         return m.group(1) + m.group(2).upper()
     text = re.sub(r"(\. )([a-z])", _cap, text)
 
-    return text.strip()
+    return normalize_paragraph_breaks(text)
 
 
 # Single choke point every OpenClaw call passes through, so a module-level
@@ -1082,6 +1270,34 @@ def humanize_text(text: str) -> str:
 # gate retries, outline classification, rewrite-heading) without threading a
 # parameter through each one. Set by main() before any generation starts.
 _SPEND_TRACKER: Optional["SpendTracker"] = None
+
+
+# Upstream overload/rate-limit failures are transient: the gateway rejected the
+# request before the model ran, so no partial turn was written to the session
+# and re-sending the same message is safe. Matched on the error text because the
+# CLI collapses every upstream failure into exit code 1.
+_RETRYABLE_ERROR_MARKERS = (
+    "failovererror",
+    "temporarily overloaded",
+    "overloaded_error",
+    "rate limit",
+    "rate_limit_error",
+    "429",
+    "500",
+    "502",
+    "503",
+    "504",
+    "529",
+)
+
+OPENCLAW_MAX_ATTEMPTS = 3
+OPENCLAW_BACKOFF_BASE_S = 2.0
+OPENCLAW_BACKOFF_CAP_S = 60.0
+
+
+def _is_retryable_openclaw_failure(stdout: str, stderr: str) -> bool:
+    blob = f"{stdout}\n{stderr}".lower()
+    return any(marker in blob for marker in _RETRYABLE_ERROR_MARKERS)
 
 
 def run_openclaw_call(agent_id: str, message: str, local: bool, thinking: str, timeout_s: int, session_id: str = "") -> str:
@@ -1095,14 +1311,35 @@ def run_openclaw_call(agent_id: str, message: str, local: bool, thinking: str, t
     if session_id:
         cmd += ["--session-id", session_id]
 
-    p = subprocess.run(cmd, capture_output=True, text=True)
-    if p.returncode != 0:
-        raise RuntimeError(
-            "OpenClaw failed.\n"
-            f"Command: {' '.join(cmd)}\n\n"
-            f"STDOUT:\n{p.stdout}\n\n"
-            f"STDERR:\n{p.stderr}\n"
+    for attempt in range(1, OPENCLAW_MAX_ATTEMPTS + 1):
+        p = subprocess.run(cmd, capture_output=True, text=True)
+        if p.returncode == 0:
+            break
+
+        retryable = _is_retryable_openclaw_failure(p.stdout, p.stderr)
+        if not retryable or attempt == OPENCLAW_MAX_ATTEMPTS:
+            reason = (
+                f"still failing after {attempt} attempts"
+                if retryable
+                else "not a retryable error"
+            )
+            raise RuntimeError(
+                f"OpenClaw failed ({reason}).\n"
+                f"Command: {' '.join(cmd)}\n\n"
+                f"STDOUT:\n{p.stdout}\n\n"
+                f"STDERR:\n{p.stderr}\n"
+            )
+
+        # Exponential backoff with full jitter, so parallel jobs hitting the
+        # same overloaded gateway do not retry in lockstep.
+        delay = min(OPENCLAW_BACKOFF_CAP_S, OPENCLAW_BACKOFF_BASE_S * (2 ** (attempt - 1)))
+        delay = random.uniform(0, delay)
+        print(
+            f"  AI service busy (attempt {attempt}/{OPENCLAW_MAX_ATTEMPTS}); "
+            f"retrying in {delay:.1f}s...",
+            flush=True,
         )
+        time.sleep(delay)
     # Record real spend after the call, which is the first point where actual
     # billed usage is available. Crossing the threshold emits a UI warning;
     # it does not interrupt generation.
@@ -2464,7 +2701,8 @@ def main() -> int:
             # Find the body paragraph belonging to this heading. It is usually
             # not the very next paragraph: generated books put a blank spacer
             # (and sometimes an image) between the heading and its prose.
-            next_para = find_body_paragraph_after(doc.paragraphs, i)
+            body_run = find_body_paragraph_run_after(doc.paragraphs, i)
+            next_para = body_run[0] if body_run else None
             if next_para is None:
                 print(f"  skipping '{heading[:60]}' — no body paragraph found after it")
                 skipped += 1
@@ -2497,9 +2735,14 @@ def main() -> int:
                 print("  Keeping the existing paragraph; re-run to retry this heading.", flush=True)
                 i += 1
                 continue
-            next_para.text = generated
+            # Drop the old section's extra paragraphs before writing the new
+            # ones, or the rewrite leaves the previous version's tail behind.
+            for stale in body_run[1:]:
+                delete_paragraph(stale)
+            write_body_paragraphs(p, generated, existing=next_para)
             rewritten += 1
-            print(f"  rewritten ({len(generated)} chars)")
+            print(f"  rewritten ({len(generated)} chars, "
+                  f"{len(split_into_paragraphs(generated))} paragraphs)")
 
             i += 1
 
@@ -2751,10 +2994,9 @@ def main() -> int:
             )
 
             if next_is_content and (args.force or (next_para.text or "").strip() == ""):
-                next_para.text = generated
-                anchor_para = next_para
+                anchor_para = write_body_paragraphs(p, generated, existing=next_para)
             else:
-                anchor_para = insert_paragraph_after(p, generated, style="Normal")
+                anchor_para = write_body_paragraphs(p, generated)
             changed = True
 
         # Optional image generation for main headings only (uses OpenAI).

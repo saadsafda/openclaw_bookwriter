@@ -1,0 +1,1094 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full antialiased">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ book_title }} — Preview &amp; Edit · OpenClaw</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="/static/book_editor.js"></script>
+    <style>
+        body { font-family: 'Inter', system-ui, sans-serif; background: #f7f6fb; }
+        .glass {
+            background: rgba(255,255,255,.88);
+            backdrop-filter: blur(18px) saturate(140%);
+            -webkit-backdrop-filter: blur(18px) saturate(140%);
+            border-bottom: 1px solid rgba(15,23,42,.08);
+        }
+        .card { background:#fff; border:1px solid rgba(15,23,42,.10); }
+        .field { background:#fff; border:1px solid rgba(15,23,42,.14); color:#0f172a; transition:all .15s ease; }
+        .field:focus { outline:none; border-color:rgba(245,158,11,.65); background:rgba(245,158,11,.04); box-shadow:0 0 0 3px rgba(245,158,11,.16); }
+        .btn-primary {
+            background:linear-gradient(135deg,#f59e0b 0%,#f43f5e 55%,#8b5cf6 100%);
+            background-size:200% 200%; transition:all .3s ease; color:#fff;
+            box-shadow:0 8px 20px -10px rgba(244,63,94,.75);
+        }
+        .btn-primary:hover { background-position:100% 0; }
+        .btn-primary:disabled { opacity:.5; cursor:not-allowed; }
+        .btn-ghost { background:#fff; border:1px solid rgba(15,23,42,.12); color:#334155; transition:all .15s ease; }
+        .btn-ghost:hover { background:#f1f5f9; border-color:rgba(15,23,42,.2); }
+        .btn-ghost:disabled { opacity:.5; cursor:not-allowed; }
+        .page-sheet { background:#fff; box-shadow:0 1px 2px rgba(15,23,42,.06),0 12px 40px -18px rgba(15,23,42,.25); }
+        .scroll-thin::-webkit-scrollbar { width:8px; height:8px; }
+        .scroll-thin::-webkit-scrollbar-thumb { background:rgba(15,23,42,.16); border-radius:8px; }
+        .badge { font-size:10.5px; letter-spacing:.04em; }
+        .outline-item { cursor:pointer; transition:background .12s ease; }
+        .outline-item:hover { background:rgba(15,23,42,.04); }
+        .outline-item.active { background:rgba(245,158,11,.12); border-left-color:#f59e0b; }
+        .item-row { transition:background .12s ease, box-shadow .12s ease; }
+        .item-row:hover { background:rgba(15,23,42,.02); }
+        .item-row.selected { background:rgba(245,158,11,.08); box-shadow:inset 3px 0 0 #f59e0b; }
+        [contenteditable]:focus { outline:2px solid rgba(245,158,11,.45); outline-offset:2px; border-radius:4px; }
+        .toast { position:fixed; bottom:22px; left:50%; transform:translateX(-50%); z-index:80; transition:opacity .25s ease; }
+        .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+        .spin { animation:sp 1s linear infinite; }
+        @keyframes sp { to { transform:rotate(360deg); } }
+
+        /* ---- BookEditorWidget skin (the widget ships unstyled) ---- */
+        .bke-root { display:flex; flex-direction:column; min-height:0; height:100%; }
+        .bke-toolbar {
+            display:flex; align-items:center; gap:3px; flex-wrap:wrap;
+            padding:7px 10px; background:#fff;
+            border-bottom:1px solid rgba(15,23,42,.10);
+            position:sticky; top:0; z-index:5;
+        }
+        .bke-btn {
+            min-width:28px; height:28px; padding:0 7px; border-radius:7px;
+            background:transparent; border:1px solid transparent; color:#475569;
+            font-size:12px; cursor:pointer; transition:all .12s ease;
+        }
+        .bke-btn:hover { background:#fff7ed; color:#b45309; border-color:rgba(245,158,11,.30); }
+        .bke-btn-text { font-size:11.5px; font-weight:600; padding:0 9px; }
+        .bke-sep { width:1px; height:20px; background:rgba(15,23,42,.12); margin:0 4px; }
+        .bke-wordcount {
+            margin-left:auto; padding:0 4px; font-size:11.5px;
+            font-weight:600; color:#64748b; white-space:nowrap;
+        }
+        .bke-select {
+            height:28px; border-radius:7px; border:1px solid rgba(15,23,42,.14);
+            background:#fff; color:#334155; font-size:12px; padding:0 5px;
+            max-width:130px; cursor:pointer;
+        }
+        .bke-size { max-width:64px; }
+        .bke-colorbtn {
+            position:relative; display:inline-flex; align-items:center; justify-content:center;
+            min-width:28px; height:28px; border-radius:7px; color:#475569;
+            font-size:12px; cursor:pointer; border:1px solid transparent;
+        }
+        .bke-colorbtn:hover { background:#fff7ed; color:#b45309; border-color:rgba(245,158,11,.30); }
+        .bke-color { position:absolute; inset:0; opacity:0; width:100%; height:100%; cursor:pointer; }
+        .bke-findbar {
+            display:flex; gap:6px; align-items:center; padding:7px 10px;
+            background:#f8fafc; border-bottom:1px solid rgba(15,23,42,.10);
+        }
+        .bke-find {
+            height:28px; border-radius:7px; border:1px solid rgba(15,23,42,.14);
+            padding:0 8px; font-size:12px; min-width:150px;
+        }
+        .bke-bodyrow { display:flex; flex:1; min-height:0; }
+        .bke-outline {
+            width:220px; flex-shrink:0; overflow-y:auto; background:#fff;
+            border-right:1px solid rgba(15,23,42,.10); flex-direction:column; padding:8px 0;
+        }
+        .bke-outline-h {
+            font-size:10.5px; font-weight:700; text-transform:uppercase;
+            letter-spacing:.05em; color:#94a3b8; padding:6px 14px;
+        }
+        .bke-outline-empty { font-size:11.5px; color:#94a3b8; padding:6px 14px; }
+        .bke-outline-row { display:flex; align-items:center; gap:4px; padding:3px 8px 3px 14px; }
+        .bke-outline-row.sub { padding-left:26px; }
+        .bke-outline-jump {
+            background:transparent; border:0; color:#94a3b8; cursor:pointer;
+            font-size:10px; padding:2px 4px; border-radius:4px;
+        }
+        .bke-outline-jump:hover { color:#b45309; background:#fff7ed; }
+        .bke-canvas { flex:1; min-width:0; overflow-y:auto; background:#f1f5f9; padding:26px 0 60px; }
+        .doc-page {
+            background:#fff; width:min(816px, 92%); margin:0 auto; padding:64px 76px;
+            box-shadow:0 1px 2px rgba(15,23,42,.06), 0 14px 44px -20px rgba(15,23,42,.30);
+            border-radius:3px;
+        }
+        .doc-p, .doc-h, .doc-sub {
+            font-family:Georgia, 'Times New Roman', serif; color:#1e293b;
+            outline:none; border-radius:3px;
+        }
+        .doc-p { font-size:15px; line-height:1.75; margin:0 0 12px; }
+        .doc-h { font-size:26px; font-weight:700; line-height:1.3; margin:26px 0 14px; }
+        .doc-sub { font-size:19px; font-weight:600; line-height:1.35; margin:20px 0 10px; }
+        .doc-p:focus, .doc-h:focus, .doc-sub:focus { background:rgba(245,158,11,.06); }
+        .doc-p.dirty, .doc-h.dirty, .doc-sub.dirty { box-shadow:inset 3px 0 0 #f59e0b; }
+        .doc-img { display:block; max-width:100%; margin:16px auto; }
+        .bke-li-bullet { list-style:disc; display:list-item; margin-left:1.4em; }
+        .bke-li-number { list-style:decimal; display:list-item; margin-left:1.4em; }
+    </style>
+</head>
+<body class="h-full text-slate-700">
+
+<header class="sticky top-0 z-30 glass">
+    <div class="px-5 h-14 flex items-center justify-between gap-4">
+        <div class="flex items-center gap-3 min-w-0">
+            <a href="/puzzle" class="btn-ghost rounded-lg px-2.5 py-1.5 text-xs shrink-0" title="Back to the generator">
+                <i class="fas fa-arrow-left"></i>
+            </a>
+            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 via-rose-500 to-violet-500 flex items-center justify-center font-extrabold text-white text-xs shrink-0">OC</div>
+            <div class="min-w-0">
+                <div id="book-title" class="text-[15px] font-semibold text-slate-900 truncate">{{ book_title }}</div>
+                <div id="book-sub" class="text-[11px] text-slate-500 truncate">Preview &amp; Edit</div>
+            </div>
+        </div>
+        <!-- Mode switch: structured puzzle content vs the built manuscript -->
+        <div class="flex items-center gap-1 p-0.5 rounded-lg bg-slate-100 shrink-0">
+            <button id="tab-content" class="mode-tab px-3 py-1.5 rounded-md text-xs font-semibold bg-white text-slate-900 shadow-sm">
+                <i class="fas fa-puzzle-piece mr-1"></i> Puzzles
+            </button>
+            <button id="tab-manuscript" class="mode-tab px-3 py-1.5 rounded-md text-xs font-semibold text-slate-500">
+                <i class="fas fa-file-word mr-1"></i> Manuscript
+            </button>
+        </div>
+
+        <div class="flex items-center gap-2 shrink-0">
+            <span id="save-state" class="text-[11px] text-slate-400 mr-1"></span>
+
+            <!-- Format selector: which built file the manuscript view shows -->
+            <select id="which" class="field rounded-lg px-2 py-2 text-xs hidden" title="Which format to view and edit">
+                <option value="docx">Manuscript</option>
+                <option value="paperback">Paperback 6×9</option>
+                <option value="kindle">Kindle</option>
+            </select>
+            <a id="btn-download" href="#" class="btn-ghost px-3 py-2 rounded-lg text-xs hidden" title="Download this format">
+                <i class="fas fa-download"></i>
+            </a>
+            <button id="btn-save-doc" class="btn-primary px-4 py-2 rounded-lg text-xs font-semibold hidden">
+                <i class="fas fa-save mr-1"></i> Save edits
+            </button>
+
+            <button id="btn-strip-ai" class="btn-ghost px-3 py-2 rounded-lg text-xs"
+                    title="Remove AI metadata from images and text">
+                <i class="fas fa-eraser mr-1"></i> Strip AI
+            </button>
+            <button id="btn-validate" class="btn-ghost px-3 py-2 rounded-lg text-xs">
+                <i class="fas fa-circle-check mr-1"></i> Validate
+            </button>
+            <button id="btn-reexport" class="btn-primary px-4 py-2 rounded-lg text-xs font-semibold">
+                <i class="fas fa-file-export mr-1"></i> Re-export
+            </button>
+        </div>
+    </div>
+</header>
+
+<div class="flex" style="height:calc(100vh - 3.5rem)">
+
+    <!-- Outline -->
+    <aside id="pane-outline" class="w-60 shrink-0 border-r border-slate-900/10 bg-white flex flex-col">
+        <div class="px-4 py-3 border-b border-slate-900/10">
+            <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Sections</div>
+        </div>
+        <div id="outline" class="flex-1 overflow-y-auto scroll-thin py-2"></div>
+        <div class="px-4 py-3 border-t border-slate-900/10">
+            <div id="outline-stats" class="text-[11px] text-slate-500"></div>
+        </div>
+    </aside>
+
+    <!-- Preview (structured puzzle content) -->
+    <main id="pane-content" class="flex-1 overflow-y-auto scroll-thin">
+        <div class="max-w-4xl mx-auto px-8 py-8">
+            <div id="section-head" class="mb-5"></div>
+            <div id="preview" class="page-sheet rounded-lg px-10 py-10 min-h-[500px]"></div>
+        </div>
+    </main>
+
+    <!-- Manuscript (BookEditorWidget mounts here) -->
+    <main id="pane-manuscript" class="hidden flex-1 min-w-0 flex flex-col min-h-0 bg-slate-50">
+        <div id="bk-body" class="flex-1 flex flex-col min-h-0"></div>
+    </main>
+
+    <!-- Inspector -->
+    <aside id="pane-inspector" class="w-80 shrink-0 border-l border-slate-900/10 bg-white flex flex-col">
+        <div class="px-4 py-3 border-b border-slate-900/10 flex items-center justify-between">
+            <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Inspector</div>
+            <span id="agent-badge" class="badge uppercase px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200">main</span>
+        </div>
+
+        <div class="flex-1 overflow-y-auto scroll-thin px-4 py-4">
+            <div id="sel-none" class="text-center py-10">
+                <i class="fas fa-hand-pointer text-2xl text-slate-300 mb-2 block"></i>
+                <p class="text-xs text-slate-400">Select a puzzle to edit it.</p>
+            </div>
+
+            <div id="sel-panel" class="hidden">
+                <div id="sel-kind" class="badge uppercase px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 inline-block mb-2"></div>
+                <div id="sel-preview" class="card rounded-xl p-3 text-xs text-slate-700 mb-4 max-h-40 overflow-y-auto scroll-thin"></div>
+
+                <!-- Art preview for rendered puzzles -->
+                <div id="art-box" class="hidden mb-4">
+                    <div class="flex items-center justify-between mb-1.5">
+                        <span class="text-[11px] font-medium text-slate-600">Artwork</span>
+                        <button id="art-toggle" class="text-[11px] text-slate-500 hover:text-slate-900">Show solution</button>
+                    </div>
+                    <div class="card rounded-xl overflow-hidden">
+                        <img id="art-img" class="block w-full" alt="Puzzle artwork">
+                    </div>
+                </div>
+
+                <!-- Per-kind editors -->
+                <div id="edit-fields" class="space-y-3 mb-4"></div>
+
+                <button id="btn-save-item" class="btn-ghost w-full rounded-xl px-3 py-2 text-xs font-semibold mb-4 hidden">
+                    <i class="fas fa-floppy-disk mr-1"></i> Save changes
+                </button>
+
+                <!-- AI actions -->
+                <div id="ai-box" class="hidden">
+                    <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-2">AI edit</div>
+                    <div id="ai-actions" class="grid grid-cols-2 gap-2 mb-2"></div>
+                    <textarea id="ai-instruction" rows="3"
+                              class="field w-full rounded-xl px-3 py-2 text-xs mb-2"
+                              placeholder="Optional: say exactly what to change."></textarea>
+                    <button id="ai-go" class="btn-primary w-full rounded-xl px-3 py-2.5 text-xs font-semibold">
+                        <i class="fas fa-wand-magic-sparkles mr-1"></i> Apply AI edit
+                    </button>
+                </div>
+
+                <button id="btn-delete-item"
+                        class="w-full btn-ghost rounded-xl px-3 py-2 text-xs text-red-600 hover:bg-red-50 hover:border-red-200 mt-4">
+                    <i class="fas fa-trash mr-1"></i> Delete this item
+                </button>
+            </div>
+        </div>
+
+        <div id="ai-status" class="hidden px-4 py-2.5 border-t border-slate-900/10 bg-slate-50 text-[11px] text-slate-600"></div>
+        <div class="px-4 py-2.5 border-t border-slate-900/10">
+            <div id="usage-line" class="text-[11px] text-slate-500"></div>
+        </div>
+    </aside>
+</div>
+
+<div id="toast" class="toast opacity-0 pointer-events-none rounded-xl px-4 py-2.5 text-sm shadow-lg"></div>
+
+<!-- ===== Strip AI metadata: confirm dialog ===== -->
+<div id="strip-ai-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 p-4">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+            <i class="fas fa-eraser text-slate-400"></i>
+            <h3 class="font-semibold text-sm text-slate-900">Remove AI fingerprints</h3>
+        </div>
+        <div id="strip-ai-body" class="px-5 py-4 text-sm text-slate-700 max-h-[55vh] overflow-y-auto">
+            <div class="text-slate-400 text-xs">Scanning…</div>
+        </div>
+        <div class="px-5 py-3 bg-slate-50 flex items-center justify-end gap-2">
+            <button id="strip-ai-cancel" class="btn-ghost px-3 py-2 rounded-lg text-xs">Cancel</button>
+            <button id="strip-ai-apply" class="btn-primary px-4 py-2 rounded-lg text-xs font-semibold" disabled>
+                Apply changes
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+const BOOK_ID = {{ book_id | tojson }};
+const $ = id => document.getElementById(id);
+
+let BOOK = null;
+let SECTION = null;      // active section key
+let SELECTED = null;     // { kind, id }
+let ART_SOLUTION = false;
+let artVersion = 0;      // cache-buster for re-rendered artwork
+
+const SECTIONS = [
+    { key: "picture_briefs",  label: "Picture Puzzles", icon: "fa-images",        idKey: "id" },
+    { key: "mazes",           label: "Mazes",           icon: "fa-route",         idKey: "id" },
+    { key: "riddles",         label: "Riddles",         icon: "fa-comment-dots",  idKey: "id" },
+    { key: "word_searches",   label: "Word Searches",   icon: "fa-table-cells",   idKey: "id" },
+    { key: "cryptograms",     label: "Cryptograms",     icon: "fa-key",           idKey: "id" },
+    { key: "trivia_chapters", label: "Trivia",          icon: "fa-circle-question", idKey: "chapter_number" },
+    { key: "crosswords",      label: "Crosswords",      icon: "fa-puzzle-piece",  idKey: "id" },
+];
+
+const AI_KINDS = {
+    riddle:        ["rewrite", "easier", "harder"],
+    cryptogram:    ["rewrite", "easier", "harder"],
+    trivia_question: ["rewrite", "regenerate_distractors", "easier", "harder"],
+    picture_brief: ["rewrite", "easier", "harder"],
+    word_search:   ["rewrite", "easier", "harder"],
+    crossword:     ["rewrite", "easier", "harder"],
+};
+const ACTION_LABEL = {
+    rewrite: "Rewrite", easier: "Make easier", harder: "Make harder",
+    regenerate_distractors: "New wrong answers",
+};
+
+function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, c =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function toast(msg, kind = "ok") {
+    const t = $("toast");
+    t.textContent = msg;
+    t.className = "toast rounded-xl px-4 py-2.5 text-sm shadow-lg opacity-100 " +
+        (kind === "err" ? "bg-red-600 text-white" : "bg-slate-900 text-white");
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => {
+        t.className = "toast rounded-xl px-4 py-2.5 text-sm shadow-lg opacity-0 pointer-events-none";
+    }, kind === "err" ? 4500 : 2200);
+}
+
+function setSaveState(text, spinning = false) {
+    $("save-state").innerHTML = text
+        ? (spinning ? `<i class="fas fa-circle-notch spin mr-1"></i>${esc(text)}` : esc(text))
+        : "";
+}
+
+async function api(path, opts = {}) {
+    const r = await fetch(path, opts);
+    let data = {};
+    try { data = await r.json(); } catch (e) { /* non-JSON error body */ }
+    if (!r.ok) throw new Error(data.error || `Request failed (${r.status})`);
+    return data;
+}
+
+// -- load ----------------------------------------------------------------
+
+async function load() {
+    try {
+        BOOK = await api(`/api/puzzle/books/${BOOK_ID}/content`);
+    } catch (e) {
+        $("preview").innerHTML =
+            `<p class="text-sm text-red-600">${esc(e.message)}</p>`;
+        return;
+    }
+    $("book-title").textContent = BOOK.book_title || "Untitled";
+    $("book-sub").textContent = BOOK.topic || "Preview & Edit";
+    if (BOOK.config && BOOK.config.agent) $("agent-badge").textContent = BOOK.config.agent;
+
+    if (!SECTION) {
+        const first = SECTIONS.find(s => (BOOK[s.key] || []).length);
+        SECTION = first ? first.key : SECTIONS[0].key;
+    }
+    renderUsage(BOOK.usage || {});
+    renderOutline();
+    renderPreview();
+}
+
+function renderUsage(u) {
+    $("usage-line").innerHTML = u && u.calls
+        ? `<b class="text-slate-900">$${(u.cost_usd || 0).toFixed(4)}</b> · ` +
+          `${(u.total_tokens || 0).toLocaleString()} tokens · ${u.calls} calls`
+        : "No spend recorded yet.";
+}
+
+function renderOutline() {
+    const box = $("outline");
+    box.innerHTML = SECTIONS.map(s => {
+        const n = (BOOK[s.key] || []).length;
+        if (!n) return "";
+        const active = s.key === SECTION;
+        return `<div class="outline-item border-l-2 ${active ? "active" : "border-transparent"} px-4 py-2.5"
+                     data-section="${s.key}">
+            <div class="flex items-center justify-between gap-2">
+                <span class="text-[13px] ${active ? "font-semibold text-slate-900" : "text-slate-600"}">
+                    <i class="fas ${s.icon} mr-2 text-[11px] text-slate-400"></i>${esc(s.label)}
+                </span>
+                <span class="badge px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">${n}</span>
+            </div>
+        </div>`;
+    }).join("");
+
+    box.querySelectorAll(".outline-item").forEach(el => {
+        el.addEventListener("click", () => {
+            SECTION = el.dataset.section;
+            SELECTED = null;
+            renderOutline();
+            renderPreview();
+            clearInspector();
+        });
+    });
+
+    const c = BOOK.counts || {};
+    const total = Object.values(c).reduce((a, b) => a + b, 0);
+    const pages = (BOOK.page_estimate || {}).total_pages;
+    // Words are only known once the manuscript has been rendered at least once.
+    const words = widget ? widget.wordCount() : 0;
+    $("outline-stats").innerHTML =
+        `${total} items${pages ? ` · ~${pages} pages` : ""}` +
+        (words ? `<br><span class="font-semibold text-slate-700">${words.toLocaleString()} words total</span>` : "");
+}
+
+// -- preview -------------------------------------------------------------
+
+function sectionMeta() { return SECTIONS.find(s => s.key === SECTION) || SECTIONS[0]; }
+
+function renderPreview() {
+    const meta = sectionMeta();
+    const items = BOOK[SECTION] || [];
+    $("section-head").innerHTML = `
+        <h1 class="text-2xl font-bold text-slate-900">${esc(meta.label)}</h1>
+        <p class="text-xs text-slate-500 mt-1">
+            ${items.length} item${items.length === 1 ? "" : "s"} ·
+            click any item to edit it in the inspector
+        </p>`;
+
+    const body = $("preview");
+    if (!items.length) {
+        body.innerHTML = `<p class="text-sm text-slate-400 text-center py-16">Nothing in this section.</p>`;
+        return;
+    }
+
+    if (SECTION === "riddles")          body.innerHTML = items.map(riddleRow).join("");
+    else if (SECTION === "cryptograms") body.innerHTML = items.map(cryptoRow).join("");
+    else if (SECTION === "trivia_chapters") body.innerHTML = items.map(chapterBlock).join("");
+    else if (SECTION === "picture_briefs")  body.innerHTML = items.map(briefRow).join("");
+    else if (SECTION === "word_searches")   body.innerHTML = items.map(wsRow).join("");
+    else if (SECTION === "crosswords")      body.innerHTML = items.map(cwRow).join("");
+    else if (SECTION === "mazes")           body.innerHTML = items.map(mazeRow).join("");
+
+    body.querySelectorAll("[data-item-id]").forEach(el => {
+        el.addEventListener("click", ev => {
+            if (ev.target.closest("[data-noselect]")) return;
+            select(el.dataset.kind, el.dataset.itemId);
+        });
+    });
+    highlightSelected();
+}
+
+const rowShell = (kind, id, inner) =>
+    `<div class="item-row rounded-lg px-3 py-3 mb-2 cursor-pointer" data-kind="${kind}" data-item-id="${id}">${inner}</div>`;
+
+const riddleRow = r => rowShell("riddle", r.id, `
+    <div class="flex gap-3">
+        <span class="text-xs font-bold text-slate-400 pt-0.5 w-6 shrink-0">${r.number}.</span>
+        <div class="min-w-0 flex-1">
+            <div class="text-sm text-slate-800 whitespace-pre-line">${esc(r.riddle)}</div>
+            <div class="text-xs text-amber-700 mt-1.5"><b>Answer:</b> ${esc(r.answer)}</div>
+        </div>
+    </div>`);
+
+const cryptoRow = c => rowShell("cryptogram", c.id, `
+    <div class="flex gap-3">
+        <span class="text-xs font-bold text-slate-400 pt-0.5 w-6 shrink-0">${c.number}.</span>
+        <div class="min-w-0 flex-1">
+            <div class="mono text-[13px] font-semibold text-slate-900 break-words">${esc(c.encoded)}</div>
+            <div class="text-xs text-slate-500 mt-1">${esc(c.phrase)}</div>
+            ${c.hint ? `<div class="text-[11px] text-slate-400 mt-0.5 italic">Hint: ${esc(c.hint)}</div>` : ""}
+        </div>
+    </div>`);
+
+const briefRow = b => rowShell("picture_brief", b.id, `
+    <div class="flex gap-3">
+        <span class="text-xs font-bold text-slate-400 pt-0.5 w-6 shrink-0">${b.number}.</span>
+        <div class="min-w-0 flex-1">
+            <div class="text-sm font-semibold text-slate-900">${esc(b.scene_title)}</div>
+            <div class="text-xs text-slate-600 mt-1">${esc(b.scene_description)}</div>
+            <div class="text-[11px] text-slate-400 mt-1">${(b.difference_ideas || []).length} difference ideas</div>
+        </div>
+    </div>`);
+
+const artThumb = (id, label) => `
+    <img src="/api/puzzle/books/${BOOK_ID}/item-image/${id}?v=${artVersion}"
+         alt="${esc(label)}" loading="lazy"
+         class="w-24 h-32 object-cover object-top rounded border border-slate-200 bg-white shrink-0">`;
+
+const wsRow = w => rowShell("word_search", w.id, `
+    <div class="flex gap-3">
+        ${artThumb(w.id, w.title)}
+        <div class="min-w-0 flex-1">
+            <div class="text-sm font-semibold text-slate-900">${w.number}. ${esc(w.title)}</div>
+            <div class="text-xs text-slate-600 mt-1.5">${(w.words || []).map(esc).join(" · ")}</div>
+            <div class="text-[11px] text-slate-400 mt-1">${(w.words || []).length} words</div>
+        </div>
+    </div>`);
+
+const cwRow = c => rowShell("crossword", c.id, `
+    <div class="flex gap-3">
+        ${artThumb(c.id, c.title)}
+        <div class="min-w-0 flex-1">
+            <div class="text-sm font-semibold text-slate-900">${c.number}. ${esc(c.title)}</div>
+            <div class="text-xs text-slate-600 mt-1.5">
+                ${(c.entries || []).map(e => esc(e.word)).join(" · ")}
+            </div>
+            <div class="text-[11px] text-slate-400 mt-1">${(c.entries || []).length} words</div>
+        </div>
+    </div>`);
+
+const mazeRow = m => rowShell("maze", m.id, `
+    <div class="flex gap-3">
+        ${artThumb(m.id, m.title)}
+        <div class="min-w-0 flex-1">
+            <div class="text-sm font-semibold text-slate-900">${esc(m.title)}</div>
+            <div class="text-xs text-slate-500 mt-1">${m.cols} × ${m.rows} cells</div>
+        </div>
+    </div>`);
+
+function chapterBlock(ch) {
+    const qs = (ch.questions || []).map(q => rowShell("trivia_question", q.id, `
+        <div class="flex gap-3">
+            <span class="text-xs font-bold text-slate-400 pt-0.5 w-6 shrink-0">${q.number}.</span>
+            <div class="min-w-0 flex-1">
+                <div class="text-sm font-medium text-slate-800">${esc(q.question)}</div>
+                <div class="grid grid-cols-2 gap-x-4 gap-y-0.5 mt-1.5">
+                    ${["A","B","C","D"].map(L => `
+                        <div class="text-xs ${q.correct_answer === L ? "text-emerald-700 font-semibold" : "text-slate-500"}">
+                            ${L}. ${esc((q.choices || {})[L] || "")}
+                            ${q.correct_answer === L ? '<i class="fas fa-check ml-1 text-[10px]"></i>' : ""}
+                        </div>`).join("")}
+                </div>
+            </div>
+        </div>`)).join("");
+    return `<div class="mb-7">
+        <h2 class="text-base font-bold text-slate-900 mb-3 pb-2 border-b border-slate-200">
+            Chapter ${ch.chapter_number} — ${esc(ch.chapter_title)}
+        </h2>${qs}</div>`;
+}
+
+function highlightSelected() {
+    document.querySelectorAll("#preview .item-row").forEach(el => {
+        el.classList.toggle("selected", !!SELECTED && el.dataset.itemId === SELECTED.id);
+    });
+}
+
+// -- inspector -----------------------------------------------------------
+
+function clearInspector() {
+    $("sel-none").classList.remove("hidden");
+    $("sel-panel").classList.add("hidden");
+}
+
+function findItem(id) {
+    for (const s of SECTIONS) {
+        for (const it of BOOK[s.key] || []) {
+            if (it.id === id) return it;
+            for (const q of it.questions || []) if (q.id === id) return q;
+        }
+    }
+    return null;
+}
+
+function select(kind, id) {
+    SELECTED = { kind, id };
+    ART_SOLUTION = false;
+    highlightSelected();
+    renderInspector();
+}
+
+function renderInspector() {
+    const item = findItem(SELECTED.id);
+    if (!item) return clearInspector();
+    const kind = SELECTED.kind;
+
+    $("sel-none").classList.add("hidden");
+    $("sel-panel").classList.remove("hidden");
+    $("sel-kind").textContent = kind.replace(/_/g, " ");
+
+    // Summary
+    const summary = {
+        riddle: () => `${esc(item.riddle)}<div class="mt-1 text-amber-700"><b>${esc(item.answer)}</b></div>`,
+        cryptogram: () => `<div class="mono">${esc(item.encoded)}</div><div class="mt-1">${esc(item.phrase)}</div>`,
+        trivia_question: () => esc(item.question),
+        picture_brief: () => `<b>${esc(item.scene_title)}</b><div class="mt-1">${esc(item.scene_description)}</div>`,
+        word_search: () => `<b>${esc(item.title)}</b><div class="mt-1">${(item.words||[]).map(esc).join(", ")}</div>`,
+        crossword: () => `<b>${esc(item.title)}</b><div class="mt-1">${(item.entries||[]).map(e=>esc(e.word)).join(", ")}</div>`,
+        maze: () => `<b>${esc(item.title)}</b><div class="mt-1">${item.cols} × ${item.rows}</div>`,
+    }[kind];
+    $("sel-preview").innerHTML = summary ? summary() : "";
+
+    // Artwork
+    const hasArt = ["word_search", "crossword", "maze"].includes(kind);
+    $("art-box").classList.toggle("hidden", !hasArt);
+    if (hasArt) refreshArt();
+
+    // Editable fields
+    $("edit-fields").innerHTML = editFieldsFor(kind, item);
+    $("btn-save-item").classList.toggle("hidden", kind === "maze");
+
+    // AI actions
+    const actions = AI_KINDS[kind] || [];
+    $("ai-box").classList.toggle("hidden", !actions.length);
+    $("ai-actions").innerHTML = actions.map((a, i) =>
+        `<button class="ai-act btn-ghost rounded-lg px-2 py-1.5 text-[11px] ${i === 0 ? "ring-1 ring-amber-400" : ""}"
+                 data-action="${a}">${esc(ACTION_LABEL[a] || a)}</button>`).join("");
+    let chosen = actions[0] || "";
+    $("ai-actions").querySelectorAll(".ai-act").forEach(b => {
+        b.addEventListener("click", () => {
+            chosen = b.dataset.action;
+            $("ai-actions").querySelectorAll(".ai-act").forEach(x =>
+                x.classList.toggle("ring-1", x === b));
+            $("ai-actions").querySelectorAll(".ai-act").forEach(x =>
+                x.classList.toggle("ring-amber-400", x === b));
+        });
+    });
+    $("ai-go").onclick = () => runAiEdit(chosen);
+
+    // Maze gets a regenerate button instead of a save button.
+    const regen = $("maze-regen");
+    if (regen) regen.onclick = regenMaze;
+}
+
+function refreshArt() {
+    const url = `/api/puzzle/books/${BOOK_ID}/item-image/${SELECTED.id}` +
+                `?v=${artVersion}${ART_SOLUTION ? "&solution=1" : ""}`;
+    $("art-img").src = url;
+    $("art-toggle").textContent = ART_SOLUTION ? "Show puzzle" : "Show solution";
+}
+
+$("art-toggle").addEventListener("click", () => {
+    ART_SOLUTION = !ART_SOLUTION;
+    refreshArt();
+});
+
+const fieldLabel = t => `<label class="block text-[11px] font-medium text-slate-600 mb-1">${t}</label>`;
+
+function editFieldsFor(kind, item) {
+    if (kind === "riddle") return `
+        ${fieldLabel("Riddle")}
+        <textarea id="f-riddle" rows="4" class="field w-full rounded-xl px-3 py-2 text-xs">${esc(item.riddle)}</textarea>
+        ${fieldLabel("Answer")}
+        <input id="f-answer" class="field w-full rounded-xl px-3 py-2 text-xs" value="${esc(item.answer)}">`;
+
+    if (kind === "cryptogram") return `
+        ${fieldLabel("Phrase (the solution)")}
+        <textarea id="f-phrase" rows="3" class="field w-full rounded-xl px-3 py-2 text-xs">${esc(item.phrase)}</textarea>
+        ${fieldLabel("Hint")}
+        <input id="f-hint" class="field w-full rounded-xl px-3 py-2 text-xs" value="${esc(item.hint || "")}">
+        <button id="btn-reshuffle" data-noselect class="btn-ghost w-full rounded-xl px-3 py-2 text-[11px] mt-1">
+            <i class="fas fa-shuffle mr-1"></i> New cipher
+        </button>`;
+
+    if (kind === "trivia_question") return `
+        ${fieldLabel("Question")}
+        <textarea id="f-question" rows="3" class="field w-full rounded-xl px-3 py-2 text-xs">${esc(item.question)}</textarea>
+        ${["A","B","C","D"].map(L => `
+            <div class="flex items-center gap-2">
+                <button class="f-correct btn-ghost rounded-lg w-8 h-8 text-[11px] font-bold shrink-0
+                        ${item.correct_answer === L ? "bg-emerald-50 border-emerald-300 text-emerald-700" : ""}"
+                        data-letter="${L}" title="Mark ${L} correct">${L}</button>
+                <input class="f-choice field flex-1 rounded-xl px-3 py-2 text-xs" data-letter="${L}"
+                       value="${esc((item.choices || {})[L] || "")}">
+            </div>`).join("")}`;
+
+    if (kind === "picture_brief") return `
+        ${fieldLabel("Scene title")}
+        <input id="f-scene-title" class="field w-full rounded-xl px-3 py-2 text-xs" value="${esc(item.scene_title)}">
+        ${fieldLabel("Description")}
+        <textarea id="f-scene-desc" rows="4" class="field w-full rounded-xl px-3 py-2 text-xs">${esc(item.scene_description)}</textarea>
+        ${fieldLabel("Difference ideas (one per line)")}
+        <textarea id="f-diffs" rows="6" class="field w-full rounded-xl px-3 py-2 text-xs">${esc((item.difference_ideas || []).join("\n"))}</textarea>`;
+
+    if (kind === "word_search") return `
+        ${fieldLabel("Title")}
+        <input id="f-title" class="field w-full rounded-xl px-3 py-2 text-xs" value="${esc(item.title)}">
+        ${fieldLabel("Words (one per line, exactly 9)")}
+        <textarea id="f-words" rows="9" class="field w-full rounded-xl px-3 py-2 text-xs mono">${esc((item.words || []).join("\n"))}</textarea>
+        <p class="text-[10px] text-slate-400">Saving rebuilds the grid and redraws the artwork.</p>`;
+
+    if (kind === "crossword") return `
+        ${fieldLabel("Title")}
+        <input id="f-title" class="field w-full rounded-xl px-3 py-2 text-xs" value="${esc(item.title)}">
+        ${fieldLabel("Words and clues")}
+        ${(item.entries || []).map((e, i) => `
+            <div class="card rounded-xl p-2 space-y-1">
+                <input class="f-cw-word field w-full rounded-lg px-2 py-1.5 text-xs mono font-semibold"
+                       data-i="${i}" value="${esc(e.word)}">
+                <input class="f-cw-clue field w-full rounded-lg px-2 py-1.5 text-xs"
+                       data-i="${i}" value="${esc(e.clue)}">
+            </div>`).join("")}
+        <p class="text-[10px] text-slate-400">
+            Changing only the clues keeps the grid. Changing a word rebuilds the
+            layout, which can fail if the words will not interlock.
+        </p>`;
+
+    if (kind === "maze") return `
+        ${fieldLabel("Title")}
+        <input id="f-title" class="field w-full rounded-xl px-3 py-2 text-xs" value="${esc(item.title)}">
+        <div class="grid grid-cols-2 gap-2">
+            <div>${fieldLabel("Columns")}
+                <input id="f-cols" type="number" min="4" max="40" value="${item.cols}"
+                       class="field w-full rounded-xl px-3 py-2 text-xs"></div>
+            <div>${fieldLabel("Rows")}
+                <input id="f-rows" type="number" min="4" max="50" value="${item.rows}"
+                       class="field w-full rounded-xl px-3 py-2 text-xs"></div>
+        </div>
+        <button id="maze-regen" data-noselect class="btn-primary w-full rounded-xl px-3 py-2.5 text-xs font-semibold">
+            <i class="fas fa-rotate mr-1"></i> Regenerate maze
+        </button>`;
+
+    return "";
+}
+
+// -- saving --------------------------------------------------------------
+
+$("btn-save-item").addEventListener("click", saveItem);
+
+async function saveItem() {
+    if (!SELECTED) return;
+    const { kind, id } = SELECTED;
+    setSaveState("Saving…", true);
+    try {
+        if (kind === "riddle") {
+            await api(`/api/puzzle/books/${BOOK_ID}/riddles/${id}`, {
+                method: "PATCH", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ riddle: $("f-riddle").value, answer: $("f-answer").value }),
+            });
+        } else if (kind === "cryptogram") {
+            await api(`/api/puzzle/books/${BOOK_ID}/cryptograms/${id}`, {
+                method: "PATCH", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ phrase: $("f-phrase").value, hint: $("f-hint").value }),
+            });
+        } else if (kind === "trivia_question") {
+            const choices = {};
+            document.querySelectorAll(".f-choice").forEach(i => choices[i.dataset.letter] = i.value);
+            const correct = document.querySelector(".f-correct.bg-emerald-50");
+            await api(`/api/puzzle/books/${BOOK_ID}/questions/${id}`, {
+                method: "PATCH", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    question: $("f-question").value, choices,
+                    correct_answer: correct ? correct.dataset.letter : undefined,
+                }),
+            });
+        } else if (kind === "picture_brief") {
+            await api(`/api/puzzle/books/${BOOK_ID}/briefs/${id}`, {
+                method: "PATCH", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    scene_title: $("f-scene-title").value,
+                    scene_description: $("f-scene-desc").value,
+                    difference_ideas: $("f-diffs").value.split("\n"),
+                }),
+            });
+        } else if (kind === "word_search") {
+            await saveTitleIfChanged(id, $("f-title").value);
+            await api(`/api/puzzle/books/${BOOK_ID}/word-searches/${id}`, {
+                method: "PATCH", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ words: $("f-words").value.split("\n") }),
+            });
+            artVersion++;
+        } else if (kind === "crossword") {
+            await saveTitleIfChanged(id, $("f-title").value);
+            const words = [...document.querySelectorAll(".f-cw-word")].map(i => i.value);
+            const clues = [...document.querySelectorAll(".f-cw-clue")].map(i => i.value);
+            const item = findItem(id);
+            const wordsChanged = (item.entries || []).some((e, i) =>
+                (words[i] || "").trim().toUpperCase() !== e.word);
+            const body = wordsChanged
+                ? { entries: words.map((w, i) => ({ word: w, clue: clues[i] || "" })) }
+                : { clues: Object.fromEntries((item.entries || []).map((e, i) => [e.word, clues[i] || ""])) };
+            await api(`/api/puzzle/books/${BOOK_ID}/crosswords/${id}`, {
+                method: "PATCH", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            artVersion++;
+        }
+        setSaveState("Saved");
+        toast("Saved.");
+        await load();
+        if (SELECTED) renderInspector();
+    } catch (e) {
+        setSaveState("");
+        toast(e.message, "err");
+    }
+}
+
+async function saveTitleIfChanged(id, title) {
+    const item = findItem(id);
+    if (!item || !title || title.trim() === item.title) return;
+    await api(`/api/puzzle/books/${BOOK_ID}/title/${id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+    });
+    artVersion++;
+}
+
+async function regenMaze() {
+    if (!SELECTED) return;
+    setSaveState("Regenerating…", true);
+    try {
+        await saveTitleIfChanged(SELECTED.id, $("f-title").value);
+        await api(`/api/puzzle/books/${BOOK_ID}/mazes/${SELECTED.id}/regenerate`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                cols: parseInt($("f-cols").value, 10) || 0,
+                rows: parseInt($("f-rows").value, 10) || 0,
+            }),
+        });
+        artVersion++;
+        setSaveState("Saved");
+        toast("New maze generated.");
+        await load();
+        renderInspector();
+    } catch (e) {
+        setSaveState("");
+        toast(e.message, "err");
+    }
+}
+
+// Correct-answer toggle is delegated, since fields are re-rendered often.
+$("edit-fields").addEventListener("click", ev => {
+    const btn = ev.target.closest(".f-correct");
+    if (btn) {
+        document.querySelectorAll(".f-correct").forEach(b =>
+            b.classList.remove("bg-emerald-50", "border-emerald-300", "text-emerald-700"));
+        btn.classList.add("bg-emerald-50", "border-emerald-300", "text-emerald-700");
+        return;
+    }
+    if (ev.target.closest("#btn-reshuffle")) reshuffleCipher();
+});
+
+async function reshuffleCipher() {
+    try {
+        await api(`/api/puzzle/books/${BOOK_ID}/cryptograms/${SELECTED.id}/reshuffle`, { method: "POST" });
+        toast("New cipher applied.");
+        await load();
+        renderInspector();
+    } catch (e) { toast(e.message, "err"); }
+}
+
+// -- AI edit -------------------------------------------------------------
+
+async function runAiEdit(action) {
+    if (!SELECTED || !action) return;
+    const status = $("ai-status");
+    status.classList.remove("hidden");
+    status.innerHTML = `<i class="fas fa-circle-notch spin mr-1"></i> Asking the model…`;
+    $("ai-go").disabled = true;
+    try {
+        const data = await api(`/api/puzzle/books/${BOOK_ID}/ai-edit`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                item_id: SELECTED.id, action,
+                instruction: $("ai-instruction").value,
+            }),
+        });
+        artVersion++;
+        renderUsage(data.usage || {});
+        status.innerHTML = `<span class="text-emerald-700"><i class="fas fa-check mr-1"></i> Applied.</span>`;
+        toast("AI edit applied.");
+        $("ai-instruction").value = "";
+        await load();
+        renderInspector();
+    } catch (e) {
+        status.innerHTML = `<span class="text-red-600">${esc(e.message)}</span>`;
+        toast(e.message, "err");
+    } finally {
+        $("ai-go").disabled = false;
+    }
+}
+
+// -- delete / validate / re-export ---------------------------------------
+
+$("btn-delete-item").addEventListener("click", async () => {
+    if (!SELECTED) return;
+    if (!confirm("Delete this item? The rest of the section is renumbered.")) return;
+    try {
+        await api(`/api/puzzle/books/${BOOK_ID}/items/${SELECTED.id}`, { method: "DELETE" });
+        SELECTED = null;
+        toast("Deleted.");
+        await load();
+        clearInspector();
+    } catch (e) { toast(e.message, "err"); }
+});
+
+$("btn-validate").addEventListener("click", async () => {
+    setSaveState("Checking…", true);
+    try {
+        const r = await api(`/api/puzzle/books/${BOOK_ID}/validate`);
+        setSaveState("");
+        const problems = [...(r.errors || []), ...(r.warnings || [])];
+        if (r.ok && !problems.length) {
+            toast("All checks passed — ready to export.");
+        } else {
+            const head = r.ok ? "Warnings" : `${(r.errors || []).length} problem(s)`;
+            alert(`${head}:\n\n` + problems.slice(0, 25).join("\n"));
+        }
+    } catch (e) {
+        setSaveState("");
+        toast(e.message, "err");
+    }
+});
+
+$("btn-reexport").addEventListener("click", async () => {
+    // Re-export rebuilds the .docx from the puzzle JSON, so any hand-formatting
+    // done in the Manuscript tab is overwritten. Say so before doing it.
+    if (manuscriptTouched && !confirm(
+            "Re-export rebuilds the manuscript from the puzzle content.\n\n" +
+            "Formatting you changed in the Manuscript tab will be lost.\n\nContinue?")) {
+        return;
+    }
+    const btn = $("btn-reexport");
+    btn.disabled = true;
+    setSaveState("Re-exporting…", true);
+    try {
+        const r = await api(`/api/puzzle/books/${BOOK_ID}/reexport`, { method: "POST" });
+        setSaveState("");
+        toast((r.warnings || []).length
+            ? "Re-exported with warnings: " + r.warnings[0]
+            : "Re-exported. DOCX, print files and zip are up to date.");
+    } catch (e) {
+        setSaveState("");
+        toast(e.message, "err");
+    } finally {
+        btn.disabled = false;
+    }
+});
+
+// -- Manuscript mode -----------------------------------------------------
+//
+// The Word-style editor is the same BookEditorWidget the prose book editor
+// uses. It talks to /api/puzzle/books/<id>/manuscript, which round-trips the
+// built .docx through book_editor's proven docx<->HTML layer.
+
+let MODE = "content";     // "content" | "manuscript"
+let widget = null;
+let manuscriptTouched = false;   // set once a manuscript save succeeds
+
+function ensureWidget() {
+    if (!widget) {
+        widget = new BookEditorWidget($("bk-body"), {
+            contentUrl: id => `/api/puzzle/books/${id}/manuscript`,
+            onStatus: msg => {
+                setSaveState(msg);
+                if (/^Saved \d/.test(msg || "")) manuscriptTouched = true;
+            },
+            onWordCount: () => renderOutline(),
+        });
+    }
+    return widget;
+}
+
+function whichFormat() { return $("which").value || "docx"; }
+
+function setMode(mode) {
+    MODE = mode;
+    const manuscript = mode === "manuscript";
+
+    $("tab-content").className = "mode-tab px-3 py-1.5 rounded-md text-xs font-semibold " +
+        (manuscript ? "text-slate-500" : "bg-white text-slate-900 shadow-sm");
+    $("tab-manuscript").className = "mode-tab px-3 py-1.5 rounded-md text-xs font-semibold " +
+        (manuscript ? "bg-white text-slate-900 shadow-sm" : "text-slate-500");
+
+    // Panes
+    $("pane-content").classList.toggle("hidden", manuscript);
+    $("pane-manuscript").classList.toggle("hidden", !manuscript);
+    $("pane-outline").classList.toggle("hidden", manuscript);
+    $("pane-inspector").classList.toggle("hidden", manuscript);
+
+    // Header controls that only make sense over a document
+    ["which", "btn-download", "btn-save-doc"].forEach(id =>
+        $(id).classList.toggle("hidden", !manuscript));
+
+    if (manuscript) loadManuscript();
+}
+
+async function loadManuscript() {
+    const which = whichFormat();
+    $("btn-download").href =
+        `/api/puzzle/books/${BOOK_ID}/download/${which === "docx" ? "docx" : which}`;
+    setSaveState("Loading document…", true);
+    await ensureWidget().load(BOOK_ID, which, BOOK ? BOOK.book_title : "");
+    setSaveState("");
+}
+
+$("tab-content").addEventListener("click", () => setMode("content"));
+$("tab-manuscript").addEventListener("click", () => setMode("manuscript"));
+$("which").addEventListener("change", loadManuscript);
+$("btn-save-doc").addEventListener("click", () => ensureWidget().save());
+
+// Ctrl/Cmd+S saves whichever editor is in front.
+document.addEventListener("keydown", ev => {
+    if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === "s") {
+        ev.preventDefault();
+        if (MODE === "manuscript") ensureWidget().save();
+        else if (SELECTED) saveItem();
+    }
+});
+
+// ---------- strip AI fingerprints ----------
+// Preview first: the text pass rewrites the manuscript, so the operator sees
+// the counts and confirms before anything is written.
+const STRIP_AI_URL = `/api/puzzle/books/${BOOK_ID}/strip-ai`;
+
+function stripAiRender(r) {
+    const rows = [];
+    if (r.images_flagged) {
+        rows.push(`<div class="mb-3">
+            <div class="font-semibold text-slate-900 mb-1">
+                ${r.images_flagged} of ${r.images_total} image(s) need fixing
+            </div>
+            <ul class="text-xs text-slate-600 space-y-1">` +
+            (r.image_details || []).map(d =>
+                `<li><span class="font-mono">${esc(d.file)}</span><br>
+                 <span class="text-slate-400">${esc((d.problems || []).join("; "))}</span></li>`
+            ).join("") + `</ul></div>`);
+    } else {
+        rows.push(`<div class="mb-3 text-slate-500">
+            All ${r.images_total} image(s) are already 300 DPI with no metadata.</div>`);
+    }
+
+    const fp = r.text_fingerprints || {};
+    const keys = Object.keys(fp);
+    if (keys.length) {
+        rows.push(`<div class="mb-2">
+            <div class="font-semibold text-slate-900 mb-1">
+                ${r.text_total} AI text fingerprint(s) found
+            </div>
+            <ul class="text-xs text-slate-600 space-y-0.5">` +
+            keys.map(k => `<li>${esc(k)} &times; ${fp[k]}</li>`).join("") +
+            `</ul>
+            <div class="text-[11px] text-slate-400 mt-2">
+                These are invisible characters and smart punctuation. Your wording is left exactly as written.
+            </div></div>`);
+    } else {
+        rows.push(`<div class="text-slate-500">No AI text fingerprints found.</div>`);
+    }
+    return rows.join("");
+}
+
+async function stripAiScan() {
+    const modal = $("strip-ai-modal");
+    modal.classList.remove("hidden");
+    modal.classList.add("flex");
+    $("strip-ai-body").innerHTML = `<div class="text-slate-400 text-xs">Scanning…</div>`;
+    $("strip-ai-apply").disabled = true;
+    try {
+        const r = await api(STRIP_AI_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ apply: false }),
+        });
+        $("strip-ai-body").innerHTML = stripAiRender(r);
+        const nothing = !r.images_flagged && !r.text_total;
+        $("strip-ai-apply").disabled = nothing;
+        $("strip-ai-apply").textContent = nothing ? "Nothing to clean" : "Apply changes";
+    } catch (e) {
+        $("strip-ai-body").innerHTML =
+            `<div class="text-red-600 text-xs">${esc(e.message)}</div>`;
+    }
+}
+
+function stripAiClose() {
+    const modal = $("strip-ai-modal");
+    modal.classList.add("hidden");
+    modal.classList.remove("flex");
+}
+
+$("btn-strip-ai").addEventListener("click", stripAiScan);
+$("strip-ai-cancel").addEventListener("click", stripAiClose);
+$("strip-ai-apply").addEventListener("click", async () => {
+    $("strip-ai-apply").disabled = true;
+    try {
+        const r = await api(STRIP_AI_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ apply: true }),
+        });
+        stripAiClose();
+        toast(`Cleaned ${r.images_total} image(s) and ${r.text_fields_changed || 0} text field(s). Re-export to rebuild the files.`);
+        load();
+    } catch (e) {
+        toast(e.message, "err");
+        $("strip-ai-apply").disabled = false;
+    }
+});
+
+load();
+</script>
+</body>
+</html>
