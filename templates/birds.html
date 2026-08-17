@@ -179,6 +179,11 @@
                 </p>
             </div>
             <div class="flex items-center gap-2">
+                <a id="originalsLink" href="#"
+                   class="btn-ghost px-3 py-1.5 rounded-lg text-xs font-medium"
+                   title="Download your uploaded photos, untouched">
+                    <i class="fa-solid fa-download mr-1.5"></i>Originals
+                </a>
                 <button id="selectAll" class="btn-ghost px-3 py-1.5 rounded-lg text-xs font-medium">
                     Select all
                 </button>
@@ -203,8 +208,50 @@
 
         <!-- Left: settings -->
         <section class="lg:col-span-2 glass rounded-2xl p-6 h-fit">
-            <h2 class="font-bold text-slate-900 mb-4">Illustration</h2>
+            <h2 class="font-bold text-slate-900 mb-4">Output</h2>
 
+            <div class="space-y-2 mb-5">
+                <label class="flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer transition"
+                       id="modeCutoutRow">
+                    <input type="radio" name="mode" value="cutout" id="modeCutout"
+                           {% if default_mode == 'cutout' %}checked{% endif %} class="mt-0.5">
+                    <span class="leading-tight">
+                        <span class="block text-xs font-semibold text-slate-800">
+                            Cut out background
+                            <span class="ml-1 text-[10px] font-bold text-emerald-600">FREE</span>
+                        </span>
+                        <span class="block text-[11px] text-slate-500 mt-0.5">
+                            Your photo's own bird, background removed. Same colors and pose.
+                            Runs locally &mdash; no API cost.
+                        </span>
+                    </span>
+                </label>
+                <label class="flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer transition"
+                       id="modeIllusRow">
+                    <input type="radio" name="mode" value="illustration" id="modeIllustration"
+                           {% if default_mode == 'illustration' %}checked{% endif %} class="mt-0.5">
+                    <span class="leading-tight">
+                        <span class="block text-xs font-semibold text-slate-800">
+                            Redraw as illustration
+                            <span class="ml-1 text-[10px] font-bold text-amber-600">USES API</span>
+                        </span>
+                        <span class="block text-[11px] text-slate-500 mt-0.5">
+                            AI redraws the bird as artwork on transparency. One call per bird.
+                        </span>
+                    </span>
+                </label>
+            </div>
+
+            {% if not cutout_available %}
+            <div class="mb-5 p-3 rounded-lg bg-amber-50 border border-amber-200">
+                <p class="text-[11px] text-amber-800 font-semibold mb-1">
+                    <i class="fa-solid fa-triangle-exclamation mr-1"></i>Cut-out mode is not set up
+                </p>
+                <pre class="text-[10px] text-amber-700 whitespace-pre-wrap leading-relaxed">{{ cutout_setup_hint }}</pre>
+            </div>
+            {% endif %}
+
+            <div id="illusOptions">
             <label class="block text-xs font-semibold text-slate-600 mb-1.5">Style</label>
             <select id="style" class="field w-full rounded-lg px-3 py-2 text-sm mb-4">
                 {% for s in styles %}
@@ -216,7 +263,7 @@
                 Extra direction <span class="font-normal text-slate-400">(optional)</span>
             </label>
             <input id="notes" type="text" class="field w-full rounded-lg px-3 py-2 text-sm mb-4"
-                   placeholder="side profile, perched pose">
+                   placeholder="e.g. softer shading, bolder outlines">
 
             <div class="grid grid-cols-2 gap-3 mb-4">
                 <div>
@@ -271,6 +318,22 @@
             </button>
             <pre id="promptPreview"
                  class="hidden mt-3 text-[11px] leading-relaxed bg-slate-50 border border-slate-200 rounded-lg p-3 whitespace-pre-wrap text-slate-600"></pre>
+            </div><!-- /illusOptions -->
+
+            <div id="cutoutOptions">
+                <label class="block text-xs font-semibold text-slate-600 mb-1.5">Parallel</label>
+                <input id="cutoutWorkers" type="number" min="1" max="8" value="4"
+                       class="field w-full rounded-lg px-3 py-2 text-sm mb-3">
+                <label class="flex items-center gap-2 text-xs text-slate-600">
+                    <input id="cutoutTrim" type="checkbox" checked class="rounded border-slate-300">
+                    Trim transparent padding to the bird
+                </label>
+                <p class="text-xs text-slate-500 mt-3">
+                    <i class="fa-solid fa-circle-info mr-1"></i>
+                    Runs on your machine at roughly half a second per bird, using the
+                    full-resolution original you uploaded.
+                </p>
+            </div>
         </section>
 
         <!-- Right: run + results -->
@@ -408,6 +471,7 @@ async function loadSources() {
         return;
     }
     $('sourcesSection').classList.remove('hidden');
+    $('originalsLink').href = `/api/birds/batches/${batchId}/originals.zip`;
     const res = await fetch(`/api/birds/batches/${batchId}`);
     if (!res.ok) { sources = []; renderSources(); return; }
     const data = await res.json();
@@ -505,6 +569,28 @@ const dz = $('dropzone');
     dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('hot'); }));
 dz.addEventListener('drop', (e) => upload(e.dataTransfer.files));
 
+// ---- mode toggle ----
+function currentMode() {
+    return document.querySelector('input[name="mode"]:checked').value;
+}
+function syncMode() {
+    const cut = currentMode() === 'cutout';
+    $('illusOptions').classList.toggle('hidden', cut);
+    $('cutoutOptions').classList.toggle('hidden', !cut);
+    // Highlight the chosen card so the active mode is obvious at a glance.
+    $('modeCutoutRow').className = $('modeCutoutRow').className
+        .replace(/border-\S+|bg-\S+/g, '').trim() +
+        (cut ? ' border-emerald-400 bg-emerald-50/60' : ' border-slate-200');
+    $('modeIllusRow').className = $('modeIllusRow').className
+        .replace(/border-\S+|bg-\S+/g, '').trim() +
+        (cut ? ' border-slate-200' : ' border-amber-400 bg-amber-50/60');
+    $('generateBtn').innerHTML = cut
+        ? '<i class="fa-solid fa-scissors mr-2"></i>Remove backgrounds'
+        : '<i class="fa-solid fa-wand-magic-sparkles mr-2"></i>Generate illustrations';
+}
+document.querySelectorAll('input[name="mode"]').forEach(
+    el => el.addEventListener('change', syncMode));
+
 // ---- prompt preview ----
 $('previewBtn').addEventListener('click', async () => {
     const sample = sources.find(s => selected.has(s.id)) || sources[0];
@@ -532,19 +618,21 @@ $('generateBtn').addEventListener('click', async () => {
     btn.innerHTML = '<i class="fa-solid fa-spinner spin mr-2"></i>Starting…';
     $('idleStatus').textContent = '';
 
+    const cut = currentMode() === 'cutout';
     const res = await fetch('/api/birds/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             batch_id: batchId,
             source_ids: [...selected],
+            mode: currentMode(),
             style: $('style').value,
             notes: $('notes').value,
             size: $('size').value,
             quality: $('quality').value,
             fidelity: $('fidelity').value,
-            workers: parseInt($('workers').value, 10) || 8,
-            trim: $('trim').checked
+            workers: parseInt(cut ? $('cutoutWorkers').value : $('workers').value, 10) || 4,
+            trim: (cut ? $('cutoutTrim') : $('trim')).checked
         })
     });
     const data = await res.json();
@@ -588,9 +676,8 @@ $('docxBtn').addEventListener('click', () => {
 });
 
 function resetButton() {
-    const btn = $('generateBtn');
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles mr-2"></i>Generate illustrations';
+    $('generateBtn').disabled = false;
+    syncMode();   // restores the mode-appropriate button label
 }
 
 async function poll() {
@@ -667,6 +754,7 @@ function renderPlates(run) {
     $('resultsCount').textContent = `${run.done_count}/${run.total}`;
 }
 
+syncMode();
 loadBatches();
 </script>
 </body>

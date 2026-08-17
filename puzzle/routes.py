@@ -370,6 +370,61 @@ def register(app) -> None:  # noqa: ANN001
         threading.Thread(target=_run_build, args=(job_id,), daemon=True).start()
         return jsonify({"job_id": job_id, "status": "queued", "page_estimate": est})
 
+    @app.post("/api/puzzle/books/<book_id>/rerun")
+    def puzzle_rerun(book_id: str):  # noqa: ANN202
+        """Start a fresh build from a previous book's stored config.
+
+        Saves the operator re-entering a long section-by-section config after a
+        failure. This is a new build under a new id: the original row is left
+        untouched so a partial failure is never overwritten by the retry.
+        """
+        row = bookdb.get_puzzle_book(book_id)
+        if not row:
+            abort(404)
+
+        raw = row.get("config_json") or ""
+        if not raw:
+            return jsonify({
+                "error": (
+                    "This book has no stored configuration to re-run. Books "
+                    "created before configs were saved have to be set up again."
+                )
+            }), 400
+
+        try:
+            cfg = _parse_config(json.loads(raw))
+        except (ValueError, PuzzleError) as exc:
+            return jsonify({"error": f"Stored configuration is unusable: {exc}"}), 400
+
+        job_id = uuid.uuid4().hex[:8]
+        job = PuzzleJob(id=job_id, config=cfg)
+        enabled = [
+            f"{cfg.section(k).count} {SECTION_LABELS[k].lower()}"
+            for k in ALL_SECTIONS if cfg.section(k).enabled and cfg.section(k).count
+        ]
+        job.log(
+            f"Re-running '{cfg.book_title}' from the saved configuration — "
+            + ", ".join(enabled)
+        )
+        with JOBS_LOCK:
+            JOBS[job_id] = job
+
+        est = cfg.page_estimate()
+        bookdb.save_puzzle_book(
+            job_id,
+            cfg.book_title,
+            cfg.topic,
+            status="queued",
+            agent=cfg.agent,
+            audience=cfg.audience,
+            difficulty=cfg.difficulty,
+            estimated_pages=est.get("total_pages", 0),
+            config_json=json.dumps(cfg.to_dict()),
+        )
+
+        threading.Thread(target=_run_build, args=(job_id,), daemon=True).start()
+        return jsonify({"job_id": job_id, "status": "queued", "page_estimate": est})
+
     @app.get("/api/puzzle/jobs/<job_id>/status")
     def puzzle_job_status(job_id: str):  # noqa: ANN202
         with JOBS_LOCK:

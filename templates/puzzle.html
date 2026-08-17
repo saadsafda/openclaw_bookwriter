@@ -560,6 +560,11 @@ async function loadLibrary() {
                 ${b.zip_path ? `<a href="/api/puzzle/books/${b.id}/download/zip" data-noopen
                     class="btn-ghost rounded-lg px-2 py-1.5 text-xs" title="Download handoff zip">
                     <i class="fas fa-file-zipper"></i></a>` : ""}
+                ${b.has_config ? `<button data-id="${b.id}" data-noopen
+                        class="lib-rerun btn-ghost rounded-lg px-2 py-1.5 text-xs text-amber-600"
+                        title="Re-run this book from its saved settings">
+                    <i class="fas fa-rotate-right"></i>
+                </button>` : ""}
                 <button data-id="${b.id}" data-noopen
                         class="lib-del btn-ghost rounded-lg px-2 py-1.5 text-xs text-rose-600" title="Delete">
                     <i class="fas fa-trash"></i>
@@ -579,6 +584,33 @@ async function loadLibrary() {
                 if (!confirm("Delete this puzzle book?")) return;
                 await fetch(`/api/puzzle/books/${btn.dataset.id}`, { method: "DELETE" });
                 loadLibrary();
+            });
+        });
+        box.querySelectorAll(".lib-rerun").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                // A full build costs real money, so make the retry deliberate.
+                if (!confirm("Re-run this book from its saved settings?\n\n"
+                    + "This starts a new build and bills for it. The existing "
+                    + "book is kept.")) return;
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                try {
+                    const r = await fetch(`/api/puzzle/books/${btn.dataset.id}/rerun`,
+                        { method: "POST" });
+                    const data = await r.json();
+                    if (!r.ok) { alert(data.error || ("status " + r.status)); return; }
+                    // Follow the new job in the status panel, as if it had been
+                    // started from the form.
+                    currentJob = data.job_id;
+                    if (pollTimer) clearTimeout(pollTimer);
+                    poll(currentJob);
+                    loadLibrary();
+                } catch (e) {
+                    alert("Could not re-run: " + e.message);
+                } finally {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-rotate-right"></i>';
+                }
             });
         });
     } catch (e) { /* library is non-critical */ }

@@ -47,13 +47,23 @@ class BirdLibraryError(RuntimeError):
 
 @dataclass
 class BirdSource:
-    """One uploaded photo: the input side of one plate."""
+    """One uploaded photo: the input side of one plate.
+
+    Two files are kept per photo. ``filename`` is the downscaled PNG the image
+    API is given as a reference; ``original_filename`` is the operator's
+    upload, byte-for-byte as it arrived. They are separate because the
+    reference has to be small (upload limits, and the model consumes 1536px
+    anyway) while the original is an asset in its own right — it is the only
+    copy of the freelancer's work the pipeline holds, and re-encoding it would
+    quietly throw away resolution nobody can get back.
+    """
 
     id: str
-    filename: str          # stored name, always .png
-    original_name: str
+    filename: str          # downscaled API reference, always .png
+    original_name: str     # the name it was uploaded under
     species: str
     added_at: float
+    original_filename: str = ""   # untouched upload; "" for pre-existing rows
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -77,7 +87,15 @@ class Batch:
         return self.dir / "index.json"
 
     def source_path(self, source: BirdSource) -> Path:
+        """The downscaled reference handed to the image API."""
         return self.dir / source.filename
+
+    def original_path(self, source: BirdSource) -> Path | None:
+        """The untouched upload, or None when this row predates originals."""
+        if not source.original_filename:
+            return None
+        path = self.dir / "originals" / source.original_filename
+        return path if path.is_file() else None
 
     def to_dict(self, include_sources: bool = True) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -126,6 +144,7 @@ def _read_batch(batch_dir: Path) -> Batch | None:
                     original_name=str(item.get("original_name") or ""),
                     species=str(item.get("species") or ""),
                     added_at=float(item.get("added_at") or 0.0),
+                    original_filename=str(item.get("original_filename") or ""),
                 )
             )
         except (KeyError, TypeError, ValueError):
@@ -221,6 +240,22 @@ def add_source(batch_id: str, data: bytes, filename: str, species: str = "") -> 
     stored_name = f"{source_id}.png"
     dest = batch.dir / stored_name
 
+    # Validate before writing anything, so a corrupt upload leaves no files
+    # behind.
+    try:
+        with Image.open(io.BytesIO(data)) as probe:
+            probe.verify()
+    except Exception as exc:
+        raise BirdLibraryError(f"Could not read that image: {exc}") from exc
+
+    # The original is written first and never re-encoded — same bytes, same
+    # resolution, original file extension. This is the operator's own photo;
+    # the pipeline is a consumer of it, not its owner.
+    originals_dir = batch.dir / "originals"
+    originals_dir.mkdir(parents=True, exist_ok=True)
+    original_stored = f"{source_id}{suffix}"
+    (originals_dir / original_stored).write_bytes(data)
+
     try:
         with Image.open(io.BytesIO(data)) as img:
             # RGB: the source is a photograph, so any alpha it carries is
@@ -229,6 +264,7 @@ def add_source(batch_id: str, data: bytes, filename: str, species: str = "") -> 
             rgb.thumbnail((MAX_SOURCE_EDGE, MAX_SOURCE_EDGE), Image.Resampling.LANCZOS)
             rgb.save(dest, format="PNG")
     except Exception as exc:
+        (originals_dir / original_stored).unlink(missing_ok=True)
         raise BirdLibraryError(f"Could not read that image: {exc}") from exc
 
     source = BirdSource(
@@ -237,6 +273,7 @@ def add_source(batch_id: str, data: bytes, filename: str, species: str = "") -> 
         original_name=(filename or "")[:200],
         species=(species or "").strip() or species_from_filename(filename),
         added_at=time.time(),
+        original_filename=original_stored,
     )
     batch.sources.append(source)
     _write_batch(batch)
@@ -263,6 +300,9 @@ def delete_source(batch_id: str, source_id: str) -> None:
     for source in batch.sources:
         if source.id == source_id:
             batch.source_path(source).unlink(missing_ok=True)
+            original = batch.original_path(source)
+            if original is not None:
+                original.unlink(missing_ok=True)
     batch.sources = kept
     _write_batch(batch)
 

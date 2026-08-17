@@ -186,9 +186,27 @@ def _run_build(job_id: str) -> None:
             job.collisions = [c.to_dict() for c in builder.collisions]
             # Spend up to the point of failure is real; keep it on the ledger.
             job.usage = builder.ledger.to_dict()
+            # The gate rejects a handful of items out of hundreds that were
+            # already paid for. Persisting the book here is what makes the
+            # failure recoverable: /resolve reloads this JSON and fixes only
+            # the colliding facts instead of rebuilding from zero.
+            try:
+                stem = _safe_stem(job.config.book_title)
+                draft_path = pipeline.write_json(
+                    builder.book, out_dir / f"{stem}.json"
+                )
+                job.outputs["json"] = str(draft_path)
+                _log(
+                    f"Saved the blocked draft to {draft_path.name} — its "
+                    "content is intact and can be resolved without "
+                    "regenerating the book."
+                )
+            except Exception as save_exc:
+                _log(f"WARNING: could not save blocked draft: {save_exc}")
         _log(f"BLOCKED: {exc}")
         bookdb.update_trivia_book(
             job_id, status="error", stage="validation-failed", error=str(exc),
+            json_path=job.outputs.get("json", ""),
             usage_json=json.dumps(job.usage),
         )
     except TriviaError as exc:
@@ -304,6 +322,60 @@ def register(app) -> None:  # noqa: ANN001
         job = TriviaJob(id=job_id, config=cfg)
         job.log(
             f"Queued '{cfg.book_title}' — {len(cfg.chapters)} chapter(s), "
+            f"{sum(c.trivia_count for c in cfg.chapters)} questions, "
+            f"{sum(c.fact_count for c in cfg.chapters)} facts"
+        )
+        with JOBS_LOCK:
+            JOBS[job_id] = job
+
+        bookdb.save_trivia_book(
+            job_id,
+            cfg.book_title,
+            cfg.topic,
+            status="queued",
+            agent=cfg.agent,
+            difficulty=cfg.difficulty,
+            answer_key_position=cfg.answer_key_position,
+            chapter_count=len(cfg.chapters),
+            trivia_total=sum(c.trivia_count for c in cfg.chapters),
+            fact_total=sum(c.fact_count for c in cfg.chapters),
+            config_json=json.dumps(cfg.to_dict()),
+        )
+
+        threading.Thread(target=_run_build, args=(job_id,), daemon=True).start()
+        return jsonify({"job_id": job_id, "status": "queued"})
+
+    @app.post("/api/trivia/books/<book_id>/rerun")
+    def trivia_rerun(book_id: str):  # noqa: ANN202
+        """Start a fresh build from a previous book's stored config.
+
+        Saves the operator re-entering a long chapter scheme after a failure.
+        This is a new build under a new id: the original row is left untouched
+        so a partial failure is never overwritten by the retry.
+        """
+        row = bookdb.get_trivia_book(book_id)
+        if not row:
+            abort(404)
+
+        raw = row.get("config_json") or ""
+        if not raw:
+            return jsonify({
+                "error": (
+                    "This book has no stored configuration to re-run. Books "
+                    "created before configs were saved have to be set up again."
+                )
+            }), 400
+
+        try:
+            cfg = _parse_config(json.loads(raw))
+        except (ValueError, TriviaError) as exc:
+            return jsonify({"error": f"Stored configuration is unusable: {exc}"}), 400
+
+        job_id = uuid.uuid4().hex[:8]
+        job = TriviaJob(id=job_id, config=cfg)
+        job.log(
+            f"Re-running '{cfg.book_title}' from the saved configuration — "
+            f"{len(cfg.chapters)} chapter(s), "
             f"{sum(c.trivia_count for c in cfg.chapters)} questions, "
             f"{sum(c.fact_count for c in cfg.chapters)} facts"
         )
@@ -751,5 +823,114 @@ def register(app) -> None:  # noqa: ANN001
 
             bookdb.update_trivia_book(book_id, **updates)
             return jsonify({"ok": True, "outputs": updates})
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+
+    @app.post("/api/trivia/books/<book_id>/resolve")
+    def trivia_resolve(book_id: str):  # noqa: ANN202
+        """Finish a book the no-overlap gate blocked, without regenerating it.
+
+        A gate failure typically rejects a handful of facts out of hundreds
+        that were already generated and paid for. This reloads the saved draft,
+        regenerates only the colliding facts, and runs the export the failed
+        build never reached.
+        """
+        row = bookdb.get_trivia_book(book_id)
+        if not row:
+            abort(404)
+        json_path = Path(row.get("json_path") or "")
+        if not json_path.exists():
+            return jsonify({
+                "error": (
+                    "No saved draft for this book. Builds that failed before "
+                    "this fix shipped did not persist their content and have "
+                    "to be rebuilt."
+                )
+            }), 400
+
+        try:
+            book = pipeline.load_json(json_path)
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"error": f"Could not read the saved draft: {exc}"}), 500
+
+        out_dir = json_path.parent
+        builder = pipeline.TriviaBuilder(book.config)
+        builder.book = book
+        # write_json/load_json do not round-trip a cache, so point the rebuilt
+        # builder at the one the original build already paid to fill.
+        builder.cache = RawOutputCache(out_dir / "raw_cache")
+        builder.checker.cache = builder.cache
+
+        try:
+            remaining = builder.global_dedup_pass()
+            for _ in range(pipeline.DEDUP_REPAIR_ROUNDS):
+                if not remaining:
+                    break
+                before = len(remaining)
+                builder.resolve_collisions(remaining)
+                remaining = builder.global_dedup_pass()
+                if len(remaining) >= before:
+                    break
+
+            blocking = [c for c in remaining if c.kind == "fact_vs_trivia"]
+            if blocking:
+                detail = "; ".join(
+                    f"{c.left_id} repeats {c.right_id}" for c in blocking[:5]
+                )
+                # The draft on disk stays intact, so this stays retryable.
+                return jsonify({
+                    "error": (
+                        f"Still blocked: {len(blocking)} fact(s) restate trivia "
+                        f"content. {detail}. Widen the scope or lower "
+                        "fact_count for those chapters, then try again."
+                    ),
+                    "collisions": [c.to_dict() for c in blocking],
+                }), 409
+
+            errors = builder.validate_for_export()
+            if errors:
+                return jsonify({
+                    "error": "Export blocked by validation:\n- "
+                             + "\n- ".join(errors[:12]),
+                }), 409
+
+            stem = _safe_stem(book.config.book_title)
+            pipeline.write_json(book, json_path)
+            md_path = exporter.write_markdown(book, out_dir / f"{stem}.md")
+            docx_path = exporter.build_docx(book, out_dir / f"{stem}.docx")
+
+            updates: dict[str, Any] = {
+                "status": "done",
+                "stage": "done",
+                "progress": 1.0,
+                "error": "",
+                "json_path": str(json_path),
+                "markdown_path": str(md_path),
+                "docx_path": str(docx_path),
+            }
+
+            warnings: list[str] = list(book.warnings)
+            warnings.extend(exporter.verify_print_images(book, out_dir))
+
+            try:
+                kdp = exporter.build_kdp_files(book, docx_path, out_dir)
+                updates["kindle_path"] = kdp["kindle"]
+                updates["paperback_path"] = kdp["paperback"]
+            except Exception as exc:  # noqa: BLE001
+                warnings.append(f"KDP formatting failed: {exc}")
+
+            updates["warnings_json"] = json.dumps(warnings)
+            # Resolving spends tokens of its own; fold them into the total the
+            # book already carries rather than reporting only this pass.
+            prior = json.loads(row.get("usage_json") or "{}")
+            spent = builder.ledger.to_dict()
+            merged = dict(spent)
+            for key in ("calls", "cache_hits", "total_tokens", "cost_usd"):
+                if key in prior and key in spent:
+                    merged[key] = prior[key] + spent[key]
+            updates["usage_json"] = json.dumps(merged)
+
+            bookdb.update_trivia_book(book_id, **updates)
+            return jsonify({"ok": True, "outputs": updates, "warnings": warnings})
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500

@@ -1448,7 +1448,10 @@ def list_trivia_books(limit: int = 50) -> list[dict[str, Any]]:
             SELECT id, title, topic, status, stage, progress, difficulty,
                    answer_key_position, chapter_count, trivia_total, fact_total,
                    json_path, markdown_path, docx_path, kindle_path,
-                   paperback_path, error, created_at, updated_at
+                   paperback_path, error, created_at, updated_at,
+                   -- Whether the book can be re-run, without shipping the whole
+                   -- config blob to the library view for every row.
+                   (config_json IS NOT NULL AND config_json != '') AS has_config
             FROM trivia_books
             ORDER BY created_at DESC
             LIMIT ?
@@ -1563,7 +1566,10 @@ def list_puzzle_books(limit: int = 50) -> list[dict[str, Any]]:
             SELECT id, title, topic, status, stage, progress, audience,
                    difficulty, counts_json, estimated_pages, json_path,
                    markdown_path, docx_path, kindle_path, paperback_path,
-                   zip_path, error, created_at, updated_at
+                   zip_path, error, created_at, updated_at,
+                   -- Whether the book can be re-run, without shipping the whole
+                   -- config blob to the library view for every row.
+                   (config_json IS NOT NULL AND config_json != '') AS has_config
             FROM puzzle_books
             ORDER BY created_at DESC
             LIMIT ?

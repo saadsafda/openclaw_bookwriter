@@ -36,6 +36,11 @@ from .engine import (
 # rejected by validation or the dedup gate. Each attempt is a fresh batch.
 MAX_REFILL_ROUNDS = 6
 
+# How many regenerate-then-resweep rounds the global dedup gate gets before it
+# gives up. Each round is a full chapter refill, so this stays small; rounds
+# that make no progress bail early regardless.
+DEDUP_REPAIR_ROUNDS = 3
+
 
 LogFn = Callable[[str], None]
 ProgressFn = Callable[[str, float], None]
@@ -225,7 +230,11 @@ class TriviaBuilder:
             # Section 6 step 3 — every trivia claim in the book is excluded,
             # expressed as readable claims rather than bare slugs so the model
             # can actually reason about what to avoid.
-            exclusions = [q.claim_text() for q in chapter.trivia]
+            # The dedup gate compares facts against every chapter's trivia, so
+            # the exclusion list has to span the whole book too. Showing only
+            # this chapter's questions lets a regenerated fact collide with a
+            # later chapter's question the model was never told to avoid.
+            exclusions = [q.claim_text() for q in self._all_trivia()]
             exclusions += [f.fact for f in accepted]
 
             prompt = engine.build_facts_prompt(self.cfg, ch_cfg, batch_size, exclusions)
@@ -251,9 +260,11 @@ class TriviaBuilder:
 
             parsed = engine.dedup_within(parsed)
 
-            # Gate 1: facts must not restate trivia in this chapter.
+            # Gate 1: facts must not restate trivia anywhere in the book. This
+            # has to match global_dedup_pass, which sweeps book-wide; a narrower
+            # check here just defers the failure to the export gate.
             against_trivia = self.checker.find_collisions(
-                parsed, chapter.trivia, "fact_vs_trivia"
+                parsed, self._all_trivia(), "fact_vs_trivia"
             )
             # Gate 2: facts must not repeat other facts anywhere in the book.
             against_facts = self.checker.find_collisions(
@@ -474,12 +485,26 @@ class TriviaBuilder:
             self.progress("facts", step / total_steps)
 
         self._check_stop()
-        collisions = self.global_dedup_pass()
-        self.collisions = collisions
-        self.resolve_collisions(collisions)
-
-        # Re-check after regeneration; anything surviving blocks export.
+        # Regenerate and re-sweep. One pass is not enough: a fact rewritten to
+        # dodge one question can land on another, and until the exclusion list
+        # went book-wide a cross-chapter collision could survive indefinitely.
+        # Bounded so a scope too narrow to yield a distinct fact still fails
+        # rather than burning tokens forever.
         remaining = self.global_dedup_pass()
+        for attempt in range(DEDUP_REPAIR_ROUNDS):
+            if not remaining:
+                break
+            self.collisions = remaining
+            before = len(remaining)
+            self.resolve_collisions(remaining)
+            remaining = self.global_dedup_pass()
+            if len(remaining) >= before:
+                # No forward progress; more rounds will not help.
+                self.log(
+                    f"  repair round {attempt + 1} made no progress; stopping"
+                )
+                break
+
         self.collisions = remaining
         step += 1
         self.progress("dedup", step / total_steps)
@@ -491,7 +516,11 @@ class TriviaBuilder:
             )
             raise ValidationGateError(
                 f"No-overlap gate failed: {len(blocking)} fact(s) restate trivia "
-                f"content. {detail}"
+                f"content. {detail}. These survived "
+                f"{DEDUP_REPAIR_ROUNDS} regeneration round(s), so the chapter "
+                "scope is likely too narrow to yield a fact distinct from its "
+                "questions — widen the scope or lower fact_count for the "
+                "chapters named above."
             )
 
         self._check_stop()

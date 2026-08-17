@@ -249,6 +249,21 @@
                         </div>
                     </div>
                     <div id="job-error" class="hidden mt-4 text-xs rounded-xl px-3 py-2.5 bg-red-50 border border-red-200 text-red-700"></div>
+                    <!-- Only shown when the no-overlap gate blocked an
+                         otherwise-complete book, whose draft is on disk. -->
+                    <div id="resolve-box" class="hidden mt-3 rounded-xl px-3 py-3 bg-emerald-50 border border-emerald-200">
+                        <div class="text-xs text-emerald-900 leading-relaxed">
+                            <i class="fas fa-circle-info mr-1"></i>
+                            The generated content was saved. Resolving regenerates
+                            only the overlapping facts and finishes the export —
+                            it does not rebuild the book.
+                        </div>
+                        <button id="resolve-btn" type="button"
+                            class="btn-primary mt-2.5 w-full rounded-xl px-3 py-2 text-xs font-semibold">
+                            <i class="fas fa-wand-magic-sparkles mr-1"></i>
+                            Resolve &amp; finish book
+                        </button>
+                    </div>
                     <div id="job-warnings" class="hidden mt-3 text-xs rounded-xl px-3 py-2.5 bg-amber-50 border border-amber-200 text-amber-800"></div>
                     <div id="downloads" class="hidden mt-4 grid grid-cols-2 gap-2"></div>
                     <details id="log-wrap" class="mt-4">
@@ -279,6 +294,10 @@
 const $ = (id) => document.getElementById(id);
 let pollTimer = null;
 let currentJob = null;
+// Set from the status payload: the blocked book whose draft can be resolved.
+// Tracked separately from currentJob so a book reopened from the library is
+// resolvable too, not just one built in this page session.
+let resolveJobId = null;
 
 const PRESETS = {
     decades: [
@@ -418,6 +437,13 @@ function setStatus(s) {
         $("job-error").classList.add("hidden");
     }
 
+    // The gate rejects a few items out of hundreds already paid for, so offer
+    // to finish the book rather than making the operator rebuild it. Needs a
+    // saved draft — builds that failed before that was persisted can't resume.
+    const resolvable = s.stage === "validation-failed" && s.outputs && s.outputs.json;
+    $("resolve-box").classList.toggle("hidden", !resolvable);
+    if (resolvable) resolveJobId = s.id;
+
     if (s.warnings && s.warnings.length) {
         $("job-warnings").innerHTML = s.warnings.map(w => `<div>${escapeHtml(w)}</div>`).join("");
         $("job-warnings").classList.remove("hidden");
@@ -496,6 +522,7 @@ async function loadLibrary() {
                 </div>
                 <span class="badge uppercase px-2 py-0.5 rounded-md ${badgeClass}">${escapeHtml(b.status)}</span>
                 ${b.status === "done" ? `<a href="/trivia/${b.id}/edit" class="btn-ghost w-7 h-7 rounded-lg text-[11px] flex items-center justify-center text-emerald-700" title="Preview &amp; Edit"><i class="fas fa-pen-to-square"></i></a>` : ""}
+                ${(b.status === "error" || b.status === "stopped") && b.has_config ? `<button data-id="${b.id}" class="lib-rerun btn-ghost w-7 h-7 rounded-lg text-[11px] flex items-center justify-center text-amber-600" title="Re-run this book from its saved settings"><i class="fas fa-rotate-right"></i></button>` : ""}
                 <button data-id="${b.id}" class="lib-open btn-ghost w-7 h-7 rounded-lg text-[11px]" title="Open"><i class="fas fa-arrow-up-right-from-square"></i></button>
                 <button data-id="${b.id}" class="lib-del btn-ghost w-7 h-7 rounded-lg text-[11px] hover:text-red-600" title="Delete"><i class="fas fa-trash"></i></button>
             </div>`;
@@ -511,6 +538,32 @@ async function loadLibrary() {
                 if (!confirm("Delete this trivia book?")) return;
                 await fetch(`/api/trivia/books/${btn.dataset.id}`, { method: "DELETE" });
                 loadLibrary();
+            }));
+        document.querySelectorAll(".lib-rerun").forEach(btn =>
+            btn.addEventListener("click", async () => {
+                // A full build costs real money, so make the retry deliberate.
+                if (!confirm("Re-run this book from its saved settings?\n\n"
+                    + "This starts a new build and bills for it. The existing "
+                    + "book is kept.")) return;
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                try {
+                    const r = await fetch(`/api/trivia/books/${btn.dataset.id}/rerun`,
+                        { method: "POST" });
+                    const data = await r.json();
+                    if (!r.ok) { alert(data.error || ("status " + r.status)); return; }
+                    // Follow the new job in the status panel, as if it had been
+                    // started from the form.
+                    currentJob = data.job_id;
+                    if (pollTimer) clearTimeout(pollTimer);
+                    poll(currentJob);
+                    loadLibrary();
+                } catch (e) {
+                    alert("Could not re-run: " + e.message);
+                } finally {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-rotate-right"></i>';
+                }
             }));
     } catch (e) { /* library is non-critical */ }
 }
@@ -561,6 +614,41 @@ $("btn-generate").addEventListener("click", async () => {
 $("btn-stop").addEventListener("click", async () => {
     if (!currentJob) return;
     await fetch(`/api/trivia/jobs/${currentJob}/stop`, { method: "POST" });
+});
+
+$("resolve-btn").addEventListener("click", async () => {
+    if (!resolveJobId) return;
+    const btn = $("resolve-btn");
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Resolving…';
+    $("stage-label").textContent = "Resolving overlaps";
+    try {
+        const r = await fetch(`/api/trivia/books/${resolveJobId}/resolve`,
+            { method: "POST" });
+        const data = await r.json();
+        if (!r.ok) {
+            // 409 means it is still blocked; the draft survives, so the
+            // operator can widen the scope and press the button again.
+            $("job-error").textContent = data.error || ("status " + r.status);
+            $("job-error").classList.remove("hidden");
+            $("stage-label").textContent = "Still blocked";
+            btn.disabled = false;
+            btn.innerHTML = original;
+            return;
+        }
+        $("job-error").classList.add("hidden");
+        $("resolve-box").classList.add("hidden");
+        // Re-read from the server so downloads and usage reflect the export
+        // this just completed.
+        await poll(resolveJobId);
+        loadLibrary();
+    } catch (e) {
+        $("job-error").textContent = "Resolve failed: " + e.message;
+        $("job-error").classList.remove("hidden");
+        btn.disabled = false;
+        btn.innerHTML = original;
+    }
 });
 
 $("btn-export").addEventListener("click", () => {

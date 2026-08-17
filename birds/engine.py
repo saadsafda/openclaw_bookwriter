@@ -39,6 +39,20 @@ OUTPUT_DIR = ROOT_DIR / "bird_outputs"
 
 MODEL = "gpt-image-1"
 
+# Two ways to produce a plate.
+#
+#   cutout       — the photograph's own bird with its background deleted, done
+#                  locally by a U²-Net model. No redraw, no API cost. The bird
+#                  keeps its exact pixels, colors and pose because nothing
+#                  regenerates it. This is the default.
+#   illustration — gpt-image-1 redraws the bird as artwork on transparency.
+#                  Costs one API call per bird; use it when the guide wants
+#                  drawn plates rather than photographs.
+MODE_CUTOUT = "cutout"
+MODE_ILLUSTRATION = "illustration"
+VALID_MODES = {MODE_CUTOUT, MODE_ILLUSTRATION}
+DEFAULT_MODE = MODE_CUTOUT
+
 # Square is right for a field-guide plate: the bird is the only subject and the
 # cutout gets trimmed to its own bounding box anyway. The other sizes are here
 # so a caller can request a portrait plate for a tall wading bird.
@@ -59,6 +73,11 @@ DEFAULT_FIDELITY = "high"
 # rate limit. Raise only alongside a matching quota.
 DEFAULT_WORKERS = 8
 MAX_WORKERS = 16
+
+# Local cutout is CPU-bound in the sidecar, so parallelism past a few workers
+# only adds contention. Measured ~0.5s/image warm, so 300 birds still lands in
+# a couple of minutes.
+CUTOUT_WORKERS = 4
 
 # One extra attempt for a transport error, plus one for an opaque result.
 MAX_ATTEMPTS = 3
@@ -108,6 +127,7 @@ class BirdRun:
     style: str
     size: str
     quality: str
+    mode: str = DEFAULT_MODE
     plates: list[Plate] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
     cancelled: bool = False
@@ -127,6 +147,7 @@ class BirdRun:
             "style": self.style,
             "size": self.size,
             "quality": self.quality,
+            "mode": self.mode,
             "created_at": self.created_at,
             "cancelled": self.cancelled,
             "plates": [p.to_dict() for p in self.plates],
@@ -282,6 +303,8 @@ def generate_plates(
     fidelity: str = DEFAULT_FIDELITY,
     workers: int = DEFAULT_WORKERS,
     trim: bool = True,
+    mode: str = DEFAULT_MODE,
+    cutout_model: str = "",
     on_progress: Callable[[BirdRun], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
 ) -> BirdRun:
@@ -293,16 +316,35 @@ def generate_plates(
 
     A failed plate is recorded on that plate and does not abort the run.
     """
-    if not api_key:
-        raise BirdGenerationError("No OpenAI API key available for bird generation.")
     if not sources:
         raise BirdGenerationError("At least one bird photo is required.")
-    if size not in VALID_SIZES:
-        raise BirdGenerationError(f"size must be one of {sorted(VALID_SIZES)}.")
-    if quality not in VALID_QUALITIES:
-        raise BirdGenerationError(f"quality must be one of {sorted(VALID_QUALITIES)}.")
+    if mode not in VALID_MODES:
+        raise BirdGenerationError(f"mode must be one of {sorted(VALID_MODES)}.")
+
+    if mode == MODE_ILLUSTRATION:
+        # Only the redraw path talks to the API, so only it needs a key.
+        if not api_key:
+            raise BirdGenerationError(
+                "No OpenAI API key available for illustration mode."
+            )
+        if size not in VALID_SIZES:
+            raise BirdGenerationError(f"size must be one of {sorted(VALID_SIZES)}.")
+        if quality not in VALID_QUALITIES:
+            raise BirdGenerationError(
+                f"quality must be one of {sorted(VALID_QUALITIES)}."
+            )
+    else:
+        # Fail before the run starts rather than on 300 individual plates.
+        from . import cutout
+
+        if not cutout.is_available():
+            raise BirdGenerationError(cutout.SETUP_HINT)
 
     workers = max(1, min(int(workers or DEFAULT_WORKERS), MAX_WORKERS))
+    if mode == MODE_CUTOUT:
+        # The local model is CPU-bound; more threads than cores just thrashes.
+        # Each call is ~0.5s, so a 300-bird batch still finishes in minutes.
+        workers = min(workers, CUTOUT_WORKERS)
 
     run = BirdRun(
         id=uuid.uuid4().hex[:12],
@@ -311,6 +353,7 @@ def generate_plates(
         style=style,
         size=size,
         quality=quality,
+        mode=mode,
         plates=[
             Plate(index=i, source_id=sid, species=species)
             for i, (sid, species, _) in enumerate(sources)
@@ -333,10 +376,39 @@ def generate_plates(
             return
 
         dest = run.output_dir / _plate_filename(index, species)
-        prompt = prompt_for(species)
         plate.status = "running"
         _emit()
 
+        # Cutout is deterministic: the same photo through the same model gives
+        # the same mask every time, so retrying a failure would only repeat it.
+        # One attempt, and any error goes straight to the operator.
+        if mode == MODE_CUTOUT:
+            from . import cutout
+
+            plate.attempts = 1
+            try:
+                cutout.remove_background(source, dest, cutout_model or cutout.DEFAULT_MODEL)
+            except Exception as exc:
+                plate.status = "error"
+                plate.error = str(exc)
+                return
+
+            transparent = has_real_transparency(dest)
+            if trim and transparent:
+                trim_to_subject(dest)
+            _finalize(dest)
+
+            plate.transparent = transparent
+            plate.filename = dest.name
+            plate.status = "done"
+            plate.warning = (
+                ""
+                if transparent
+                else "Nothing was removed — the photo may have no clear subject."
+            )
+            return
+
+        prompt = prompt_for(species)
         last_error = ""
         for attempt in range(1, MAX_ATTEMPTS + 1):
             if should_cancel is not None and should_cancel():

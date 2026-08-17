@@ -24,16 +24,21 @@ from flask import jsonify, render_template, request, send_file
 
 import openclaw_image_maker as image_maker
 
+from . import cutout
 from . import export as exportlib
 from . import library
 from . import prompts as promptlib
 from .engine import (
     DEFAULT_FIDELITY,
+    DEFAULT_MODE,
     DEFAULT_QUALITY,
     DEFAULT_SIZE,
     DEFAULT_WORKERS,
     MAX_WORKERS,
+    MODE_CUTOUT,
+    MODE_ILLUSTRATION,
     VALID_FIDELITIES,
+    VALID_MODES,
     VALID_QUALITIES,
     VALID_SIZES,
     BirdGenerationError,
@@ -96,6 +101,7 @@ def _run_job(
     fidelity: str,
     workers: int,
     trim: bool,
+    mode: str,
 ) -> None:
     try:
         batch, sources = library.resolve_sources(batch_id, source_ids)
@@ -106,8 +112,18 @@ def _run_job(
         def _prompt_for(species: str) -> str:
             return promptlib.build_prompt(species, style, notes)
 
+        def _input_for(source) -> Path:
+            """Cutout keeps the photo's own pixels, so give it the untouched
+            original at full resolution. Illustration only needs the 1536px
+            reference the API consumes anyway."""
+            if mode == MODE_CUTOUT:
+                original = batch.original_path(source)
+                if original is not None:
+                    return original
+            return batch.source_path(source)
+
         run = generate_plates(
-            sources=[(s.id, s.species, batch.source_path(s)) for s in sources],
+            sources=[(s.id, s.species, _input_for(s)) for s in sources],
             prompt_for=_prompt_for,
             api_key=_api_key(),
             batch_id=batch.id,
@@ -118,6 +134,7 @@ def _run_job(
             fidelity=fidelity,
             workers=workers,
             trim=trim,
+            mode=mode,
             on_progress=lambda r: setattr(job, "run", r),
             should_cancel=lambda: job.cancel_requested,
         )
@@ -150,6 +167,9 @@ def register(app) -> None:
             default_fidelity=DEFAULT_FIDELITY,
             default_workers=DEFAULT_WORKERS,
             max_workers=MAX_WORKERS,
+            default_mode=DEFAULT_MODE,
+            cutout_available=cutout.is_available(),
+            cutout_setup_hint=cutout.SETUP_HINT,
         )
 
     # ---- batches -----------------------------------------------------------
@@ -242,6 +262,62 @@ def register(app) -> None:
             return jsonify({"error": "Photo file is missing."}), 404
         return send_file(path, mimetype="image/png")
 
+    @app.route("/api/birds/batches/<batch_id>/sources/<source_id>/original")
+    def birds_source_original(batch_id: str, source_id: str):
+        """The operator's untouched upload, exactly as it arrived."""
+        try:
+            batch, source = library.get_source(batch_id, source_id)
+        except BirdLibraryError as exc:
+            return jsonify({"error": str(exc)}), 404
+
+        path = batch.original_path(source)
+        if path is None:
+            return jsonify(
+                {"error": "No original kept for this photo (uploaded before "
+                          "originals were retained)."}
+            ), 404
+        return send_file(
+            path,
+            as_attachment=True,
+            download_name=source.original_name or path.name,
+        )
+
+    @app.route("/api/birds/batches/<batch_id>/originals.zip")
+    def birds_originals_zip(batch_id: str):
+        """Every original in the batch, under its uploaded filename."""
+        try:
+            batch = library.get_batch(batch_id)
+        except BirdLibraryError as exc:
+            return jsonify({"error": str(exc)}), 404
+
+        buffer = io.BytesIO()
+        written = 0
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            used: set[str] = set()
+            for source in batch.sources:
+                path = batch.original_path(source)
+                if path is None:
+                    continue
+                # Uploaded names are not guaranteed unique; de-duplicate so a
+                # second "cardinal.jpg" cannot overwrite the first.
+                name = source.original_name or path.name
+                if name in used:
+                    name = f"{Path(name).stem}_{source.id}{Path(name).suffix}"
+                used.add(name)
+                archive.write(path, arcname=name)
+                written += 1
+
+        if not written:
+            return jsonify({"error": "No originals kept for this batch."}), 404
+
+        buffer.seek(0)
+        return send_file(
+            buffer,
+            mimetype="application/zip",
+            as_attachment=True,
+            download_name=f"{_slug(batch.name)}_originals.zip",
+        )
+
     # ---- prompt preview ----------------------------------------------------
 
     @app.route("/api/birds/prompt", methods=["POST"])
@@ -262,7 +338,12 @@ def register(app) -> None:
         batch_id = str(data.get("batch_id") or "").strip()
         if not batch_id:
             return jsonify({"error": "A batch is required."}), 400
-        if not _api_key():
+
+        mode = str(data.get("mode") or DEFAULT_MODE).strip().lower()
+        if mode not in VALID_MODES:
+            return jsonify({"error": f"mode must be one of {sorted(VALID_MODES)}."}), 400
+        # Only the redraw path spends API credit, so only it needs a key.
+        if mode == MODE_ILLUSTRATION and not _api_key():
             return jsonify({"error": "No OpenAI API key configured."}), 400
 
         style = str(data.get("style") or promptlib.DEFAULT_STYLE)
@@ -294,7 +375,7 @@ def register(app) -> None:
         thread = threading.Thread(
             target=_run_job,
             args=(job, batch_id, source_ids, style, notes, size, quality,
-                  fidelity, workers, trim),
+                  fidelity, workers, trim, mode),
             daemon=True,
         )
         thread.start()
