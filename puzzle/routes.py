@@ -143,6 +143,19 @@ def _run_build(job_id: str) -> None:
             "docx": str(docx_path),
         }
 
+        # Print-ready interior in the reference trade format. Best-effort: the
+        # plain manuscript above is already safely on disk.
+        try:
+            interior_path = exporter.build_interior_docx(
+                book, out_dir / "puzzle_book_interior.docx"
+            )
+            job.outputs["interior"] = str(interior_path)
+            _log("Formatted 6x9 interior written")
+        except Exception as exc:  # noqa: BLE001 - report, never fail the build
+            msg = f"Interior formatting failed: {exc}"
+            _log(f"WARNING: {msg}")
+            job.warnings.append(msg)
+
         _log("Verifying every image is 300 DPI with no AI metadata")
         image_problems = exporter.verify_print_images(book, out_dir)
         if image_problems:
@@ -850,6 +863,11 @@ def register(app) -> None:  # noqa: ANN001
                 "markdown": str(md_path),
                 "docx": str(docx_path),
             }
+            try:
+                outputs["interior"] = str(exporter.build_interior_docx(
+                    book, out_dir / "puzzle_book_interior.docx"))
+            except Exception as exc:  # noqa: BLE001 - never lose the manuscript
+                warnings.append(f"Interior formatting failed: {exc}")
             warnings.extend(exporter.verify_print_images(book, out_dir))
             try:
                 kdp = exporter.build_kdp_files(book, docx_path, out_dir)

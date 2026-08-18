@@ -559,3 +559,35 @@ def _illustrator_brief_doc(book: PuzzleBook) -> str:
         lines += [f"{i}. {d}" for i, d in enumerate(brief.difference_ideas, start=1)]
         lines.append("")
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------
+# Print-ready interior (reference trade format)
+# --------------------------------------------------------------------------
+
+def build_interior_docx(
+    book: PuzzleBook,
+    path: Path,
+    *,
+    author: str = "Author Name",
+    isbn: str = "",
+    publisher: str = "",
+    support_email: str = "",
+) -> Path:
+    """Write the 6x9 interior in the reference book's trade format.
+
+    Unlike :func:`build_docx`, which produces a plain manuscript for the KDP
+    formatter, this file already carries its own trim size, mirrored margins,
+    section dividers, page numbers and Table of Contents — so it is handed to
+    the printer as-is and must not be passed to ``build_kdp_files()``.
+    """
+    from .layout import build_formatted_docx
+
+    return build_formatted_docx(
+        book,
+        path,
+        author=author,
+        isbn=isbn,
+        publisher=publisher,
+        support_email=support_email,
+    )
