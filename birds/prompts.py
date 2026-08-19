@@ -5,7 +5,7 @@ tightened into a template:
 
     "Create a colored illustration of this bird in 300 DPI that can be used in
      a professional book, and don't have any background around it, just the
-     bird."
+     bird. Make sure to match the colors of the bird perfectly."
 
 That sentence is the whole prompt, used **verbatim** and on its own. The
 reference photo is doing the rest of the work: the model can already see the
@@ -14,7 +14,8 @@ words adds nothing and only gives the output room to drift from wording that
 already works.
 
 The one optional addition is a style sentence for the non-default looks
-(watercolor, vector, vintage). The default sends the base prompt alone.
+(watercolor, vector, vintage, colored pencil). The default sends the base
+prompt alone.
 
 Note that the background instruction inside the prompt is *not* what produces
 the alpha channel — ``background="transparent"`` on the API call is. The
@@ -40,7 +41,7 @@ from dataclasses import dataclass
 BASE_PROMPT = (
     "Create a Colored illustration of this bird in 300 DPI that can be used "
     "in a professional book, and don't have any background around it, just "
-    "the bird."
+    "the bird. Make sure to match the colors of the bird perfectly."
 )
 
 
@@ -87,6 +88,16 @@ PROFILES: dict[str, StyleProfile] = {
             "a vintage hand-colored engraving-style illustration in the "
             "tradition of classic 19th-century ornithological plates, with "
             "fine linework and muted natural color"
+        ),
+    ),
+    "colored_pencil": StyleProfile(
+        key="colored_pencil",
+        label="Colored Pencil",
+        clause=(
+            "a colored pencil illustration with visible pencil strokes and "
+            "layered hand-drawn shading, soft blended tones and fine feather "
+            "detail, true to the bird's real colors, no paper texture behind "
+            "the bird"
         ),
     ),
 }

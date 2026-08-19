@@ -887,12 +887,23 @@ def register(app) -> None:  # noqa: ANN001
                     "collisions": [c.to_dict() for c in blocking],
                 }), 409
 
+            # A build can also be blocked simply because a chapter came up
+            # short of its fact quota. Extend those chapters in place before
+            # validating, so a draft that only needs a few more facts finishes
+            # instead of demanding a full rebuild.
+            short_notes = builder.top_up_short_chapters()
+
             errors = builder.validate_for_export()
             if errors:
-                return jsonify({
-                    "error": "Export blocked by validation:\n- "
-                             + "\n- ".join(errors[:12]),
-                }), 409
+                detail = "Export blocked by validation:\n- " + "\n- ".join(errors[:12])
+                if short_notes:
+                    detail += (
+                        "\n\nSome chapters could not be filled: "
+                        + "; ".join(short_notes)
+                        + ". Lower fact_count for those chapters, or widen their "
+                        "scope, then resolve again."
+                    )
+                return jsonify({"error": detail}), 409
 
             stem = _safe_stem(book.config.book_title)
             pipeline.write_json(book, json_path)
@@ -910,6 +921,7 @@ def register(app) -> None:  # noqa: ANN001
             }
 
             warnings: list[str] = list(book.warnings)
+            warnings.extend(short_notes)
             warnings.extend(exporter.verify_print_images(book, out_dir))
 
             try:
