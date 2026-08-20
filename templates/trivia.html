@@ -125,7 +125,7 @@
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div id="config-fields" class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="md:col-span-2">
                     <label class="block text-xs font-medium text-slate-600 mb-1.5">Book title</label>
                     <input id="book_title" class="field w-full rounded-xl px-3.5 py-2.5 text-sm"
@@ -189,10 +189,41 @@
                     <h3 class="text-sm font-semibold text-slate-900">
                         Chapters <span class="text-slate-500 font-normal">— named categories, not necessarily dates</span>
                     </h3>
-                    <button id="btn-add-chapter" class="btn-ghost px-3 py-1.5 rounded-lg text-xs">
-                        <i class="fas fa-plus mr-1"></i> Add chapter
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button id="btn-import-outline" class="btn-ghost px-3 py-1.5 rounded-lg text-xs">
+                            <i class="fas fa-file-arrow-up mr-1"></i> Import outline
+                        </button>
+                        <button id="btn-add-chapter" class="btn-ghost px-3 py-1.5 rounded-lg text-xs">
+                            <i class="fas fa-plus mr-1"></i> Add chapter
+                        </button>
+                    </div>
                 </div>
+
+                <!-- Outline import. Collapsed until asked for: the common case
+                     is a document the operator already has, but the form still
+                     has to work for someone typing chapters by hand. -->
+                <div id="outline-box" class="hidden mb-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 p-4">
+                    <div id="outline-drop" class="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-5 text-center transition">
+                        <i class="fas fa-file-arrow-up text-2xl text-slate-300 block mb-2"></i>
+                        <div class="text-xs text-slate-600">
+                            Drop a <span class="font-medium">.docx</span>, <span class="font-medium">.txt</span> or <span class="font-medium">.md</span> outline here, or
+                            <button id="btn-pick-outline" class="text-emerald-700 font-medium hover:underline">choose a file</button>
+                        </div>
+                        <div class="text-[11px] text-slate-400 mt-1">
+                            Headings become chapters. <span class="font-mono">Scope:</span>, <span class="font-mono">Questions:</span> and <span class="font-mono">Facts:</span> lines are read too.
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <textarea id="outline-text" rows="5" placeholder="…or paste your outline here"
+                                  class="field w-full rounded-xl px-3 py-2 text-xs font-mono"></textarea>
+                        <div class="mt-2 flex items-center gap-2">
+                            <button id="btn-parse-outline" class="btn-primary px-4 py-2 rounded-lg text-xs font-semibold text-white">Parse outline</button>
+                            <button id="btn-close-outline" class="btn-ghost px-3 py-2 rounded-lg text-xs">Cancel</button>
+                            <div id="outline-status" class="text-[11px] text-slate-500 ml-auto"></div>
+                        </div>
+                    </div>
+                </div>
+
                 <div id="chapters" class="space-y-3"></div>
 
                 <div class="mt-3 flex flex-wrap gap-2">
@@ -211,7 +242,8 @@
                 <button id="btn-stop" class="btn-ghost px-4 py-2.5 rounded-xl text-sm hidden">
                     <i class="fas fa-stop mr-1.5"></i> Stop
                 </button>
-                <div id="totals" class="text-xs text-slate-500 ml-auto"></div>
+                <div id="draft-note" class="text-[11px] text-emerald-600 ml-auto"></div>
+                <div id="totals" class="text-xs text-slate-500"></div>
             </div>
         </div>
 
@@ -289,6 +321,7 @@
 </main>
 
 <input type="file" id="import-file" accept="application/json" class="hidden">
+<input type="file" id="outline-file" accept=".docx,.txt,.md" class="hidden">
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -410,6 +443,9 @@ function updateTotals() {
     const q = cfg.chapters.reduce((s, c) => s + (c.trivia_count || 0), 0);
     const f = cfg.chapters.reduce((s, c) => s + (c.fact_count || 0), 0);
     $("totals").textContent = `${cfg.chapters.length} chapters · ${q} questions · ${f} facts`;
+    // Every structural change (add, remove, import, edit) funnels through
+    // here, so this is the one place that catches them all.
+    if (typeof scheduleSave === "function") scheduleSave();
 }
 
 function setStatus(s) {
@@ -677,13 +713,169 @@ $("import-file").addEventListener("change", async (e) => {
     e.target.value = "";
 });
 
-// Seed with the spec's worked example so the page is usable immediately.
-applyConfig({
+// ---------------------------------------------------------------------------
+// Outline import
+// ---------------------------------------------------------------------------
+
+function showOutline(open) {
+    $("outline-box").classList.toggle("hidden", !open);
+    if (open) $("outline-text").focus();
+    else { $("outline-text").value = ""; $("outline-status").textContent = ""; }
+}
+
+$("btn-import-outline").addEventListener("click", () => showOutline($("outline-box").classList.contains("hidden")));
+$("btn-close-outline").addEventListener("click", () => showOutline(false));
+$("btn-pick-outline").addEventListener("click", () => $("outline-file").click());
+
+// Replacing the chapter list is destructive, so an existing list is confirmed
+// before it is thrown away — this whole feature exists because losing chapters
+// is painful.
+function applyOutline(data) {
+    const rows = data.chapters || [];
+    if (!rows.length) return alert("No chapters were found in that outline.");
+
+    const existing = [...$("chapters").children].some(el =>
+        el.querySelector(".ch-title").value.trim() ||
+        el.querySelector(".ch-scope").value.trim());
+    if (existing && !confirm(
+        `Replace the ${$("chapters").children.length} chapter(s) in the form with `
+        + `${rows.length} from the outline?`)) return;
+
+    // Carry the current counts across as defaults so an outline that omits
+    // them does not silently reset the operator's chosen quotas.
+    const first = $("chapters").children[0];
+    const defTrivia = first ? parseInt(first.querySelector(".ch-trivia").value || "50", 10) : 50;
+    const defFacts  = first ? parseInt(first.querySelector(".ch-facts").value  || "100", 10) : 100;
+
+    $("chapters").innerHTML = "";
+    rows.forEach(c => addChapter({
+        chapter_title: c.chapter_title || "",
+        chapter_scope: c.chapter_scope || "",
+        trivia_count: c.trivia_count ?? defTrivia,
+        fact_count: c.fact_count ?? defFacts,
+        illustration_prompt_hint: c.illustration_prompt_hint || "",
+    }));
+    renumber();
+    updateTotals();
+
+    // Only fill a book title the form does not already have.
+    if (data.book_title && !$("book_title").value.trim()) $("book_title").value = data.book_title;
+
+    const bits = [`${rows.length} chapters imported`];
+    if (data.with_scope) bits.push(`${data.with_scope} with scope`);
+    $("outline-status").textContent = bits.join(" · ");
+    saveDraft();
+
+    if (data.notes && confirm("Found production notes in that outline. Append them to the topic?")) {
+        $("topic").value = ($("topic").value.trim() + "\n" + data.notes).trim();
+        saveDraft();
+    }
+}
+
+async function sendOutlineFile(file) {
+    $("outline-status").textContent = "Reading…";
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+        const r = await fetch("/api/trivia/parse-outline", { method: "POST", body: fd });
+        const data = await r.json();
+        if (!r.ok) { $("outline-status").textContent = ""; return alert(data.error || "Could not read that outline."); }
+        applyOutline(data);
+    } catch (e) {
+        $("outline-status").textContent = "";
+        alert("Outline import failed: " + e.message);
+    }
+}
+
+$("outline-file").addEventListener("change", (e) => {
+    const f = e.target.files[0];
+    if (f) sendOutlineFile(f);
+    e.target.value = "";
+});
+
+$("btn-parse-outline").addEventListener("click", async () => {
+    const text = $("outline-text").value;
+    if (!text.trim()) return alert("Paste your outline first, or choose a file.");
+    $("outline-status").textContent = "Reading…";
+    try {
+        const r = await fetch("/api/trivia/parse-outline-text", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text }),
+        });
+        const data = await r.json();
+        if (!r.ok) { $("outline-status").textContent = ""; return alert(data.error || "Could not read that outline."); }
+        applyOutline(data);
+    } catch (e) {
+        $("outline-status").textContent = "";
+        alert("Outline import failed: " + e.message);
+    }
+});
+
+const drop = $("outline-drop");
+["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, (e) => {
+    e.preventDefault();
+    drop.classList.add("border-emerald-400", "bg-emerald-50/50");
+}));
+["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, (e) => {
+    e.preventDefault();
+    drop.classList.remove("border-emerald-400", "bg-emerald-50/50");
+}));
+drop.addEventListener("drop", (e) => {
+    const f = e.dataTransfer.files[0];
+    if (f) sendOutlineFile(f);
+});
+
+// ---------------------------------------------------------------------------
+// Draft autosave
+//
+// The form is DOM state only: navigating to Preview, opening a book from the
+// library, or a stray reload used to destroy a chapter scheme that takes
+// fifteen minutes to type. Persist it locally so the page comes back as it
+// was left.
+// ---------------------------------------------------------------------------
+
+const DRAFT_KEY = "trivia.draft.v1";
+let saveTimer = null;
+
+function saveDraft() {
+    try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(readConfig()));
+        $("draft-note").textContent = "Draft saved";
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => { $("draft-note").textContent = ""; }, 1500);
+    } catch (e) { /* private mode or quota — the form still works */ }
+}
+
+function loadDraft() {
+    try {
+        const raw = localStorage.getItem(DRAFT_KEY);
+        if (!raw) return null;
+        const cfg = JSON.parse(raw);
+        return (cfg && Array.isArray(cfg.chapters)) ? cfg : null;
+    } catch (e) { return null; }
+}
+
+// Debounced: typing should not write to storage on every keystroke.
+let draftTimer = null;
+function scheduleSave() {
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(saveDraft, 400);
+}
+document.addEventListener("input", (e) => {
+    if (e.target.closest("#chapters") || e.target.closest("#config-fields")) scheduleSave();
+});
+// A chapter added or removed is not an "input" event, and leaving the page is
+// the exact moment the old build lost everything.
+window.addEventListener("beforeunload", saveDraft);
+
+const seed = loadDraft() || {
     book_title: "",
     topic: "",
     audience: "general adult reader",
     chapters: [{ chapter_title: "", chapter_scope: "", trivia_count: 50, fact_count: 100 }],
-});
+};
+applyConfig(seed);
 loadLibrary();
 </script>
 </body>

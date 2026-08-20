@@ -56,6 +56,34 @@ FACT_COUNT_TOLERANCE = 2
 # non-colliding one among. Surplus past the shortfall is discarded.
 REFILL_SURPLUS = 5
 
+# How much of the underlying upstream error to fold into the failure message.
+# The raw text carries a full command line and STDOUT/STDERR dump; the first
+# line is the part that names the actual cause.
+UPSTREAM_DETAIL_CHARS = 300
+
+
+def _first_line(text: str) -> str:
+    """The most informative single line of a multi-line error dump.
+
+    OpenClaw failures arrive as a banner line followed by the command and a
+    STDERR block. Surfacing the banner plus the first non-empty STDERR line
+    tells the operator whether they hit a timeout, a refusal, or a crash —
+    without pasting a screenful into the error box.
+    """
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    if not lines:
+        return ""
+    head = lines[0]
+    # Pull the first line after a STDERR:/STDOUT: marker, which is where the
+    # real reason lives when the CLI itself failed.
+    for i, ln in enumerate(lines):
+        if ln.upper().startswith(("STDERR:", "STDOUT:")) and i + 1 < len(lines):
+            detail = lines[i + 1]
+            if detail and detail not in head:
+                head = f"{head} — {detail}"
+            break
+    return head[:UPSTREAM_DETAIL_CHARS]
+
 
 LogFn = Callable[[str], None]
 ProgressFn = Callable[[str, float], None]
@@ -143,6 +171,7 @@ class TriviaBuilder:
         accepted: list[TriviaQuestion] = []
         rounds = 0
         upstream_failures = 0
+        last_upstream_error = ""
 
         while len(accepted) < target and rounds < MAX_REFILL_ROUNDS + target // engine.TRIVIA_BATCH:
             self._check_stop()
@@ -167,6 +196,7 @@ class TriviaBuilder:
                 ) from exc
             except TriviaError as exc:
                 upstream_failures += 1
+                last_upstream_error = str(exc)
                 self.log(f"  batch failed ({exc}); retrying")
                 continue
 
@@ -196,14 +226,19 @@ class TriviaBuilder:
                 hint = (
                     "Every attempt failed before any content was generated, so this "
                     "is an AI service problem, not a problem with your chapter scope "
-                    "or trivia_count. Check the batch errors above."
+                    "or trivia_count. Nothing was generated, so retrying costs "
+                    "nothing extra."
                 )
+                if last_upstream_error:
+                    hint += f" Last error: {_first_line(last_upstream_error)}"
             elif upstream_failures:
                 hint = (
                     f"{upstream_failures} of {rounds} attempts failed upstream; the "
                     "rest were rejected by validation or the dedup gate. Retry, and "
                     "if it persists widen the chapter scope or lower trivia_count."
                 )
+                if last_upstream_error:
+                    hint += f" Last upstream error: {_first_line(last_upstream_error)}"
             else:
                 hint = (
                     "Attempts succeeded but the content was rejected as duplicate or "
@@ -235,6 +270,7 @@ class TriviaBuilder:
         accepted: list[DidYouKnowFact] = []
         rounds = 0
         upstream_failures = 0
+        last_upstream_error = ""
 
         while len(accepted) < target and rounds < MAX_REFILL_ROUNDS + target // engine.FACT_BATCH:
             self._check_stop()
@@ -263,6 +299,7 @@ class TriviaBuilder:
                 ) from exc
             except TriviaError as exc:
                 upstream_failures += 1
+                last_upstream_error = str(exc)
                 self.log(f"  batch failed ({exc}); retrying")
                 continue
 
@@ -313,14 +350,19 @@ class TriviaBuilder:
                 hint = (
                     "Every attempt failed before any content was generated, so this "
                     "is an AI service problem, not a problem with your chapter scope "
-                    "or fact_count. Check the batch errors above."
+                    "or fact_count. Nothing was generated, so retrying costs nothing "
+                    "extra."
                 )
+                if last_upstream_error:
+                    hint += f" Last error: {_first_line(last_upstream_error)}"
             elif upstream_failures:
                 hint = (
                     f"{upstream_failures} of {rounds} attempts failed upstream; the "
                     "no-overlap gate rejected the rest. Retry, and if it persists "
                     "widen the scope or lower fact_count."
                 )
+                if last_upstream_error:
+                    hint += f" Last upstream error: {_first_line(last_upstream_error)}"
             else:
                 hint = (
                     "The no-overlap gate rejected the rest. Widen the chapter scope "

@@ -23,6 +23,7 @@ from print_hygiene import strip_ai_report
 from . import edit as editor
 from . import export as exporter
 from . import image_edit as imgedit
+from . import outline as outline_parser
 from . import pipeline
 from .engine import BookConfig, RawOutputCache, TriviaError, UsageLedger, ValidationGateError
 
@@ -31,6 +32,11 @@ from .engine import BookConfig, RawOutputCache, TriviaError, UsageLedger, Valida
 ROOT_DIR = Path(__file__).resolve().parent.parent
 TRIVIA_OUTPUT_DIR = ROOT_DIR / "trivia_outputs"
 TRIVIA_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+# Uploaded outlines are parsed and discarded; only the extracted structure is
+# kept, so this is a scratch area rather than durable storage.
+UPLOAD_DIR = TRIVIA_OUTPUT_DIR / "_uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_LOG_LINES = 600
 
@@ -309,6 +315,48 @@ def register(app) -> None:  # noqa: ANN001
             "trivia_total": sum(c.trivia_count for c in cfg.chapters),
             "fact_total": sum(c.fact_count for c in cfg.chapters),
         })
+
+    # -- Outline import ----------------------------------------------------
+
+    @app.post("/api/trivia/parse-outline")
+    def trivia_parse_outline():  # noqa: ANN202
+        """Turn an uploaded DOCX/TXT/MD outline into editable chapter rows.
+
+        The chapter scheme usually already exists as a document, and typing it
+        into the form one box at a time is the slowest part of setting up a
+        book — so this reads the document instead.
+        """
+        file = request.files.get("file")
+        if file is None or not file.filename:
+            return jsonify({"error": "No outline file was uploaded."}), 400
+
+        suffix = Path(file.filename).suffix.lower()
+        if suffix not in {".docx", ".txt", ".md"}:
+            return jsonify({"error": "Outline must be a .docx, .txt or .md file."}), 400
+
+        path = UPLOAD_DIR / f"{uuid.uuid4().hex[:10]}{suffix}"
+        try:
+            file.save(str(path))
+            return jsonify({"ok": True, **outline_parser.parse_outline_file(path)})
+        except TriviaError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+        finally:
+            # Only the extracted structure is kept; the upload is scratch.
+            path.unlink(missing_ok=True)
+
+    @app.post("/api/trivia/parse-outline-text")
+    def trivia_parse_outline_text():  # noqa: ANN202
+        """Same parser, for an outline pasted straight into the browser."""
+        payload = request.get_json(silent=True) or {}
+        text = str(payload.get("text") or "")
+        if not text.strip():
+            return jsonify({"error": "No outline text was supplied."}), 400
+        try:
+            return jsonify({"ok": True, **outline_parser.parse_outline_text(text)})
+        except TriviaError as exc:
+            return jsonify({"error": str(exc)}), 400
 
     @app.post("/api/trivia/jobs")
     def trivia_create_job():  # noqa: ANN202
