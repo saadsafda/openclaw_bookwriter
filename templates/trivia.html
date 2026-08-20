@@ -624,8 +624,14 @@ $("resolve-btn").addEventListener("click", async () => {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Resolving…';
     $("stage-label").textContent = "Resolving overlaps";
     try {
-        const r = await fetch(`/api/trivia/books/${resolveJobId}/resolve`,
-            { method: "POST" });
+        // Send the live chapter rows. The gate failure tells the operator to
+        // lower fact_count or widen a scope; without a body the server would
+        // re-read the original config from disk and those edits would be lost.
+        const r = await fetch(`/api/trivia/books/${resolveJobId}/resolve`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chapters: readConfig().chapters }),
+        });
         const data = await r.json();
         if (!r.ok) {
             // 409 means it is still blocked; the draft survives, so the

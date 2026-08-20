@@ -21,6 +21,7 @@ question, this one's is a puzzle plus its rendered artwork and solution.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -40,6 +41,7 @@ from .engine import (
     Crossword,
     Cryptogram,
     Maze,
+    ProviderRejectionError,
     PuzzleBook,
     PuzzleError,
     TriviaChapter,
@@ -50,6 +52,11 @@ from .engine import (
 MAX_REFILL_ROUNDS = 5
 # Attempts to get a *layout* out of a valid word list before giving up.
 MAX_LAYOUT_ATTEMPTS = 4
+# A provider rejection is often transient (a momentary schema/payload fault),
+# so one is retried with a short backoff before the section gives up. Without
+# this a single blip took out a whole section — see build_riddles.
+PROVIDER_RETRIES = 2
+PROVIDER_BACKOFF_S = 5.0
 
 LogFn = Callable[[str], None]
 ProgressFn = Callable[[str, float], None]
@@ -92,16 +99,36 @@ class PuzzleBuilder:
             raise PuzzleError("Build stopped by operator.")
 
     def _ask(self, prompt: str) -> list[Any]:
-        reply = engine.call_openclaw_raw(
-            self.cfg.agent,
-            prompt,
-            local=self.cfg.local,
-            thinking=self.cfg.thinking,
-            timeout_s=self.cfg.timeout_s,
-            cache=self.cache,
-            ledger=self.ledger,
-        )
-        return engine.extract_json_array(reply)
+        """One model call returning a JSON array.
+
+        Provider rejections get their own short retry with a backoff: they are
+        usually transient, and the caller's refill loop cannot distinguish them
+        from a content failure, so it would otherwise spend its whole budget
+        re-sending a prompt that fails instantly every time.
+        """
+        last: Optional[ProviderRejectionError] = None
+        for attempt in range(PROVIDER_RETRIES + 1):
+            if attempt:
+                delay = PROVIDER_BACKOFF_S * attempt
+                self.log(f"  provider refused; retrying in {delay:.0f}s")
+                time.sleep(delay)
+                self._check_stop()
+            try:
+                reply = engine.call_openclaw_raw(
+                    self.cfg.agent,
+                    prompt,
+                    local=self.cfg.local,
+                    thinking=self.cfg.thinking,
+                    timeout_s=self.cfg.timeout_s,
+                    cache=self.cache,
+                    ledger=self.ledger,
+                )
+            except ProviderRejectionError as exc:
+                last = exc
+                continue
+            return engine.extract_json_array(reply)
+
+        raise last if last is not None else PuzzleError("Model call failed.")
 
     def _warn(self, message: str) -> None:
         self.log(f"WARNING: {message}")
@@ -128,9 +155,22 @@ class PuzzleBuilder:
             invented = []
 
         subjects.extend(invented)
-        # Never leave a puzzle unnamed — fall back to a numbered title.
+        # Never leave a puzzle unnamed. The topic is frequently a long
+        # comma-separated list, so mine it for real subjects before falling
+        # back to a numbered label — pasting the whole list in as a "subject"
+        # produces an unusable puzzle prompt and an unreadable warning.
+        if len(subjects) < count:
+            taken = {s.strip().lower() for s in subjects}
+            for piece in engine.topic_keywords(self.cfg.topic):
+                if len(subjects) >= count:
+                    break
+                if piece.lower() not in taken:
+                    subjects.append(piece)
+                    taken.add(piece.lower())
+
+        short_topic = engine.short_topic(self.cfg.topic)
         while len(subjects) < count:
-            subjects.append(f"{self.cfg.topic} {len(subjects) + 1}")
+            subjects.append(f"{short_topic} {len(subjects) + 1}")
         return subjects[:count]
 
     # -- Section 1: picture puzzle briefs (human illustrators) -------------

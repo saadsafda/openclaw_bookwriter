@@ -826,6 +826,112 @@ def register(app) -> None:  # noqa: ANN001
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
 
+    def _apply_config_overrides(book: Any, payload: Any) -> list[str]:
+        """Fold browser-side chapter edits into a loaded draft's config.
+
+        Only fact_count and chapter_scope are honoured. trivia_count is not:
+        questions are never auto-dropped (resolve_collisions says so), so
+        lowering it here would strand the draft on a validation error the
+        operator has no way to clear.
+
+        Chapters are matched by chapter_number, so reordering the rows in the
+        browser cannot silently retarget an edit at the wrong chapter.
+        Returns a human-readable note per applied change.
+        """
+        if not isinstance(payload, dict):
+            return []
+        rows = payload.get("chapters")
+        if not isinstance(rows, list) or not rows:
+            return []
+
+        by_number = {c.chapter_number: c for c in book.config.chapters}
+        notes: list[str] = []
+
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            try:
+                number = int(row.get("chapter_number"))
+            except (TypeError, ValueError):
+                continue
+            ch_cfg = by_number.get(number)
+            if ch_cfg is None:
+                continue
+
+            if "chapter_scope" in row:
+                scope = str(row.get("chapter_scope") or "").strip()
+                if scope and scope != ch_cfg.chapter_scope:
+                    ch_cfg.chapter_scope = scope
+                    notes.append(f"Chapter {number}: scope widened.")
+
+            if row.get("fact_count") in (None, ""):
+                continue
+            try:
+                new_count = int(row["fact_count"])
+            except (TypeError, ValueError):
+                raise TriviaError(
+                    f"Chapter {number}: fact_count must be a whole number."
+                )
+            if new_count < 0:
+                raise TriviaError(f"Chapter {number}: fact_count cannot be negative.")
+            if new_count == ch_cfg.fact_count:
+                continue
+
+            old_count = ch_cfg.fact_count
+            ch_cfg.fact_count = new_count
+            notes.append(f"Chapter {number}: fact_count {old_count} -> {new_count}.")
+
+        # Raising fact_count is handled downstream by top_up_short_chapters.
+        # Lowering it needs the draft trimmed here, because validate_for_export
+        # treats over-quota facts as a hard error.
+        _trim_facts_to_quota(book, notes)
+        return notes
+
+    def _trim_facts_to_quota(book: Any, notes: list[str]) -> None:
+        """Drop facts from any chapter now sitting over its quota.
+
+        Colliding facts are dropped first. Trimming from the tail instead would
+        leave the very facts that failed the gate in place, so a lowered
+        fact_count would not actually unblock the export -- which is the whole
+        point of lowering it.
+        """
+        over = [
+            (cfg, ch)
+            for cfg, ch in zip(book.config.chapters, book.chapters)
+            if len(ch.facts) > cfg.fact_count
+        ]
+        if not over:
+            return
+
+        # One dedup sweep over the draft as-is tells us which facts are the
+        # problem ones. This is the free heuristic stage plus whatever the
+        # cached judge verdicts already cover, so it spends nothing new.
+        flagged: set[str] = set()
+        try:
+            probe = pipeline.TriviaBuilder(book.config)
+            probe.book = book
+            for collision in probe.global_dedup_pass():
+                if collision.kind == "fact_vs_trivia":
+                    flagged.add(collision.left_id)
+                elif collision.kind == "fact_vs_fact":
+                    # Keep one side of the pair; drop the later one.
+                    flagged.add(max(collision.left_id, collision.right_id))
+        except Exception:  # noqa: BLE001
+            # A probe failure must not block the trim; fall back to tail order.
+            flagged = set()
+
+        for cfg, ch in over:
+            keep = cfg.fact_count
+            dropped = len(ch.facts) - keep
+            # Stable sort: flagged facts move to the back, order preserved
+            # otherwise, then the tail is cut.
+            ch.facts.sort(key=lambda f: f.id in flagged)
+            ch.facts[:] = ch.facts[:keep]
+            notes.append(
+                f"Chapter {cfg.chapter_number}: dropped {dropped} fact(s) to "
+                f"meet the lowered count."
+            )
+
     @app.post("/api/trivia/books/<book_id>/resolve")
     def trivia_resolve(book_id: str):  # noqa: ANN202
         """Finish a book the no-overlap gate blocked, without regenerating it.
@@ -853,6 +959,16 @@ def register(app) -> None:  # noqa: ANN001
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": f"Could not read the saved draft: {exc}"}), 500
 
+        # The operator may have lowered fact_count (or edited a scope) in the
+        # browser after reading the gate failure -- the error message tells
+        # them to. Apply those edits to the saved draft's config before
+        # resolving, so the button does what the message promises. Absent a
+        # body, this is a no-op and the draft's own config is used.
+        try:
+            overrides = _apply_config_overrides(book, request.get_json(silent=True))
+        except TriviaError as exc:
+            return jsonify({"error": str(exc)}), 400
+
         out_dir = json_path.parent
         builder = pipeline.TriviaBuilder(book.config)
         builder.book = book
@@ -877,7 +993,10 @@ def register(app) -> None:  # noqa: ANN001
                 detail = "; ".join(
                     f"{c.left_id} repeats {c.right_id}" for c in blocking[:5]
                 )
-                # The draft on disk stays intact, so this stays retryable.
+                # Save first: the repair rounds above regenerated facts that
+                # were paid for, and any overrides trimmed the draft. Returning
+                # without writing would discard both and re-run them next time.
+                pipeline.write_json(book, json_path)
                 return jsonify({
                     "error": (
                         f"Still blocked: {len(blocking)} fact(s) restate trivia "
@@ -885,6 +1004,7 @@ def register(app) -> None:  # noqa: ANN001
                         "fact_count for those chapters, then try again."
                     ),
                     "collisions": [c.to_dict() for c in blocking],
+                    "applied": overrides,
                 }), 409
 
             # A build can also be blocked simply because a chapter came up
@@ -903,7 +1023,9 @@ def register(app) -> None:  # noqa: ANN001
                         + ". Lower fact_count for those chapters, or widen their "
                         "scope, then resolve again."
                     )
-                return jsonify({"error": detail}), 409
+                # As above: keep the topped-up facts this pass paid for.
+                pipeline.write_json(book, json_path)
+                return jsonify({"error": detail, "applied": overrides}), 409
 
             stem = _safe_stem(book.config.book_title)
             pipeline.write_json(book, json_path)
@@ -918,9 +1040,17 @@ def register(app) -> None:  # noqa: ANN001
                 "json_path": str(json_path),
                 "markdown_path": str(md_path),
                 "docx_path": str(docx_path),
+                # These were frozen at submit time, so the library card kept
+                # showing the original counts after an override changed them.
+                # Report what the finished book actually contains.
+                "chapter_count": len(book.chapters),
+                "trivia_total": sum(len(c.trivia) for c in book.chapters),
+                "fact_total": sum(len(c.facts) for c in book.chapters),
+                "config_json": json.dumps(book.config.to_dict()),
             }
 
             warnings: list[str] = list(book.warnings)
+            warnings.extend(overrides)
             warnings.extend(short_notes)
             warnings.extend(exporter.verify_print_images(book, out_dir))
 

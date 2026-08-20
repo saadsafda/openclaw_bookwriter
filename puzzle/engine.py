@@ -76,6 +76,42 @@ class ValidationGateError(PuzzleError):
     """A hard constraint (word counts, grid fit) rejected the book."""
 
 
+class ProviderRejectionError(PuzzleError):
+    """The upstream provider refused the request itself.
+
+    Distinct from a content failure: retrying the identical prompt immediately
+    cannot fix it, so callers back off rather than burning their whole refill
+    budget on instant re-failures. Also never cached — see RawOutputCache.set.
+
+    Mirrors trivia/engine.py, which hit exactly this failure first.
+    """
+
+
+# OpenClaw exits 0 for these: the CLI ran fine, the *provider* refused, and the
+# refusal arrives as ordinary reply text. Matched on the message because there
+# is no distinguishing status field to key on.
+_PROVIDER_REJECTION_MARKERS = (
+    "llm request failed",
+    "provider rejected the request",
+    "schema or tool payload",
+    "request too large",
+    "context length exceeded",
+    "prompt is too long",
+)
+
+
+def is_provider_rejection(reply: str) -> bool:
+    """True when a reply is an upstream refusal rather than model output.
+
+    Only meaningful for short replies — a legitimate riddle or clue batch could
+    quote one of these phrases, but never in a one-line reply.
+    """
+    s = (reply or "").strip().lower()
+    if not s or len(s) > 600:
+        return False
+    return any(marker in s for marker in _PROVIDER_REJECTION_MARKERS)
+
+
 # --------------------------------------------------------------------------
 # Config
 # --------------------------------------------------------------------------
@@ -595,11 +631,31 @@ class RawOutputCache:
         return None
 
     def set(self, key: str, stdout: str, prompt: str = "") -> None:
+        """Store a reply, but only one worth replaying.
+
+        A provider rejection is a well-formed JSON envelope carrying an error
+        sentence as its payload text, so an emptiness check alone lets it
+        through. Caching one is permanent: the next run keys off the identical
+        prompt, hits this entry, and re-raises the failure without ever calling
+        the provider — so the build can never recover on its own, and reports
+        cache hits at zero cost while producing nothing.
+        """
         if not (stdout or "").strip():
+            return
+        if is_provider_rejection(parse_openclaw_reply(stdout)):
             return
         (self.path / f"{key}.json").write_text(stdout, encoding="utf-8")
         if prompt:
             (self.path / f"{key}.prompt.txt").write_text(prompt, encoding="utf-8")
+
+    def evict(self, key: str) -> None:
+        """Drop an entry that turned out to be unusable.
+
+        Covers caches written before set() screened rejections, so an existing
+        poisoned cache heals on the next run instead of needing a manual rm.
+        """
+        (self.path / f"{key}.json").unlink(missing_ok=True)
+        (self.path / f"{key}.prompt.txt").unlink(missing_ok=True)
 
 
 def call_openclaw_raw(
@@ -617,9 +673,16 @@ def call_openclaw_raw(
     if cache is not None:
         hit = cache.get(key)
         if hit is not None:
-            if ledger is not None:
-                ledger.note_cache_hit()
-            return parse_openclaw_reply(hit)
+            replay = parse_openclaw_reply(hit)
+            # A cache written before set() screened rejections would otherwise
+            # replay the failure forever at zero cost. Drop it and fall through
+            # to a real call so the build can heal itself.
+            if is_provider_rejection(replay):
+                cache.evict(key)
+            else:
+                if ledger is not None:
+                    ledger.note_cache_hit()
+                return replay
 
     cmd = ["openclaw", "agent", "--agent", agent_id, "--message", message, "--json"]
     if local:
@@ -640,7 +703,13 @@ def call_openclaw_raw(
         ledger.record(p.stdout)
     if cache is not None:
         cache.set(key, p.stdout, prompt=message)
-    return parse_openclaw_reply(p.stdout)
+
+    reply = parse_openclaw_reply(p.stdout)
+    # Surfaced as its own type so refill loops can back off instead of
+    # re-sending an identical prompt that the provider just refused.
+    if is_provider_rejection(reply):
+        raise ProviderRejectionError(reply.strip())
+    return reply
 
 
 def extract_json_array(text: str) -> list[Any]:
@@ -898,6 +967,46 @@ def build_crossword_prompt(cfg: BookConfig, title: str) -> str:
     )
 
 
+# Longest a derived subject may be. A subject becomes a puzzle title and is
+# pasted into later prompts, so an overlong one breaks both.
+MAX_SUBJECT_CHARS = 60
+
+
+def topic_keywords(topic: str) -> list[str]:
+    """Split a topic into usable per-puzzle subjects.
+
+    Operators routinely paste a long comma-separated keyword list into the
+    topic field. Each entry is exactly the kind of short noun phrase the
+    subject slot wants, so mine them before resorting to a numbered label.
+    """
+    pieces: list[str] = []
+    seen: set[str] = set()
+    for chunk in re.split(r"[,;\n|/]+", topic or ""):
+        piece = re.sub(r"\s+", " ", chunk).strip(" .-–—")
+        # One or two stray words make a poor puzzle subject; so does an essay.
+        if not piece or len(piece) > MAX_SUBJECT_CHARS or len(piece) < 3:
+            continue
+        key = piece.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        pieces.append(piece)
+    return pieces
+
+
+def short_topic(topic: str) -> str:
+    """A topic trimmed to something usable as a title fragment."""
+    s = re.sub(r"\s+", " ", topic or "").strip()
+    if not s:
+        return "Puzzle"
+    first = topic_keywords(s)
+    if first:
+        return first[0]
+    if len(s) > MAX_SUBJECT_CHARS:
+        s = s[:MAX_SUBJECT_CHARS].rsplit(" ", 1)[0].strip(" .,-") or s[:MAX_SUBJECT_CHARS]
+    return s
+
+
 def build_section_subject_prompt(cfg: BookConfig, kind: str, count: int) -> str:
     """Invent per-puzzle subjects when the operator supplied none.
 
@@ -934,6 +1043,10 @@ def parse_string_list(raw: list[Any], count: int) -> list[str]:
                     item = item[key]
                     break
         text = _as_text(item)
+        # A subject becomes a puzzle title and is pasted into later prompts,
+        # so a model that answers with a sentence must not poison both.
+        if len(text) > MAX_SUBJECT_CHARS:
+            continue
         if text and text not in out:
             out.append(text)
     return out[:count]
