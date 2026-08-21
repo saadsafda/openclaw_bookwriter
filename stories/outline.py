@@ -27,9 +27,22 @@ _NUMBERED = re.compile(
     re.IGNORECASE,
 )
 
+# What can legitimately follow "Chapter"/"Part" as its number: digits, Roman
+# numerals, or a spelled-out number. Restricting this matters — a bare `\w+`
+# also matches ordinary words, so a scope line like "Chapter scope" was read as
+# a heading for a chapter numbered "scope" and became a phantom chapter.
+_NUMERAL = (
+    r"\d{1,3}"
+    r"|[ivxlcdm]{1,7}"
+    r"|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+    r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
+    r"thirty|forty|fifty|first|second|third|fourth|fifth|sixth|seventh|"
+    r"eighth|ninth|tenth"
+)
+
 # A chapter heading: "Chapter 2: Bank Jobs", "Part One — ...", "Section 3".
 _CHAPTER = re.compile(
-    r"^\s*(?:chapter|part|section)\s+([\w]+)\s*[:.)—–-]?\s*(.*)$",
+    r"^\s*(?:chapter|part|section)\s+(" + _NUMERAL + r")\b\s*[:.)—–-]?\s*(.*)$",
     re.IGNORECASE,
 )
 
@@ -63,6 +76,10 @@ _TRAILER_HEADINGS = (
     "tone target",
     "mix check",
 )
+
+
+# A preamble line longer than this is a blurb, not a book title.
+MAX_TITLE_CHARS = 120
 
 
 def _is_trailer(line: str) -> bool:
@@ -140,6 +157,14 @@ def parse_outline_lines(lines: list[str]) -> dict[str, Any]:
     # been seen, following prose belongs to the context rather than restarting.
     context_parts: list[str] = []
     title_seen = False
+    # A document-level title above the first chapter or story is offered back
+    # as the book title rather than discarded — the operator would otherwise
+    # have to retype a name the outline already states.
+    doc_title = ""
+    # The line under that title is the book's one-line description, which is
+    # what the topic field wants. Kept separate from the title so neither has
+    # to be retyped.
+    doc_topic = ""
 
     def _flush_story() -> None:
         nonlocal current_story, context_parts
@@ -236,11 +261,16 @@ def parse_outline_lines(lines: list[str]) -> dict[str, Any]:
             continue
 
         # Anything else is prose. It belongs to the open story's context, or is
-        # document preamble to ignore.
+        # document preamble — the first line of which is taken as the book
+        # title, the rest ignored.
         if current_story is not None:
             context_parts.append(line)
         elif not title_seen and _is_noise(line):
             continue
+        elif not title_seen and not doc_title and len(line) <= MAX_TITLE_CHARS:
+            doc_title = line
+        elif not title_seen and not doc_topic:
+            doc_topic = line
 
     _flush_story()
 
@@ -270,6 +300,8 @@ def parse_outline_lines(lines: list[str]) -> dict[str, Any]:
         "story_count": len(flat),
         "chapter_count": len(chapters),
         "with_context": sum(1 for s in flat if s.get("context")),
+        "book_title": doc_title,
+        "topic": doc_topic,
         # Offered to the operator as the book-wide notes field rather than
         # applied automatically — it is guidance about the book, and only a
         # human can say which of it should steer the writer.

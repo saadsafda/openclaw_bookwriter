@@ -517,6 +517,15 @@ function updateTotals() {
 
 function applyParsedOutline(data) {
     setStories(data.stories || []);
+
+    // Only fill a book title the form does not already have, so re-importing
+    // never overwrites a name the operator has typed.
+    if (data.book_title && !$("book_title").value.trim()) {
+        $("book_title").value = data.book_title;
+    }
+    if (data.topic && !$("topic").value.trim()) {
+        $("topic").value = data.topic;
+    }
     if (data.notes && !$("global_context").value.trim()) {
         // Production notes from the document are offered, not forced — they are
         // guidance about the book, and the operator decides what applies.

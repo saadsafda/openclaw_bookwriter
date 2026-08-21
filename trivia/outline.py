@@ -25,9 +25,22 @@ from typing import Any, Optional
 
 from .engine import TriviaError
 
+# What can legitimately follow "Chapter"/"Part" as its number: digits, Roman
+# numerals, or a spelled-out number. Restricting this matters — a bare `\w+`
+# also matches ordinary words, so a scope line like "Chapter scope" was read as
+# a heading for a chapter numbered "scope" and became a phantom chapter.
+_NUMERAL = (
+    r"\d{1,3}"
+    r"|[ivxlcdm]{1,7}"
+    r"|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+    r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
+    r"thirty|forty|fifty|first|second|third|fourth|fifth|sixth|seventh|"
+    r"eighth|ninth|tenth"
+)
+
 # An explicit chapter heading: "Chapter 2: Bank Jobs", "Part One — ...".
 _CHAPTER = re.compile(
-    r"^\s*(?:chapter|part|section|round)\s+([\w]+)\s*[:.)—–-]?\s*(.*)$",
+    r"^\s*(?:chapter|part|section|round)\s+(" + _NUMERAL + r")\b\s*[:.)—–-]?\s*(.*)$",
     re.IGNORECASE,
 )
 
@@ -42,6 +55,16 @@ _LABELLED = re.compile(
     r"context|questions|question count|trivia|trivia count|facts|fact count|"
     r"did you know|art|art hint|illustration|image)\s*"
     r"\**\s*[:：]\s*(.*)$",
+    re.IGNORECASE,
+)
+
+# The same labels, matched anywhere in a line rather than anchored at the
+# start, so several can be pulled off a single line.
+_LABEL_ANYWHERE = re.compile(
+    r"\**\s*\b(scope|about|covers|coverage|description|details|summary|notes|"
+    r"context|questions|question count|trivia|trivia count|facts|fact count|"
+    r"did you know|art|art hint|illustration|image)\s*"
+    r"\**\s*[:：]",
     re.IGNORECASE,
 )
 
@@ -78,6 +101,32 @@ _HINT_LABELS = {"art", "art hint", "illustration", "image"}
 # A chapter title longer than this is almost certainly a run-on prose line that
 # was never meant to be a heading.
 MAX_TITLE_CHARS = 120
+
+
+def _split_labels(line: str) -> list[tuple[str, str]]:
+    """Every "label: value" pair on one line, in order.
+
+    Counts are routinely written together — "Facts: 100, Questions: 50" — and
+    reading only the first pair silently dropped the second, leaving the form
+    on its default. Splitting before each label keeps a value that legitimately
+    contains a comma intact, because only a real label ends a value.
+    """
+    matches = list(_LABEL_ANYWHERE.finditer(line))
+    if not matches:
+        return []
+    pairs: list[tuple[str, str]] = []
+    for i, match in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(line)
+        value = _clean(line[match.end():end]).strip(" ,;")
+        pairs.append((match.group(1).lower(), value))
+    return pairs
+
+
+def _has_scope(chapter: dict[str, Any], scope_parts: list[str]) -> bool:
+    """Whether the open chapter has picked up any scope text yet."""
+    return bool((chapter.get("chapter_scope") or "").strip()) or any(
+        p.strip() for p in scope_parts
+    )
 
 
 def _is_trailer(line: str) -> bool:
@@ -166,6 +215,10 @@ def parse_outline_lines(lines: list[str]) -> dict[str, Any]:
     # A document-level title (the first heading before any chapter) is offered
     # back as the book title rather than becoming a chapter.
     doc_title = ""
+    # The line under that title is the book's one-line description, which is
+    # what the topic field wants — otherwise the operator retypes something
+    # the outline already states.
+    doc_topic = ""
 
     def _flush() -> None:
         nonlocal current, scope_parts
@@ -230,31 +283,36 @@ def parse_outline_lines(lines: list[str]) -> dict[str, Any]:
 
         labelled = _LABELLED.match(line)
         if labelled and current is not None:
-            label = labelled.group(1).lower()
-            value = _clean(labelled.group(2))
-            if label in _TRIVIA_LABELS:
-                n = _as_count(value)
-                if n is not None:
-                    current["trivia_count"] = n
-                continue
-            if label in _FACT_LABELS:
-                n = _as_count(value)
-                if n is not None:
-                    current["fact_count"] = n
-                continue
-            if label in _HINT_LABELS:
-                if value:
-                    current["illustration_prompt_hint"] = value
-                continue
-            if label in _SCOPE_LABELS and value:
-                scope_parts.append(value)
+            for label, value in _split_labels(line):
+                if label in _TRIVIA_LABELS:
+                    n = _as_count(value)
+                    if n is not None:
+                        current["trivia_count"] = n
+                elif label in _FACT_LABELS:
+                    n = _as_count(value)
+                    if n is not None:
+                        current["fact_count"] = n
+                elif label in _HINT_LABELS:
+                    if value:
+                        current["illustration_prompt_hint"] = value
+                elif label in _SCOPE_LABELS and value:
+                    scope_parts.append(value)
             continue
 
         # A Word heading with no numbering still starts a chapter. The first
         # one before any chapter content is the document title instead.
+        #
+        # The exception is a heading sitting directly under a chapter that has
+        # no scope yet: operators style the scope line to match the title, so
+        # treating it as a chapter break stole chapter 1's scope and shunted
+        # every later chapter down a slot. Under an untitled-scope chapter the
+        # rule "heading = title, the text under it = scope" wins.
         if is_heading and len(line) <= MAX_TITLE_CHARS:
             if not title_seen and current is None and not doc_title:
                 doc_title = line
+                continue
+            if current is not None and not _has_scope(current, scope_parts):
+                scope_parts.append(line)
                 continue
             _start(line)
             continue
@@ -267,6 +325,8 @@ def parse_outline_lines(lines: list[str]) -> dict[str, Any]:
         elif not title_seen and not doc_title and len(line) <= MAX_TITLE_CHARS:
             # A bare first line with nothing above it reads as the book title.
             doc_title = line
+        elif not title_seen and not doc_topic:
+            doc_topic = line
 
     _flush()
 
@@ -291,6 +351,7 @@ def parse_outline_lines(lines: list[str]) -> dict[str, Any]:
         "chapter_count": len(chapters),
         "with_scope": sum(1 for c in chapters if c.get("chapter_scope")),
         "book_title": doc_title,
+        "topic": doc_topic,
         # Returned rather than applied: only a human can say whether production
         # notes belong in the book's topic field.
         "notes": "\n".join(trailer_notes).strip(),

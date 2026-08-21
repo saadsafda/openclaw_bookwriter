@@ -760,6 +760,7 @@ function applyOutline(data) {
 
     // Only fill a book title the form does not already have.
     if (data.book_title && !$("book_title").value.trim()) $("book_title").value = data.book_title;
+    if (data.topic && !$("topic").value.trim()) $("topic").value = data.topic;
 
     const bits = [`${rows.length} chapters imported`];
     if (data.with_scope) bits.push(`${data.with_scope} with scope`);
