@@ -20,6 +20,7 @@ the real code: batching, dedup, refill, caching, validation, the Flask routes.
 | `test_trivia_validation.py` | Every rule in the export gate: counts, choice shape, answer spread, and the fact-count tolerance. |
 | `test_trivia_status_config.py` | The status payload carries the book's own config, and the browser refuses to resolve with a form belonging to a different book. |
 | `test_puzzle_provider.py` | Provider rejections are recognised as their own failure type, retried with backoff, and never cached -- a cached refusal is permanent and free, so the build could never heal. |
+| `test_puzzle_outage.py` | A refusing provider fails fast: a refusal no longer spends a puzzle's layout budget, and once enough asks in a row are refused the build stops calling out entirely and says so. |
 | `test_puzzle_degradation.py` | One unbuildable puzzle costs the book that puzzle and a warning, not the run. |
 
 ## Adding a test for a bug
