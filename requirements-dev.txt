@@ -1,0 +1,2 @@
+# Test tooling. The app's own runtime deps are installed separately.
+pytest>=8.0
