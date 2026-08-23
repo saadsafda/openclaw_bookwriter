@@ -331,6 +331,13 @@ let currentJob = null;
 // Tracked separately from currentJob so a book reopened from the library is
 // resolvable too, not just one built in this page session.
 let resolveJobId = null;
+// Which book the chapter form currently describes. The resolve button posts
+// the form's rows as config overrides, so sending them while the form holds a
+// different book (or the blank default template) would silently rewrite this
+// book's quotas. Resolve loads the real config and stamps this first.
+let formBookId = null;
+// The blocked book's saved config, from the status payload.
+let resolveConfig = null;
 
 const PRESETS = {
     decades: [
@@ -423,7 +430,8 @@ function readConfig() {
     };
 }
 
-function applyConfig(cfg) {
+function applyConfig(cfg, bookId = null) {
+    formBookId = bookId;
     $("book_title").value = cfg.book_title || "";
     $("topic").value = cfg.topic || "";
     $("audience").value = cfg.audience || "";
@@ -478,7 +486,12 @@ function setStatus(s) {
     // saved draft — builds that failed before that was persisted can't resume.
     const resolvable = s.stage === "validation-failed" && s.outputs && s.outputs.json;
     $("resolve-box").classList.toggle("hidden", !resolvable);
-    if (resolvable) resolveJobId = s.id;
+    if (resolvable) {
+        resolveJobId = s.id;
+        // Stash the book's own config so the resolve button can load it into
+        // the form rather than posting whatever rows happen to be there.
+        resolveConfig = s.config || null;
+    }
 
     if (s.warnings && s.warnings.length) {
         $("job-warnings").innerHTML = s.warnings.map(w => `<div>${escapeHtml(w)}</div>`).join("");
@@ -654,6 +667,29 @@ $("btn-stop").addEventListener("click", async () => {
 
 $("resolve-btn").addEventListener("click", async () => {
     if (!resolveJobId) return;
+
+    // The form must describe THIS book before its rows can be posted as
+    // overrides. If it does not -- a fresh page, or another book opened from
+    // the library -- load the book's saved config first and stop, so the
+    // operator can see and adjust the real counts instead of unknowingly
+    // resolving with a blank template's 50/100 defaults.
+    if (formBookId !== resolveJobId) {
+        if (!resolveConfig) {
+            $("job-error").textContent =
+                "Could not load this book's settings, so resolving would use "
+                + "the wrong chapter counts. Reload the page and try again.";
+            $("job-error").classList.remove("hidden");
+            return;
+        }
+        applyConfig(resolveConfig, resolveJobId);
+        $("job-warnings").innerHTML =
+            "<div>Loaded this book's chapter settings into the form. "
+            + "Adjust the counts if you want, then press Resolve again.</div>";
+        $("job-warnings").classList.remove("hidden");
+        $("chapters").scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+    }
+
     const btn = $("resolve-btn");
     const original = btn.innerHTML;
     btn.disabled = true;

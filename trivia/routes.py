@@ -77,6 +77,11 @@ class TriviaJob:
             "collisions": self.collisions[:50],
             "usage": dict(self.usage),
             "logs": self.logs[-120:],
+            # The resolve button posts the browser's chapter rows back as
+            # config overrides. Without the real config to load into the form
+            # first, those rows are whatever was last typed -- possibly another
+            # book's -- and resolving would silently rewrite this book's quotas.
+            "config": self.config.to_dict(),
         }
 
 
@@ -472,6 +477,7 @@ def register(app) -> None:  # noqa: ANN001
                 "usage": json.loads(row.get("usage_json") or "{}"),
                 "collisions": [],
                 "logs": [],
+                "config": json.loads(row.get("config_json") or "null"),
             })
         return jsonify(job.to_status())
 
@@ -877,10 +883,13 @@ def register(app) -> None:  # noqa: ANN001
     def _apply_config_overrides(book: Any, payload: Any) -> list[str]:
         """Fold browser-side chapter edits into a loaded draft's config.
 
-        Only fact_count and chapter_scope are honoured. trivia_count is not:
-        questions are never auto-dropped (resolve_collisions says so), so
-        lowering it here would strand the draft on a validation error the
-        operator has no way to clear.
+        fact_count, trivia_count and chapter_scope are honoured. trivia_count
+        used to be ignored on the theory that questions are never auto-dropped,
+        but that left a chapter short on questions with no way out at all: the
+        export gate demands an exact match, so the operator could neither raise
+        the supply nor lower the requirement. Lowering it now trims the draft
+        here (see _trim_trivia_to_quota); raising it is handled downstream by
+        top_up_short_trivia.
 
         Chapters are matched by chapter_number, so reordering the rows in the
         browser cannot silently retarget an edit at the wrong chapter.
@@ -912,28 +921,55 @@ def register(app) -> None:  # noqa: ANN001
                     ch_cfg.chapter_scope = scope
                     notes.append(f"Chapter {number}: scope widened.")
 
-            if row.get("fact_count") in (None, ""):
-                continue
-            try:
-                new_count = int(row["fact_count"])
-            except (TypeError, ValueError):
-                raise TriviaError(
-                    f"Chapter {number}: fact_count must be a whole number."
+            for field_name in ("fact_count", "trivia_count"):
+                if row.get(field_name) in (None, ""):
+                    continue
+                try:
+                    new_count = int(row[field_name])
+                except (TypeError, ValueError):
+                    raise TriviaError(
+                        f"Chapter {number}: {field_name} must be a whole number."
+                    )
+                if new_count < 0:
+                    raise TriviaError(
+                        f"Chapter {number}: {field_name} cannot be negative."
+                    )
+                old_count = getattr(ch_cfg, field_name)
+                if new_count == old_count:
+                    continue
+                setattr(ch_cfg, field_name, new_count)
+                notes.append(
+                    f"Chapter {number}: {field_name} {old_count} -> {new_count}."
                 )
-            if new_count < 0:
-                raise TriviaError(f"Chapter {number}: fact_count cannot be negative.")
-            if new_count == ch_cfg.fact_count:
-                continue
-
-            old_count = ch_cfg.fact_count
-            ch_cfg.fact_count = new_count
-            notes.append(f"Chapter {number}: fact_count {old_count} -> {new_count}.")
 
         # Raising fact_count is handled downstream by top_up_short_chapters.
         # Lowering it needs the draft trimmed here, because validate_for_export
         # treats over-quota facts as a hard error.
         _trim_facts_to_quota(book, notes)
+        _trim_trivia_to_quota(book, notes)
         return notes
+
+    def _trim_trivia_to_quota(book: Any, notes: list[str]) -> None:
+        """Drop questions from any chapter now sitting over its quota.
+
+        Trimming from the tail is right here, unlike facts: questions are not
+        what the no-overlap gate rejects, so there are no "problem" ones to
+        prefer dropping. The answer spread is rebalanced afterwards because
+        validate_for_export also checks that correct answers do not cluster on
+        one letter, and cutting the tail can skew it.
+        """
+        for cfg, ch in zip(book.config.chapters, book.chapters):
+            if len(ch.trivia) <= cfg.trivia_count:
+                continue
+            dropped = len(ch.trivia) - cfg.trivia_count
+            ch.trivia[:] = ch.trivia[: cfg.trivia_count]
+            for i, q in enumerate(ch.trivia, start=1):
+                q.id = f"ch{cfg.chapter_number}_q{i:02d}"
+            pipeline.engine.rebalance_answer_distribution(ch.trivia)
+            notes.append(
+                f"Chapter {cfg.chapter_number}: dropped {dropped} question(s) "
+                f"to meet the lowered count."
+            )
 
     def _trim_facts_to_quota(book: Any, notes: list[str]) -> None:
         """Drop facts from any chapter now sitting over its quota.
@@ -1060,6 +1096,9 @@ def register(app) -> None:  # noqa: ANN001
             # validating, so a draft that only needs a few more facts finishes
             # instead of demanding a full rebuild.
             short_notes = builder.top_up_short_chapters()
+            # Questions can fall short too -- a chapter that lost its trivia to
+            # a failed batch is the most common reason a resolve stayed stuck.
+            short_notes += builder.top_up_short_trivia()
 
             errors = builder.validate_for_export()
             if errors:
