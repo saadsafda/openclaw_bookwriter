@@ -116,6 +116,10 @@ def is_provider_rejection(reply: str) -> bool:
 # Config
 # --------------------------------------------------------------------------
 
+# The topic is embedded in every prompt by _book_context(), so it is capped
+# well below any model limit — see BookConfig.from_dict.
+MAX_TOPIC_CHARS = 200
+
 SECTION_PICTURE = "picture_puzzles"
 SECTION_MAZES = "mazes"
 SECTION_RIDDLES = "riddles"
@@ -239,6 +243,17 @@ class BookConfig:
             raise PuzzleError("book_title is required.")
         if not topic:
             raise PuzzleError("topic is required.")
+        # A topic is pasted into every single prompt by _book_context(), so an
+        # oversized one inflates each call until the provider rejects the
+        # payload outright and the whole build's model budget is skipped.
+        if len(topic) > MAX_TOPIC_CHARS:
+            raise PuzzleError(
+                f"topic is {len(topic)} characters, over the {MAX_TOPIC_CHARS} "
+                "limit. It is included in every prompt, so a long list of "
+                "keywords makes the provider reject the request. Give a short "
+                "phrase describing the book instead, and put the keyword list "
+                "in each section's subjects box."
+            )
 
         raw_sections = d.get("sections") or {}
         if not isinstance(raw_sections, dict):
@@ -708,8 +723,31 @@ def call_openclaw_raw(
     # Surfaced as its own type so refill loops can back off instead of
     # re-sending an identical prompt that the provider just refused.
     if is_provider_rejection(reply):
+        _dump_rejection(message, p.stdout, reply)
         raise ProviderRejectionError(reply.strip())
     return reply
+
+
+def _dump_rejection(message: str, stdout: str, reply: str) -> None:
+    """Persist the raw envelope behind a refusal.
+
+    The reply text alone ("provider rejected the request schema or tool
+    payload") names no cause, so without the surrounding JSON there is nothing
+    to diagnose from after a failed build.
+    """
+    try:
+        import time
+        d = Path("puzzle_outputs") / "_rejections"
+        d.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        (d / f"{stamp}-{abs(hash(message)) % 10**8}.txt").write_text(
+            f"=== REPLY ===\n{reply}\n\n"
+            f"=== PROMPT ({len(message)} chars) ===\n{message}\n\n"
+            f"=== RAW STDOUT ===\n{stdout[:20000]}\n",
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
 
 
 def extract_json_array(text: str) -> list[Any]:

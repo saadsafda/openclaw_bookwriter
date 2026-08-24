@@ -495,7 +495,8 @@ class PuzzleBuilder:
             except PuzzleError as exc:
                 self._warn(f"Trivia: theme generation failed ({exc})")
         while len(themes) < chapter_count:
-            themes.append((f"{self.cfg.topic} Facts {len(themes) + 1}", ""))
+            themes.append(
+                (f"{engine.short_topic(self.cfg.topic)} Facts {len(themes) + 1}", ""))
 
         # Step 2 — questions per chapter.
         for idx, (title, scope) in enumerate(themes[:chapter_count], start=1):
