@@ -99,6 +99,37 @@ _PROVIDER_REJECTION_MARKERS = (
     "prompt is too long",
 )
 
+# These arrive the other way round: openclaw exits *non-zero* and the cause is
+# only in stderr. The provider never ran the prompt, so they are rejections
+# rather than content failures — and being unauthenticated or rate-limited
+# persists, which is exactly what the outage breaker in pipeline._ask exists
+# to short-circuit. Without this a build re-sent every prompt at full retry
+# cost against a provider that could not answer any of them.
+_PROVIDER_STDERR_MARKERS = (
+    "oauth token refresh failed",
+    "token refresh failed",
+    "transcript compaction failed",
+    "gatewayclientrequesterror",
+    "401",
+    "429",
+    "rate limit",
+    "quota",
+    "503",
+    "502",
+    "upstream connect error",
+)
+
+
+def is_provider_stderr_failure(stderr: str) -> bool:
+    """True when a non-zero openclaw exit was caused upstream, not by us.
+
+    Deliberately narrow: a bad agent name or malformed flag must stay a plain
+    PuzzleError so it surfaces immediately instead of being absorbed as a
+    transient outage.
+    """
+    s = (stderr or "").lower()
+    return any(marker in s for marker in _PROVIDER_STDERR_MARKERS)
+
 
 def is_provider_rejection(reply: str) -> bool:
     """True when a reply is an upstream refusal rather than model output.
@@ -673,6 +704,24 @@ class RawOutputCache:
         (self.path / f"{key}.prompt.txt").unlink(missing_ok=True)
 
 
+def _first_cause(stderr: str) -> str:
+    """The one line of stderr worth showing an operator.
+
+    openclaw prefixes every failure with routine state-migration warnings and
+    ANSI colour codes; echoing the lot (or the prompt that triggered it) made
+    the build log unreadable and hid the single line that names the cause.
+    """
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", stderr or "")
+    lines = [ln.strip() for ln in plain.splitlines() if ln.strip()]
+    for ln in lines:
+        low = ln.lower()
+        if low.startswith("- ") or "state migration" in low or "left " == low[:5]:
+            continue
+        if any(m in low for m in _PROVIDER_STDERR_MARKERS):
+            return ln[:200]
+    return (lines[-1][:200] if lines else "no error detail")
+
+
 def call_openclaw_raw(
     agent_id: str,
     message: str,
@@ -682,8 +731,17 @@ def call_openclaw_raw(
     timeout_s: int = DEFAULT_TIMEOUT,
     cache: Optional[RawOutputCache] = None,
     ledger: Optional[UsageLedger] = None,
+    session_id: str = "",
 ) -> str:
-    """One openclaw agent call, same shape as trivia/engine.call_openclaw_raw."""
+    """One openclaw agent call, same shape as trivia/engine.call_openclaw_raw.
+
+    ``session_id`` isolates the build's calls in their own conversation. Every
+    prompt is self-contained, so sharing the agent's long-lived default session
+    only accumulates history: a book makes dozens of calls, and each one then
+    carries every earlier reply along with it. Left unbounded that grew to
+    hundreds of messages and the provider began rejecting the payload outright
+    — the request never reached the model and no tokens were billed.
+    """
     key = RawOutputCache.key_for(agent_id, message) if cache is not None else ""
     if cache is not None:
         hit = cache.get(key)
@@ -700,6 +758,8 @@ def call_openclaw_raw(
                 return replay
 
     cmd = ["openclaw", "agent", "--agent", agent_id, "--message", message, "--json"]
+    if session_id:
+        cmd += ["--session-id", session_id]
     if local:
         cmd.append("--local")
     if thinking:
@@ -708,6 +768,14 @@ def call_openclaw_raw(
         cmd += ["--timeout", str(timeout_s)]
     p = subprocess.run(cmd, capture_output=True, text=True)
     if p.returncode != 0:
+        # An upstream cause (expired auth, rate limit, gateway error) is not
+        # something this prompt can fix, so raise the type the retry/outage
+        # logic understands. The full prompt is left out: it is identical on
+        # every retry and buried the actual cause under a wall of text.
+        if is_provider_stderr_failure(p.stderr):
+            raise ProviderRejectionError(
+                f"provider unavailable: {_first_cause(p.stderr)}"
+            )
         raise PuzzleError(
             "OpenClaw call failed.\n"
             f"Command: {' '.join(cmd[:6])} ...\n\n"

@@ -544,6 +544,8 @@ async function loadLibrary() {
         }
         const tone = {
             done: "bg-emerald-100 text-emerald-700",
+            // Finished but short on content — must not read as success.
+            partial: "bg-amber-100 text-amber-800",
             error: "bg-rose-100 text-rose-700",
             running: "bg-amber-100 text-amber-700",
             queued: "bg-slate-100 text-slate-600",

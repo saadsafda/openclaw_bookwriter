@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -92,6 +93,7 @@ class PuzzleBuilder:
         should_stop: Optional[Callable[[], bool]] = None,
         cache_dir: Optional[Path] = None,
         seed: int = 20260731,
+        session_id: str = "",
     ) -> None:
         self.cfg = cfg
         self.log = log or _noop_log
@@ -103,6 +105,10 @@ class PuzzleBuilder:
         if cache_dir is not None:
             self.cache = engine.RawOutputCache(Path(cache_dir))
         self.book = PuzzleBook(config=cfg)
+        # Every call this build makes shares one session of its own, so a book
+        # neither inherits another build's history nor leaves its own behind in
+        # the agent's default session. See engine.call_openclaw_raw.
+        self.session_id = session_id or f"puzzle-{uuid.uuid4().hex[:12]}"
         # Provider-outage tracking; see _ask.
         self._refusal_streak = 0
         self._provider_down = False
@@ -151,6 +157,7 @@ class PuzzleBuilder:
                     timeout_s=self.cfg.timeout_s,
                     cache=self.cache,
                     ledger=self.ledger,
+                    session_id=self.session_id,
                 )
             except ProviderRejectionError as exc:
                 last = exc

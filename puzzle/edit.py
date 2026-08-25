@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from pathlib import Path
 from typing import Any, Optional
 
@@ -611,10 +612,13 @@ def _extract_json_object(text: str) -> dict[str, Any]:
 
 def _call(book: PuzzleBook, prompt: str, cache, ledger) -> str:
     cfg = book.config
+    # Each edit prompt stands alone, so it gets its own session rather than
+    # appending to the agent's default one. See engine.call_openclaw_raw.
     return engine.call_openclaw_raw(
         cfg.agent, prompt,
         local=cfg.local, thinking=cfg.thinking, timeout_s=cfg.timeout_s,
         cache=cache, ledger=ledger,
+        session_id=f"puzzle-edit-{uuid.uuid4().hex[:12]}",
     )
 
 

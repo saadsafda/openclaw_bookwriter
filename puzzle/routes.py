@@ -47,7 +47,9 @@ MAX_LOG_LINES = 600
 class PuzzleJob:
     id: str
     config: BookConfig
-    status: str = "queued"          # queued | running | done | error | stopped
+    # partial: the build finished but a section came up short of its
+    # requested count, usually because the provider went down mid-run.
+    status: str = "queued"   # queued|running|done|partial|error|stopped
     stage: str = ""
     progress: float = 0.0
     logs: list[str] = field(default_factory=list)
@@ -124,6 +126,9 @@ def _run_build(job_id: str) -> None:
             progress=_progress,
             should_stop=lambda: job.stop_requested,
             cache_dir=out_dir / "cache",
+            # Ties the agent session to this build, so a stuck session can be
+            # traced back to the book that created it.
+            session_id=f"puzzle-{job_id}",
         )
         book = builder.build(out_dir)
         job.warnings = list(book.warnings)
@@ -183,17 +188,36 @@ def _run_build(job_id: str) -> None:
         zip_path = exporter.build_handoff_zip(book, out_dir, out_dir / f"{stem}_handoff.zip")
         job.outputs["zip"] = str(zip_path)
 
-        job.status = "done"
-        job.stage = "done"
+        # A build that reached the end still is not a success if the sections
+        # came back empty. Reporting "done / 100%" over a log full of failures
+        # hid that from the operator, who had no way to tell a finished book
+        # from a shell of one without reading every warning.
+        shortfalls = []
+        for kind, got in job.counts.items():
+            section = job.config.section(kind)
+            if section.enabled and got < section.count:
+                shortfalls.append(
+                    f"{SECTION_LABELS[kind].lower()} {got}/{section.count}"
+                )
+
+        job.status = "partial" if shortfalls else "done"
+        job.stage = job.status
         job.progress = 1.0
         counts = ", ".join(
             f"{n} {SECTION_LABELS[k].lower()}" for k, n in job.counts.items() if n
         )
-        _log(f"Build complete — {counts}")
+        if shortfalls:
+            short = "; ".join(shortfalls)
+            _log(f"Build INCOMPLETE — short on {short}")
+            job.warnings.insert(
+                0, f"Book is incomplete: {short}. See the warnings below."
+            )
+        else:
+            _log(f"Build complete — {counts}")
 
         bookdb.update_puzzle_book(
             job_id,
-            status="done", stage="done", progress=1.0,
+            status=job.status, stage=job.stage, progress=1.0,
             counts_json=json.dumps(job.counts),
             estimated_pages=book.config.page_estimate().get("total_pages", 0),
             json_path=str(json_path),
