@@ -16,6 +16,7 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt
 
+from kdp_docx_formatter import BODY_TEXT_STYLE, ensure_body_text_style
 from print_hygiene import (
     PRINT_DPI,
     PrintHygieneError,
@@ -182,6 +183,7 @@ def build_docx(
     cfg = book.config
     grouped = _has_chapters(book)
     doc = Document()
+    ensure_body_text_style(doc)
 
     # Front matter: title page.
     title_para = doc.add_paragraph()
@@ -191,11 +193,14 @@ def build_docx(
     title_run.font.size = Pt(28)
 
     if cfg.topic:
-        sub = doc.add_paragraph()
+        # Declared body text: a short unpunctuated line on a title page
+        # otherwise matches the formatter's outline-topic shape and is promoted
+        # to a 20pt Heading 2, which also puts it in the table of contents.
+        sub = doc.add_paragraph(cfg.topic)
+        sub.style = doc.styles[BODY_TEXT_STYLE]
         sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        sub_run = sub.add_run(cfg.topic)
-        sub_run.italic = True
-        sub_run.font.size = Pt(13)
+        for run in sub.runs:
+            run.italic = True
 
     doc.add_page_break()
 

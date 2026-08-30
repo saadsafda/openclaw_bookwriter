@@ -167,6 +167,15 @@
                     </div>
 
                     <div class="md:col-span-2">
+                        <label class="block text-xs font-medium text-slate-600 mb-1.5">Writing model
+                            <span class="text-slate-400 font-normal">&mdash; prose quality depends on this. Leave blank to use the agent&rsquo;s own default.</span>
+                        </label>
+                        <input id="model" class="field w-full rounded-xl px-3.5 py-2.5 text-sm"
+                               value="anthropic/claude-opus-4-6"
+                               placeholder="anthropic/claude-opus-4-6">
+                    </div>
+
+                    <div class="md:col-span-2">
                         <label class="block text-xs font-medium text-slate-600 mb-1.5">
                             Book-wide notes <span class="text-slate-400 font-normal">— added to every story prompt</span>
                         </label>
@@ -468,6 +477,7 @@ function readConfig() {
         illustrate_every_story: $("illustrate_every_story").checked,
         check_duplicates: $("check_duplicates").checked,
         agent: $("agent").value.trim() || "stories-agent-1",
+        model: $("model").value.trim(),
         stories: readStories(),
     };
 }
@@ -490,6 +500,8 @@ function applyConfig(cfg) {
     $("illustrate_every_story").checked = !!cfg.illustrate_every_story;
     $("check_duplicates").checked = cfg.check_duplicates !== false;
     $("agent").value = cfg.agent || "stories-agent-1";
+    // "" is meaningful: it means defer to the agent's configured model.
+    $("model").value = cfg.model === undefined ? "anthropic/claude-opus-4-6" : cfg.model;
 
     // A config may carry either shape; flatten chapters into the flat editor.
     const flat = cfg.stories && cfg.stories.length
@@ -618,6 +630,7 @@ $("btn-suggest").addEventListener("click", async () => {
                 book_title, topic, count,
                 notes: $("global_context").value.trim(),
                 agent: $("agent").value.trim() || "stories-agent-1",
+                model: $("model").value.trim(),
             }),
         });
         const data = await r.json();

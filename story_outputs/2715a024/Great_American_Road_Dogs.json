@@ -1,0 +1,109 @@
+{
+  "book_title": "Great American Road Dogs",
+  "topic": "real, documented dogs that travelled with people who made history",
+  "audience": "general adult reader",
+  "tone": "warm and vivid",
+  "config": {
+    "book_title": "Great American Road Dogs",
+    "topic": "real, documented dogs that travelled with people who made history",
+    "audience": "general adult reader",
+    "tone": "warm and vivid",
+    "min_words": 300,
+    "max_words": 500,
+    "sidebar_enabled": false,
+    "sidebar_label": "The Breakdown",
+    "sidebar_instruction": "",
+    "closer_enabled": false,
+    "closer_label": "The Takeaway",
+    "closer_instruction": "",
+    "global_context": "",
+    "illustrations": false,
+    "illustrate_every_story": false,
+    "chapters": [
+      {
+        "chapter_number": 1,
+        "chapter_title": "",
+        "chapter_intro": "",
+        "stories": [
+          {
+            "number": 1,
+            "title": "Bud Across America",
+            "context": "In 1903 Horatio Nelson Jackson and mechanic Sewall Crocker made the first automobile crossing of the United States, San Francisco to New York. Partway through, in Idaho, they bought a pit bull named Bud, who rode with them wearing goggles against the alkali dust. Photographs are held by the Smithsonian National Museum of American History.",
+            "who": "",
+            "year": "",
+            "where": "",
+            "sources": "",
+            "illustration_prompt_hint": "",
+            "min_words": 0,
+            "max_words": 0
+          }
+        ]
+      }
+    ],
+    "agent": "stories-agent-1",
+    "model": "anthropic/claude-opus-4-6",
+    "thinking": "",
+    "local": false,
+    "timeout_s": 600,
+    "check_duplicates": true,
+    "image_model": "gpt-image-1",
+    "image_size": "1024x1536",
+    "image_quality": "high",
+    "illustration_style_hint": ""
+  },
+  "chapters": [
+    {
+      "chapter_number": 1,
+      "chapter_title": "",
+      "chapter_intro": "",
+      "illustration_path": "",
+      "illustration_prompt": "",
+      "stories": [
+        {
+          "id": "s001",
+          "number": 1,
+          "chapter": 1,
+          "title": "Bud Across America",
+          "body": "The goggles fit. That was the strange part. Somewhere in Idaho, two men crossing the country by car for the first time in history stopped long enough to buy a pit bull and strap a pair of driving goggles over his face. The dog held still for it and never tried to shake them off.\n\nHoratio Nelson Jackson was a Vermont doctor who, in the spring of 1903, bet fifty dollars at the University Club in San Francisco that an automobile could cross the country from the Pacific to New York. No one had done it. The roads, where roads existed at all, were wagon ruts. The car he bought for the trip was a Winton touring car with no windshield, and the mechanic he hired to keep it running was a young man named Sewall Crocker.\n\nThey left San Francisco on May 23 and pointed the Winton east. Tires shredded. The drive chain snapped. They forded streams, dug out of mud, and navigated by asking ranchers which direction led to the next town. In Idaho, they picked up Bud.\n\nHe was a stocky white pit bull, and he climbed onto the seat between Jackson and Crocker as though the spot had been waiting for him. He faced forward, ears pinned flat in the wind. But the alkali dust of the open desert burned his eyes raw, so Jackson found a pair of goggles and fitted them over the dog's broad head. Bud wore them from that point on, every mile, and whenever the Winton sputtered to life he leapt aboard and waited for someone to strap them into place.\n\nThe three of them ground east through Wyoming, across Nebraska, through Iowa. Towns turned out to watch them pass, and Bud drew the biggest crowds. People wanted to see the goggled dog more than the car. Jackson wrote that Bud was the one member of the expedition who never lost his temper and never once suggested turning back.\n\nThey reached New York on July 26, sixty-three days out of San Francisco. Wire and improvisation held the Winton together. Jackson had burned through far more than fifty dollars in repairs. But they had crossed the continent on four wheels for the first time, and the dog had ridden every mile of it.\n\nBud's goggles sit in the Smithsonian National Museum of American History now, the leather cracked, the lenses clouded, small enough to fit a dog's face.",
+          "sidebar": "",
+          "closer": "",
+          "context": "In 1903 Horatio Nelson Jackson and mechanic Sewall Crocker made the first automobile crossing of the United States, San Francisco to New York. Partway through, in Idaho, they bought a pit bull named Bud, who rode with them wearing goggles against the alkali dust. Photographs are held by the Smithsonian National Museum of American History.",
+          "who": "",
+          "year": "",
+          "where": "",
+          "sources": "",
+          "cited_sources": [
+            "Smithsonian National Museum of American History (artifact and photograph collection)",
+            "Dayton Duncan and Ken Burns, Horatio's Drive: America's First Road Trip (2003)"
+          ],
+          "uncertain_claims": [
+            "Fifty-dollar bet at the University Club in San Francisco (widely reported but not in provided context)",
+            "May 23, 1903 departure and July 26, 1903 arrival dates",
+            "Winton touring car with no windshield (specific vehicle details beyond provided context)",
+            "Drive chain snapping as a specific breakdown",
+            "Bud described as stocky and white (inferred from well-known Smithsonian photographs, not stated in provided context)",
+            "Jackson's remark about Bud never losing his temper (widely attributed, exact wording varies by source)",
+            "Bud's goggles physically surviving at the Smithsonian (provided context confirms photographs are held there; the goggles' presence is separately well-documented but not in the provided context)"
+          ],
+          "illustration_path": "",
+          "illustration_prompt": "",
+          "word_count": 406,
+          "warnings": []
+        }
+      ]
+    }
+  ],
+  "story_count": 1,
+  "total_words": 406,
+  "warnings": [],
+  "usage": {
+    "calls": 1,
+    "cache_hits": 0,
+    "input_tokens": 3,
+    "output_tokens": 12624,
+    "cache_read_tokens": 10817,
+    "cache_write_tokens": 2202,
+    "total_tokens": 12627,
+    "cost_usd": 0.334786
+  }
+}
