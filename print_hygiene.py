@@ -31,6 +31,7 @@ separate concern and lives in ``openclaw_docx_writer.humanize_text``.
 from __future__ import annotations
 
 import re
+import shutil
 import struct
 import tempfile
 from pathlib import Path
@@ -156,6 +157,22 @@ FULL_PAGE_PX = (int(PAGE_W_IN * PRINT_DPI), int(PAGE_H_IN * PRINT_DPI))
 MAX_UPSCALE_PX = (FULL_PAGE_PX[0] * 4, FULL_PAGE_PX[1] * 4)
 
 
+# Suffix for the pristine copy kept beside an upscaled image. The ".orig"
+# sits before the extension so the sidecar keeps a non-image suffix and is
+# skipped by the _RASTER_SUFFIXES scans that walk an output tree.
+_ORIGINAL_SUFFIX = ".orig"
+
+
+def _original_sidecar(path: Path) -> Path:
+    """Path of the untouched copy kept beside ``path``."""
+    return path.with_name(path.name + _ORIGINAL_SUFFIX)
+
+
+def is_original_sidecar(path: str | Path) -> bool:
+    """True for the pristine copies :func:`upscale_for_print` keeps."""
+    return str(path).endswith(_ORIGINAL_SUFFIX)
+
+
 def required_pixels(width_in: float, height_in: float = 0.0,
                     dpi: int = PRINT_DPI) -> tuple[int, int]:
     """Pixels needed to print ``width_in`` x ``height_in`` at ``dpi``."""
@@ -194,7 +211,28 @@ def upscale_for_print(
         return False
     need_w, need_h = required_pixels(max(width_in, 0.0), max(height_in, 0.0), dpi)
 
-    with Image.open(path) as im:
+    # Nothing to do when the file on disk already has the pixels. Checked before
+    # anything else so a repeated export at the same width is a genuine no-op
+    # rather than a needless re-resample.
+    with Image.open(path) as probe:
+        have_w, have_h = probe.size
+    if have_w >= need_w and have_h >= need_h:
+        return False
+
+    # Resample from the pristine original, never from a previous upscale.
+    # Rebuilding a book at a *larger* placed width would otherwise resample
+    # already-resampled pixels, and the softening compounds with each pass.
+    # The sidecar is written once, before the first upscale, and is the source
+    # for every later one.
+    source = _original_sidecar(path)
+    if not source.exists():
+        try:
+            shutil.copy2(path, source)
+        except OSError:
+            source = path  # read-only output dir: degrade to in-place, still correct
+    read_from = source if source.exists() else path
+
+    with Image.open(read_from) as im:
         im.load()
         cur_w, cur_h = im.size
         mode = im.mode
@@ -206,6 +244,8 @@ def upscale_for_print(
             1.0,
         )
         if scale <= 1.0:
+            # The original already has the pixels. The file on disk is either
+            # that same original or an upscale of it, so it does too.
             return False
         new_size = (max(need_w, int(round(cur_w * scale))),
                     max(need_h, int(round(cur_h * scale))))

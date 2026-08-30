@@ -515,7 +515,13 @@ def build_handoff_zip(book: PuzzleBook, job_dir: Path, zip_path: Path) -> Path:
             if path_str and p.exists():
                 # The formatter's copy must carry the same guarantees as the
                 # manuscript's: exactly 300 DPI, no AI metadata.
-                sanitize_for_print(p, PRINT_DPI)
+                try:
+                    sanitize_for_print(p, PRINT_DPI)
+                except PrintHygieneError as exc:
+                    # One bad asset must not cost the formatter the whole
+                    # bundle; it is reported and left out.
+                    book.warnings.append(f"Handoff ZIP omitted {p.name} — {exc}")
+                    return
                 zf.write(p, arcname)
 
         for maze in book.mazes:

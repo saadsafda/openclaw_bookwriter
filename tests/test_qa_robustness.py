@@ -10,7 +10,7 @@ import pathlib
 
 import pytest
 from docx import Document
-from PIL import Image
+from PIL import Image, ImageChops, ImageDraw
 
 import print_hygiene as ph
 from openclaw_docx_writer import (
@@ -203,3 +203,139 @@ class TestIdempotenceAndSafety:
         for evil in ("../../etc/passwd", "..\\..\\windows", "a/b/c"):
             stem = _safe_stem(evil)
             assert "/" not in stem and "\\" not in stem and ".." not in stem
+
+
+class TestBug6BirdsControlChars:
+    """birds/export.py takes plain tuples, so the dataclass walker missed it."""
+
+    DIRTY = "Barn Owl\x07 rare\x0b"
+
+    def _plate(self, tmp_path):
+        p = tmp_path / "bird.png"
+        Image.new("RGB", (1024, 1536), "white").save(p)
+        return p
+
+    def test_guide_survives_control_chars(self, tmp_path):
+        import birds.export as bx
+        out = tmp_path / "guide.docx"
+        bx.build_docx([(self.DIRTY, self._plate(tmp_path))], out,
+                      bx.GuideConfig(title=self.DIRTY, subtitle=self.DIRTY,
+                                     author=self.DIRTY))
+        Document(str(out))  # used to raise ValueError
+
+    def test_species_name_is_cleaned_not_dropped(self, tmp_path):
+        import birds.export as bx
+        out = tmp_path / "guide.docx"
+        bx.build_docx([(self.DIRTY, self._plate(tmp_path))], out,
+                      bx.GuideConfig(title="Guide"))
+        text = "\n".join(p.text for p in Document(str(out)).paragraphs)
+        assert "Barn Owl rare" in text
+
+
+class TestBug7EditorControlChars:
+    """write_blocks is web-facing; a control char lost the user's edit."""
+
+    def _doc(self, tmp_path):
+        d = Document()
+        d.add_paragraph("original text")
+        p = tmp_path / "e.docx"
+        d.save(str(p))
+        return p
+
+    def test_edit_with_control_chars_succeeds(self, tmp_path):
+        import book_editor as be
+        p = self._doc(tmp_path)
+        result = be.write_blocks(p, [{"index": 0, "text": "clean \x07 edit"}])
+        assert result["changed"] == 1
+
+    def test_the_edit_is_actually_applied(self, tmp_path):
+        import book_editor as be
+        p = self._doc(tmp_path)
+        be.write_blocks(p, [{"index": 0, "text": "clean \x07 edit"}])
+        assert "clean  edit" in Document(str(p)).paragraphs[0].text
+
+    def test_a_failed_edit_never_corrupts_the_file(self, tmp_path):
+        import book_editor as be
+        p = self._doc(tmp_path)
+        try:
+            be.write_blocks(p, [{"index": 999, "text": "out of range"}])
+        except Exception:
+            pass
+        Document(str(p))  # must still open
+
+
+class TestBug8CumulativeResampling:
+    """Rebuilding at increasing widths re-resampled already-resampled pixels."""
+
+    @staticmethod
+    def _detailed(path):
+        im = Image.new("RGB", (1024, 1536), (250, 250, 252))
+        d = ImageDraw.Draw(im)
+        for i in range(0, 1024, 16):
+            d.line([(i, 0), (i, 1536)], fill=(90, 120, 170), width=1)
+        im.save(path)
+        return path
+
+    @staticmethod
+    def _mse(a, b):
+        diff = ImageChops.difference(a.convert("RGB"), b.convert("RGB"))
+        h = diff.histogram()
+        px = a.size[0] * a.size[1]
+        return sum(i * i * (h[i] + h[256 + i] + h[512 + i])
+                   for i in range(256)) / (3 * px)
+
+    def test_incremental_matches_single_pass(self, tmp_path):
+        single = self._detailed(tmp_path / "a.png")
+        ph.sanitize_for_print(single, 300, width_in=6.0)
+        ref = Image.open(single).copy()
+
+        stepped = self._detailed(tmp_path / "b.png")
+        for w in (3.5, 4.0, 4.5, 5.0, 5.5, 6.0):
+            ph.sanitize_for_print(stepped, 300, width_in=w)
+
+        with Image.open(stepped) as got:
+            assert got.size == ref.size
+            assert self._mse(ref, got) < 1.0, "cumulative resampling degraded the plate"
+
+    def test_repeat_at_same_width_is_a_no_op(self, tmp_path):
+        p = self._detailed(tmp_path / "c.png")
+        assert ph.upscale_for_print(p, 4.5) is True
+        assert ph.upscale_for_print(p, 4.5) is False
+
+    def test_a_smaller_width_never_shrinks_the_file(self, tmp_path):
+        p = self._detailed(tmp_path / "d.png")
+        ph.upscale_for_print(p, 6.0)
+        with Image.open(p) as im:
+            big = im.size
+        assert ph.upscale_for_print(p, 3.0) is False
+        with Image.open(p) as im:
+            assert im.size == big
+
+    def test_sidecar_is_not_treated_as_a_book_image(self, tmp_path):
+        p = self._detailed(tmp_path / "e.png")
+        ph.upscale_for_print(p, 4.5)
+        assert ph._original_sidecar(p).exists()
+        assert ph.is_original_sidecar(ph._original_sidecar(p))
+        # audit_tree walks by raster suffix; the sidecar must not appear
+        assert all(not ph.is_original_sidecar(k)
+                   for k in ph.audit_tree(tmp_path, 300, width_in=4.5))
+
+
+class TestBug9HandoffZipBadAsset:
+    """One unreadable puzzle image aborted the formatter bundle."""
+
+    def test_zip_completes_with_a_corrupt_asset(self, tmp_path):
+        from puzzle.engine import BookConfig, Maze, PuzzleBook
+        from puzzle import export as px
+        good = tmp_path / "ok.png"
+        Image.new("RGB", (1800, 2700), "white").save(good)
+        bad = tmp_path / "bad.png"
+        bad.write_bytes(b"not an image")
+
+        book = PuzzleBook(config=BookConfig(book_title="P", topic="t"))
+        book.mazes = [Maze("m", 1, "Maze", 10, 10, str(good), str(bad), 1)]
+        zp = tmp_path / "handoff.zip"
+        px.build_handoff_zip(book, tmp_path, zp)
+
+        assert zp.exists()
+        assert book.warnings, "an omitted asset must be reported"
