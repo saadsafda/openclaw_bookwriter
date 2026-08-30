@@ -178,7 +178,6 @@ def build_docx(
     image_width_in: float = 4.5,
 ) -> Path:
     """Plain manuscript DOCX. Styling/sizing is left to the KDP formatter."""
-    # OOXML forbids control characters; one aborts the whole export.
     strip_control_chars(book)
     cfg = book.config
     grouped = _has_chapters(book)
@@ -193,9 +192,7 @@ def build_docx(
     title_run.font.size = Pt(28)
 
     if cfg.topic:
-        # Declared body text: a short unpunctuated line on a title page
-        # otherwise matches the formatter's outline-topic shape and is promoted
-        # to a 20pt Heading 2, which also puts it in the table of contents.
+        # Short and unpunctuated, so the formatter would read it as a heading.
         sub = doc.add_paragraph(cfg.topic)
         sub.style = doc.styles[BODY_TEXT_STYLE]
         sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -210,9 +207,6 @@ def build_docx(
             if chapter.intro:
                 doc.add_paragraph(chapter.intro)
             if chapter.illustration_path and Path(chapter.illustration_path).exists():
-                # The placed width is what makes this a true 300 DPI check
-                # rather than just a tag.
-                # A corrupt illustration must not cost the whole book.
                 try:
                     sanitize_for_print(
                         chapter.illustration_path, PRINT_DPI, width_in=image_width_in
@@ -237,7 +231,6 @@ def build_docx(
             )
 
             if story.illustration_path and Path(story.illustration_path).exists():
-                # A corrupt illustration must not cost the whole book.
                 try:
                     sanitize_for_print(
                         story.illustration_path, PRINT_DPI, width_in=image_width_in

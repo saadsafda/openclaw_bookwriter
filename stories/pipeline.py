@@ -442,9 +442,7 @@ def generate_outline(
                 f"{already}"
             ).strip()
 
-        # No model override here: proposing real, researchable stories is a
-        # recall-and-reasoning task, which is what the agent's default model is
-        # already good at. The writing-strong model is used for the prose.
+        # No model override: proposing researchable stories is recall, not prose.
         reply = engine.call_openclaw_raw(
             agent,
             engine.build_outline_prompt(book_title, topic, need, extra),

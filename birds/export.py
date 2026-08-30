@@ -128,9 +128,7 @@ def _add_plate_page(
     embed = _flatten_to_white(image_path) if flatten else image_path
     temporary = embed != image_path
     try:
-        # Work out the printed size first: the 300 DPI guarantee below is
-        # relative to how large the plate is actually placed, so it cannot be
-        # checked before the fit is known.
+        # The DPI guarantee is relative to the placed size, so fit comes first.
         width_in, height_in = _fitted_size(embed)
 
         # Last line of defence before embedding, matching puzzle/export.py:

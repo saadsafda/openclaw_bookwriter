@@ -20,17 +20,9 @@ FRONT_BACK_RE = re.compile(r"^(Introduction|Conclusion|Epilogue|Foreword|Preface
 SUBHEADING_RE = re.compile(r"^(\d+\.\s+.+|[\-•*–—]\s+.+|Focus:\s+.+)$", re.IGNORECASE)
 LIST_BULLET_STYLE_RE = re.compile(r"^List Bullet(?: \d+)?$", re.IGNORECASE)
 
-# Paragraphs carrying this style are body text by declaration and are never
-# promoted to a heading, whatever their shape.
-#
-# The heading rules below are shape heuristics meant for prose manuscripts,
-# where a short numbered or unpunctuated line really is a heading. Structured
-# content breaks that assumption wholesale: a trivia question ("1. Which owl
-# ...") matches SUBHEADING_RE, each answer choice matches the bare-topic test,
-# and choices lettered C or D match ROMAN_HEADING_RE and become chapter titles.
-# The outline_topics guard cannot help a generator with no prose outline to
-# supply. Such a generator marks its own body text with this style instead,
-# which is exact rather than another guess.
+# Body text by declaration, never promoted to a heading whatever its shape.
+# The rules below are shape heuristics for prose; structured content (a numbered
+# question, a lettered choice) trips every one of them.
 BODY_TEXT_STYLE = "OpenclawBodyText"
 
 
@@ -256,12 +248,8 @@ def _set_page_number_start(section, start: int) -> None:
 def _enable_mirror_margins(doc: Document) -> None:
     """Turn on mirrored (inside/outside) margins for the whole document.
 
-    KDP prints and binds double-sided, so the gutter has to swap edges between
-    recto and verso. With ``w:mirrorMargins`` set, Word reinterprets every
-    section's ``w:left``/``w:right`` page margin as *inside*/*outside*, so the
-    wide gutter follows the spine automatically instead of sitting on the left
-    of every page — which on a left-hand page puts it on the outer edge and
-    pushes the text into the binding.
+    With this set, Word reads each section's w:left/w:right as inside/outside,
+    so the gutter follows the spine instead of sitting on the left of every page.
     """
     settings = doc.settings.element
     mirror = settings.find(qn("w:mirrorMargins"))
@@ -689,8 +677,7 @@ def _set_heading_styles_and_collect_bookmarks(
         if not text:
             continue
 
-        # Declared body text wins over every heuristic below, including the
-        # pre-applied-style checks: the generator has stated what this is.
+        # Declared body text wins over every heuristic below.
         if _is_forced_body(p):
             pending_chapter_label = False
             pending_chapter_label_text = ""
@@ -862,10 +849,7 @@ def _apply_base_text_styles(doc: Document, body_start_idx: int, font_name: str, 
                     _ensure_run_font(r, font_name, 12)
             continue
 
-        # Declared body text keeps the layout its generator chose: structured
-        # content is laid out as a block (left-aligned, no first-line indent,
-        # its own indents and spacing) and its emphasis is deliberate, so the
-        # justification, indent and bold-stripping below are all skipped.
+        # Declared body text keeps the layout and emphasis its generator chose.
         if _is_forced_body(p):
             p.alignment = WD_ALIGN_PARAGRAPH.LEFT
             p.paragraph_format.first_line_indent = Inches(0)
@@ -1229,10 +1213,6 @@ def _apply_paperback_layout(doc: Document, estimated_pages: int, book_title: str
     inside_margin = _inside_margin_for_page_count(estimated_pages)
     outside_margin = PAPERBACK_OUTSIDE_MARGIN_IN
     doc.settings.odd_and_even_pages_header_footer = True
-    # Mirror the margins so the gutter follows the spine: with this on, the
-    # left/right values below mean inside/outside, and Word swaps them on
-    # left-hand pages. Without it the gutter stays on the left of every page,
-    # which puts the *outside* margin against the spine on every verso.
     _enable_mirror_margins(doc)
     first_numbered_idx = _find_first_body_section_idx(doc)
 

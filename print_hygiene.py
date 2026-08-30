@@ -140,26 +140,17 @@ def _crc32(data: bytes) -> int:
     return zlib.crc32(data) & 0xFFFFFFFF
 
 
-# 6x9 trade paperback. An illustration is placed at some width in inches; to be
-# genuinely 300 DPI it needs width_in * 300 actual pixels. A DPI *tag* alone
-# proves nothing -- a 1024px image tagged "300 DPI" and placed 5.5in wide really
-# prints at 186 DPI, and KDP judges the pixels, not the tag.
+# KDP judges resolution by pixels against printed size, not by the DPI tag.
 PAGE_W_IN = 6.0
 PAGE_H_IN = 9.0
 
-# Full-bleed 6x9 at 300 DPI, the largest anything in these books is ever placed.
 FULL_PAGE_PX = (int(PAGE_W_IN * PRINT_DPI), int(PAGE_H_IN * PRINT_DPI))
 
-# Hard ceiling for an upscale. Generous (4x a full-bleed page in each axis, so
-# bleed and oversized source art still pass through untouched) but low enough
-# that a degenerate aspect ratio cannot reach Pillow's decompression-bomb limit
-# and abort the export.
+# Keeps a degenerate aspect ratio from reaching Pillow's decompression-bomb limit.
 MAX_UPSCALE_PX = (FULL_PAGE_PX[0] * 4, FULL_PAGE_PX[1] * 4)
 
 
-# Suffix for the pristine copy kept beside an upscaled image. The ".orig"
-# sits before the extension so the sidecar keeps a non-image suffix and is
-# skipped by the _RASTER_SUFFIXES scans that walk an output tree.
+# Appended after the extension so the sidecar is skipped by _RASTER_SUFFIXES scans.
 _ORIGINAL_SUFFIX = ".orig"
 
 
@@ -211,19 +202,13 @@ def upscale_for_print(
         return False
     need_w, need_h = required_pixels(max(width_in, 0.0), max(height_in, 0.0), dpi)
 
-    # Nothing to do when the file on disk already has the pixels. Checked before
-    # anything else so a repeated export at the same width is a genuine no-op
-    # rather than a needless re-resample.
+    # Keeps a repeated export at the same width a genuine no-op.
     with Image.open(path) as probe:
         have_w, have_h = probe.size
     if have_w >= need_w and have_h >= need_h:
         return False
 
-    # Resample from the pristine original, never from a previous upscale.
-    # Rebuilding a book at a *larger* placed width would otherwise resample
-    # already-resampled pixels, and the softening compounds with each pass.
-    # The sidecar is written once, before the first upscale, and is the source
-    # for every later one.
+    # Always resample from the original: softening compounds across passes.
     source = _original_sidecar(path)
     if not source.exists():
         try:
@@ -244,17 +229,10 @@ def upscale_for_print(
             1.0,
         )
         if scale <= 1.0:
-            # The original already has the pixels. The file on disk is either
-            # that same original or an upscale of it, so it does too.
             return False
         new_size = (max(need_w, int(round(cur_w * scale))),
                     max(need_h, int(round(cur_h * scale))))
-        # A wildly out-of-proportion source (a 10x5000 strip placed 4.5in wide
-        # needs a 135x scale) would otherwise resample to a 900-megapixel image
-        # and raise Pillow's DecompressionBombError, aborting the whole book
-        # export over one malformed asset. Clamp to the largest full-bleed page
-        # instead: the result is still far above the DPI floor on the axis that
-        # matters, and no legitimate book image is bigger than a full page.
+        # A 10x5000 strip needs a 135x scale, which would be 900 megapixels.
         max_w, max_h = MAX_UPSCALE_PX
         if new_size[0] > max_w or new_size[1] > max_h:
             clamp = min(max_w / new_size[0], max_h / new_size[1])
@@ -295,10 +273,8 @@ def sanitize_for_print(path: str | Path, dpi: int = PRINT_DPI,
     if path.suffix.lower() not in _RASTER_SUFFIXES:
         raise PrintHygieneError(f"{path}: unsupported image type for print")
 
-    # An unreadable or truncated file is a print-hygiene failure like any other,
-    # so it leaves here as PrintHygieneError rather than a raw Pillow exception.
-    # Callers already catch PrintHygieneError to skip one bad asset; letting
-    # UnidentifiedImageError escape instead aborted the whole book export.
+    # Callers catch PrintHygieneError to skip one bad asset; a raw Pillow
+    # exception would abort the whole export instead.
     try:
         if width_in:
             upscale_for_print(path, width_in, height_in, dpi)
@@ -406,8 +382,7 @@ def sanitize_tree(root: str | Path, dpi: int = PRINT_DPI) -> list[Path]:
 # Text fingerprints
 # --------------------------------------------------------------------------
 
-# Control characters XML forbids. Tab (\x09), newline (\x0a) and carriage
-# return (\x0d) are legal and carry meaning, so they are excluded.
+# Control characters XML forbids. Tab, newline and carriage return are legal.
 _CONTROL_CHARS_RE = re.compile(
     r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]"
 )
@@ -532,11 +507,7 @@ def scrub_text(text: str) -> str:
     """
     if not text:
         return text
-    # C0/C1 control characters are illegal in XML, so a single stray one (a
-    # model emitting \x07, or a pasted source file) makes python-docx raise
-    # "All strings must be XML compatible" and takes the whole export with it.
-    # Tab, newline and carriage return are the three that are legal and
-    # meaningful, so they are kept.
+    # One stray control character makes python-docx raise mid-write.
     text = _CONTROL_CHARS_RE.sub("", text)
     for ch, repl in _INVISIBLE.items():
         text = text.replace(ch, repl)

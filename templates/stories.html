@@ -500,7 +500,6 @@ function applyConfig(cfg) {
     $("illustrate_every_story").checked = !!cfg.illustrate_every_story;
     $("check_duplicates").checked = cfg.check_duplicates !== false;
     $("agent").value = cfg.agent || "stories-agent-1";
-    // "" is meaningful: it means defer to the agent's configured model.
     $("model").value = cfg.model === undefined ? "anthropic/claude-opus-4-6" : cfg.model;
 
     // A config may carry either shape; flatten chapters into the flat editor.

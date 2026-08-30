@@ -117,8 +117,6 @@ def _body_paragraph(doc: Document, text: str = ""):
     choice reads as an outline topic, and "C. Barn Owl" reads as a roman-numeral
     chapter title. Declaring the style is what keeps them body text.
     """
-    # Generated text can carry a control character that OOXML forbids; one is
-    # enough to abort the whole export, so it is stripped on the way in.
     para = doc.add_paragraph(xml_safe(text))
     para.style = doc.styles[BODY_TEXT_STYLE]
     return para
@@ -128,9 +126,7 @@ def _add_answer_key_block(doc: Document, chapters: list[Chapter], *, heading_lev
     for chapter in chapters:
         if not chapter.trivia:
             continue
-        # Deliberately not "Chapter N — Title": that shape is matched as a
-        # chapter opener and promoted to Heading 1, putting every answer-key
-        # section into the TOC as a top-level chapter.
+        # "Chapter N — Title" is matched as a chapter opener and promoted to H1.
         _add_heading(doc, f"{chapter.title} (Chapter {chapter.number})", heading_level)
         for i, q in enumerate(chapter.trivia, start=1):
             para = _body_paragraph(doc)
@@ -141,10 +137,7 @@ def _add_answer_key_block(doc: Document, chapters: list[Chapter], *, heading_lev
 
 def build_docx(book: TriviaBook, path: Path, *, image_width_in: float = 4.5) -> Path:
     """Plain manuscript DOCX. Styling/sizing is left to the KDP formatter."""
-    # OOXML forbids C0/C1 control characters, and a single one anywhere in the
-    # generated text makes python-docx raise mid-write, losing the whole book.
-    # Stripping them once here covers every field without threading a guard
-    # through each of the dozen add_run/add_heading calls below.
+    # One control character anywhere makes python-docx raise mid-write.
     strip_control_chars(book)
     cfg = book.config
     doc = Document()
@@ -158,8 +151,7 @@ def build_docx(book: TriviaBook, path: Path, *, image_width_in: float = 4.5) -> 
     title_run.font.size = Pt(28)
 
     if cfg.topic:
-        # Declared body text: a short unpunctuated line like this otherwise
-        # reads as an outline topic and becomes a 20pt subheading.
+        # Short and unpunctuated, so the formatter would read it as a heading.
         sub = _body_paragraph(doc)
         sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
         sub_run = sub.add_run(f"A trivia and facts collection about {cfg.topic}")
@@ -188,10 +180,6 @@ def build_docx(book: TriviaBook, path: Path, *, image_width_in: float = 4.5) -> 
         if chapter.illustration_path and Path(chapter.illustration_path).exists():
             # Last line of defence before embedding: chapter art is AI
             # generated, so guarantee 300 DPI and no provenance metadata.
-            # Passing the placed width upscales art that has too few pixels to
-            # be a true 300 DPI at that size (1024px at 4.5in is only 228).
-            # One unreadable illustration must not cost the whole book: the
-            # chapter is emitted without art and the problem is recorded.
             try:
                 sanitize_for_print(
                     chapter.illustration_path, PRINT_DPI, width_in=image_width_in
@@ -211,9 +199,7 @@ def build_docx(book: TriviaBook, path: Path, *, image_width_in: float = 4.5) -> 
                 q_para = _body_paragraph(doc)
                 q_para.paragraph_format.space_after = Pt(4)
                 q_para.paragraph_format.keep_with_next = True
-                # Only the number is bold — it marks where each question starts
-                # without setting the whole question in bold, which at question
-                # length turns into a wall of heavy text on the page.
+                # Bolding the whole question makes a wall of heavy text.
                 q_para.add_run(f"{i}. ").bold = True
                 q_para.add_run(q.question)
                 for letter in LETTERS:
@@ -222,8 +208,6 @@ def build_docx(book: TriviaBook, path: Path, *, image_width_in: float = 4.5) -> 
                     c_para = _body_paragraph(doc)
                     c_para.paragraph_format.left_indent = Inches(0.3)
                     c_para.paragraph_format.space_after = Pt(0)
-                    # Keep the choices with the question so a page break never
-                    # lands between them.
                     c_para.paragraph_format.keep_with_next = letter != LETTERS[-1]
                     c_para.add_run(f"{letter}. {q.choices[letter]}")
                 _body_paragraph(doc).paragraph_format.space_after = Pt(6)
@@ -231,9 +215,7 @@ def build_docx(book: TriviaBook, path: Path, *, image_width_in: float = 4.5) -> 
         if chapter.facts:
             _add_heading(doc, FACTS_SECTION_TITLE, 2)
             for f in chapter.facts:
-                # A bullet with a short fact matches the formatter's outline
-                # topic shape, so these are declared body text and given their
-                # own bullet glyph rather than the List Bullet style.
+                # List Bullet + a short fact matches the formatter's topic shape.
                 para = _body_paragraph(doc, f"\u2022 {f.fact}")
                 para.paragraph_format.left_indent = Inches(0.25)
                 para.paragraph_format.space_after = Pt(3)
@@ -287,10 +269,7 @@ def build_kdp_files(
     kindle_out = out_dir / f"{stem}_kindle.docx"
     paperback_out = out_dir / f"{stem}_paperback.docx"
 
-    # The real headings in a trivia book: chapter titles plus the fixed section
-    # labels. Passing them turns the formatter's outline guard on, so a stray
-    # line that merely looks like a heading is left as body text. The declared
-    # body style already covers the generated content; this covers the rest.
+    # Turns on the formatter's outline guard for anything not declared body text.
     raw_topics = {
         "Introduction",
         ANSWER_KEY_TITLE,
@@ -303,7 +282,6 @@ def build_kdp_files(
         raw_topics.add(chapter.title)
         raw_topics.add(f"{ANSWER_KEY_TITLE} — Chapter {chapter.number}")
         raw_topics.add(f"{chapter.title} (Chapter {chapter.number})")
-    # The formatter matches on canonical keys, not raw text.
     outline_topics = {canonical_title_key(t) for t in raw_topics if t}
 
     kindle_path, paperback_path, estimated, inside = build_kdp_documents(

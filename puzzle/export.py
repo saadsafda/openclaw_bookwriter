@@ -184,10 +184,6 @@ def _add_image(doc: Document, image_path: str, width_in: float = IMAGE_WIDTH_IN)
     # Last line of defence before an image is embedded: guarantee 300 DPI and
     # no AI/EXIF metadata even if the file arrived from outside the renderer
     # (hand-drawn art, a re-run, an edited replacement).
-    # width_in is the size it is actually placed at, so this also upscales
-    # anything with too few pixels to be a true 300 DPI there.
-    # A corrupt asset must not abort the export; _add_image already reports
-    # "no image" via its return value, which callers handle.
     try:
         sanitize_for_print(image_path, PRINT_DPI, width_in=width_in)
     except PrintHygieneError:
@@ -217,7 +213,6 @@ def _section_heading(doc: Document, text: str) -> None:
 
 
 def build_docx(book: PuzzleBook, path: Path) -> Path:
-    # OOXML forbids control characters; one aborts the whole export.
     strip_control_chars(book)
     cfg = book.config
     doc = Document()
@@ -230,8 +225,7 @@ def build_docx(book: PuzzleBook, path: Path) -> Path:
     run.bold = True
     run.font.size = Pt(28)
 
-    # Declared body text: a short unpunctuated line like this otherwise reads
-    # as an outline topic and becomes a 20pt subheading.
+    # Short and unpunctuated, so the formatter would read it as a heading.
     sub = _body_paragraph(doc)
     sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
     sub_run = sub.add_run(f"A puzzle and activity book about {cfg.topic}")
@@ -313,15 +307,12 @@ def build_docx(book: PuzzleBook, path: Path) -> Path:
     if book.trivia_chapters:
         _section_heading(doc, _section_title("trivia"))
         for chapter in book.trivia_chapters:
-            # Not "Chapter N — Title": that shape is matched as a chapter
-            # opener and promoted to Heading 1, breaking the section nesting.
+            # "Chapter N — Title" is matched as a chapter opener and promoted to H1.
             doc.add_heading(f"{chapter.title} (Chapter {chapter.number})", level=2)
             for q in chapter.questions:
                 q_para = _body_paragraph(doc)
                 q_para.paragraph_format.space_after = Pt(4)
                 q_para.paragraph_format.keep_with_next = True
-                # Only the number is bold; a whole question in bold reads as a
-                # wall of heavy text on the page.
                 q_para.add_run(f"{q.number}. ").bold = True
                 q_para.add_run(q.question)
                 for letter in LETTERS:
@@ -457,10 +448,7 @@ def build_kdp_files(
     kindle_out = out_dir / f"{stem}_kindle.docx"
     paperback_out = out_dir / f"{stem}_paperback.docx"
 
-    # The manuscript writes every real heading with doc.add_heading(), so the
-    # headings already in the file are the authoritative outline. Passing them
-    # turns the formatter's outline guard on, so a line that merely looks like a
-    # heading stays body text.
+    # The headings already in the file are the authoritative outline.
     outline_topics = {
         canonical_title_key(p.text)
         for p in Document(str(source_docx)).paragraphs
@@ -518,8 +506,6 @@ def build_handoff_zip(book: PuzzleBook, job_dir: Path, zip_path: Path) -> Path:
                 try:
                     sanitize_for_print(p, PRINT_DPI)
                 except PrintHygieneError as exc:
-                    # One bad asset must not cost the formatter the whole
-                    # bundle; it is reported and left out.
                     book.warnings.append(f"Handoff ZIP omitted {p.name} — {exc}")
                     return
                 zf.write(p, arcname)

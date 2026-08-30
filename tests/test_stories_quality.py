@@ -123,8 +123,11 @@ class TestEveryProseCallUsesTheModel:
                .read_text(encoding="utf-8"))
         assert src.count("model=cfg.model") == 3
 
-    def test_outline_deliberately_does_not(self):
+    def test_outline_does_not_override_the_model(self):
         """Proposing researchable stories is recall, not prose."""
-        src = (__import__("pathlib").Path("stories/pipeline.py")
-               .read_text(encoding="utf-8"))
-        assert "No model override here" in src
+        import inspect
+
+        from stories import pipeline
+        src = inspect.getsource(pipeline.generate_outline)
+        assert "build_outline_prompt" in src
+        assert "model=" not in src

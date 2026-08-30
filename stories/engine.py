@@ -40,11 +40,8 @@ DEFAULT_TIMEOUT = 600
 # this per book from the "OpenClaw agent" field in the UI.
 DEFAULT_AGENT = "stories-agent-1"
 
-# The agent default (openai/gpt-5.5-pro) is tuned for reasoning and code. Prose
-# is a different job: these stories are judged on rhythm, restraint and where a
-# sentence lands, not on step-by-step correctness. Naming a writing-strong model
-# here overrides the agent default for story generation only. Empty string keeps
-# whatever the agent is configured with.
+# The agent default is tuned for reasoning and code; prose is a different job.
+# Empty string keeps whatever the agent is configured with.
 DEFAULT_MODEL = "anthropic/claude-opus-4-6"
 
 # The spec's target from the video: "a 300 to 500 word little story".
@@ -73,15 +70,11 @@ MAX_STORY_ATTEMPTS = 4
 OPENER_WORDS = 6
 MAX_OPENER_REPEATS = 2
 
-# A paragraph standing alone as a single sentence reads as a pull quote rather
-# than prose, and a page carrying several of them looks like the text was
-# chopped up rather than written. Two sentences is the floor for a real
-# paragraph; the closing paragraph is the one place a single sentence earns its
-# place, so the last paragraph is exempt.
+# A lone sentence reads as a pull quote, not prose. The closing paragraph is
+# the one place it earns its place, so the last paragraph is exempt.
 MIN_SENTENCES_PER_PARAGRAPH = 2
 
-# A one-sentence paragraph long enough to fill several printed lines does not
-# read as a stranded fragment, so length buys an exemption. Measured in words.
+# A lone sentence this long fills several printed lines, so it is not stranded.
 LONE_SENTENCE_WORD_EXEMPTION = 30
 
 # Jaccard token overlap above which two stories are considered to be retelling
@@ -415,7 +408,6 @@ class BookConfig:
             illustrate_every_story=_flag("illustrate_every_story", False),
             chapters=chapters,
             agent=str(d.get("agent") or DEFAULT_AGENT).strip() or DEFAULT_AGENT,
-            # "" is meaningful: it means "use the agent's own default".
             model=str(d.get("model", DEFAULT_MODEL)).strip(),
             thinking=str(d.get("thinking") or "").strip(),
             local=_flag("local", False),
@@ -723,7 +715,6 @@ def call_openclaw_raw(
 
     cmd = ["openclaw", "agent", "--agent", agent_id, "--message", message, "--json"]
     if model:
-        # Overrides the agent's configured default for this call only.
         cmd += ["--model", model]
     if local:
         cmd.append("--local")
@@ -922,10 +913,8 @@ def build_story_prompt(
         f"{avoid_block}"
         f"{retry_block}"
         f"\nWrite this story as {lo}-{hi} words of finished prose.\n"
-        # Craft guidance comes before the constraint list on purpose. A prompt
-        # that is only prohibitions tells the model what to avoid and never
-        # what to aim for, and the result reads like careful compliance rather
-        # than writing someone wanted to do.
+        # Craft before constraints: a prompt of pure prohibitions produces
+        # compliance rather than writing.
         "\nHOW TO WRITE IT:\n"
         "Find the single most surprising or human thing in the context and "
         "build the story around it. One thing told properly beats a summary of "
