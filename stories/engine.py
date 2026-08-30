@@ -40,6 +40,13 @@ DEFAULT_TIMEOUT = 600
 # this per book from the "OpenClaw agent" field in the UI.
 DEFAULT_AGENT = "stories-agent-1"
 
+# The agent default (openai/gpt-5.5-pro) is tuned for reasoning and code. Prose
+# is a different job: these stories are judged on rhythm, restraint and where a
+# sentence lands, not on step-by-step correctness. Naming a writing-strong model
+# here overrides the agent default for story generation only. Empty string keeps
+# whatever the agent is configured with.
+DEFAULT_MODEL = "anthropic/claude-opus-4-6"
+
 # The spec's target from the video: "a 300 to 500 word little story".
 DEFAULT_MIN_WORDS = 300
 DEFAULT_MAX_WORDS = 500
@@ -305,6 +312,7 @@ class BookConfig:
 
     # Runtime knobs (not part of the operator-facing schema).
     agent: str = DEFAULT_AGENT
+    model: str = DEFAULT_MODEL
     thinking: str = ""
     local: bool = False
     timeout_s: int = DEFAULT_TIMEOUT
@@ -407,6 +415,8 @@ class BookConfig:
             illustrate_every_story=_flag("illustrate_every_story", False),
             chapters=chapters,
             agent=str(d.get("agent") or DEFAULT_AGENT).strip() or DEFAULT_AGENT,
+            # "" is meaningful: it means "use the agent's own default".
+            model=str(d.get("model", DEFAULT_MODEL)).strip(),
             thinking=str(d.get("thinking") or "").strip(),
             local=_flag("local", False),
             timeout_s=_int("timeout_s", DEFAULT_TIMEOUT),
@@ -675,6 +685,7 @@ def call_openclaw_raw(
     cache: Optional["RawOutputCache"] = None,
     ledger: Optional["UsageLedger"] = None,
     session_id: str = "",
+    model: str = "",
     log: Optional[Callable[[str], None]] = None,
 ) -> str:
     """One openclaw agent call, same shape as trivia.engine.call_openclaw_raw.
@@ -711,6 +722,9 @@ def call_openclaw_raw(
                 return replay
 
     cmd = ["openclaw", "agent", "--agent", agent_id, "--message", message, "--json"]
+    if model:
+        # Overrides the agent's configured default for this call only.
+        cmd += ["--model", model]
     if local:
         cmd.append("--local")
     if thinking:
@@ -908,6 +922,31 @@ def build_story_prompt(
         f"{avoid_block}"
         f"{retry_block}"
         f"\nWrite this story as {lo}-{hi} words of finished prose.\n"
+        # Craft guidance comes before the constraint list on purpose. A prompt
+        # that is only prohibitions tells the model what to avoid and never
+        # what to aim for, and the result reads like careful compliance rather
+        # than writing someone wanted to do.
+        "\nHOW TO WRITE IT:\n"
+        "Find the single most surprising or human thing in the context and "
+        "build the story around it. One thing told properly beats a summary of "
+        "everything that happened.\n"
+        "Open on something concrete: the object, the moment, the number that "
+        "does not sound real. The first sentence decides whether a reader "
+        "continues.\n"
+        "Use specific detail over general description. Name the thing, the "
+        "place, the amount. A dog wearing goggles on a dusty road is a story; "
+        "'early car travel was difficult' is a summary of one.\n"
+        "Vary your sentences. Mix short ones against longer ones, and vary how "
+        "clauses join, so the prose does not settle into the same shape line "
+        "after line. Read it back and listen for a drumbeat.\n"
+        "Vary your paragraphs too. A longer paragraph against a couple of "
+        "shorter ones. Break where the story turns, not at a word count.\n"
+        "Let the ending land where the story actually ends. Do not append a "
+        "moral or a lesson. A close that simply stops on the right detail is "
+        "stronger than one that explains why the story mattered.\n"
+        "Trust the events to carry the weight. Never tell the reader something "
+        "is amazing, incredible or little-known; show the detail and let them "
+        "decide.\n"
         "\nHARD REQUIREMENTS:\n"
         f"1. Between {lo} and {hi} words. This is a hard requirement.\n"
         "2. Real events only. Never fabricate a fact to make the story better.\n"
@@ -925,6 +964,9 @@ def build_story_prompt(
         "the book itself.\n"
         f"6. Match the tone: {cfg.tone}.\n"
         "7. Do not restate the story title as your first sentence.\n"
+        "8. No adverbs where a stronger verb exists, and no passive voice. "
+        "Never use a dash as punctuation; use a comma or a full stop.\n"
+        "9. Never join two complete sentences with only a comma.\n"
         "\nReturn ONLY a JSON object, no prose outside it, no markdown fence:\n"
         "{\n"
         '  "title": "the story title, lightly polished if it reads awkwardly",\n'

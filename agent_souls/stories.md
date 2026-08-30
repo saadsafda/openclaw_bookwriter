@@ -83,6 +83,19 @@ Vary the lengths. Break where the story turns, not at a word count.
 
 ---
 
+## Rhythm
+
+This is where machine-written prose gives itself away, so read for it.
+
+Vary sentence length. A long sentence made of simple words reads fine; three
+short declaratives in a row is a drum solo. Vary how clauses join too: if most
+of your sentences hang on ", and", the rhythm has already failed.
+
+Read the story back before you return it and listen for a repeating shape. If
+every sentence lands the same way, rewrite the ones that match.
+
+---
+
 ## Voice
 
 Tell it, do not perform it. The events carry the weight; your job is to stay out
