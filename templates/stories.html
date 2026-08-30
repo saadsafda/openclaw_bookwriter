@@ -163,7 +163,7 @@
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-600 mb-1.5">OpenClaw agent</label>
-                        <input id="agent" class="field w-full rounded-xl px-3.5 py-2.5 text-sm" value="main">
+                        <input id="agent" class="field w-full rounded-xl px-3.5 py-2.5 text-sm" value="stories-agent-1">
                     </div>
 
                     <div class="md:col-span-2">
@@ -467,7 +467,7 @@ function readConfig() {
         illustrations: $("illustrations").checked,
         illustrate_every_story: $("illustrate_every_story").checked,
         check_duplicates: $("check_duplicates").checked,
-        agent: $("agent").value.trim() || "main",
+        agent: $("agent").value.trim() || "stories-agent-1",
         stories: readStories(),
     };
 }
@@ -489,7 +489,7 @@ function applyConfig(cfg) {
     $("illustrations").checked = !!cfg.illustrations;
     $("illustrate_every_story").checked = !!cfg.illustrate_every_story;
     $("check_duplicates").checked = cfg.check_duplicates !== false;
-    $("agent").value = cfg.agent || "main";
+    $("agent").value = cfg.agent || "stories-agent-1";
 
     // A config may carry either shape; flatten chapters into the flat editor.
     const flat = cfg.stories && cfg.stories.length
@@ -617,7 +617,7 @@ $("btn-suggest").addEventListener("click", async () => {
             body: JSON.stringify({
                 book_title, topic, count,
                 notes: $("global_context").value.trim(),
-                agent: $("agent").value.trim() || "main",
+                agent: $("agent").value.trim() || "stories-agent-1",
             }),
         });
         const data = await r.json();

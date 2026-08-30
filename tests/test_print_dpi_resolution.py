@@ -1,0 +1,180 @@
+"""Images must be 300 DPI at the size they are actually printed.
+
+A DPI tag is only a label. ``sanitize_for_print`` used to write "300 DPI" onto
+whatever pixels it was given, so 1024px art placed 5.5in wide shipped tagged as
+300 DPI while really printing at 186. KDP measures pixels against printed size,
+so the tag alone never satisfied it.
+"""
+
+from __future__ import annotations
+
+import zipfile
+from pathlib import Path
+
+import pytest
+from PIL import Image
+
+import print_hygiene as ph
+from print_hygiene import (
+    PRINT_DPI,
+    audit_image,
+    effective_dpi,
+    required_pixels,
+    sanitize_for_print,
+    upscale_for_print,
+)
+
+
+def _art(path: Path, w: int, h: int, mode: str = "RGB") -> Path:
+    Image.new(mode, (w, h), "white" if mode != "RGBA" else (255, 255, 255, 0)).save(path)
+    return path
+
+
+class TestRequiredPixels:
+    @pytest.mark.parametrize("width_in,expected", [
+        (4.5, 1350), (5.5, 1650), (6.0, 1800), (3.4, 1020),
+    ])
+    def test_width_requirement(self, width_in, expected):
+        assert required_pixels(width_in)[0] == expected
+
+    def test_full_page_six_by_nine(self):
+        assert ph.FULL_PAGE_PX == (1800, 2700)
+
+
+class TestEffectiveDpi:
+    def test_reports_the_real_printed_resolution(self, tmp_path):
+        """The exact case from the client's screenshot."""
+        p = _art(tmp_path / "a.png", 1024, 1536)
+        assert round(effective_dpi(p, 5.5)) == 186
+
+    def test_1024_at_four_and_a_half_inches(self, tmp_path):
+        p = _art(tmp_path / "b.png", 1024, 1024)
+        assert round(effective_dpi(p, 4.5)) == 228
+
+    def test_in_house_grid_already_passes(self, tmp_path):
+        p = _art(tmp_path / "c.png", 1800, 2700)
+        assert round(effective_dpi(p, 6.0)) == 300
+
+
+class TestAuditCatchesUnderResolution:
+    def test_flags_art_that_is_too_small(self, tmp_path):
+        p = _art(tmp_path / "a.png", 1024, 1536)
+        sanitize_for_print(p)  # tag says 300 DPI
+        problems = audit_image(p, width_in=5.5)
+        assert problems, "a 186 DPI image must not pass the print check"
+        assert "186" in problems[0]
+
+    def test_tagged_300_is_not_enough(self, tmp_path):
+        """Regression: the tag alone used to make this pass."""
+        p = _art(tmp_path / "a.png", 1024, 1536)
+        sanitize_for_print(p)
+        with Image.open(p) as im:
+            assert round(im.info["dpi"][0], 2) == 300.0  # tag is fine
+        assert audit_image(p, width_in=5.5)              # reality is not
+
+    def test_large_enough_art_passes(self, tmp_path):
+        p = _art(tmp_path / "b.png", 1800, 2700)
+        sanitize_for_print(p)
+        assert audit_image(p, width_in=6.0) == []
+
+    def test_no_width_means_no_resolution_check(self, tmp_path):
+        p = _art(tmp_path / "c.png", 100, 100)
+        sanitize_for_print(p)
+        assert audit_image(p) == []
+
+
+class TestUpscaling:
+    def test_upscales_to_meet_300_dpi(self, tmp_path):
+        p = _art(tmp_path / "a.png", 1024, 1536)
+        assert upscale_for_print(p, 5.5, 8.25) is True
+        with Image.open(p) as im:
+            assert im.size == (1650, 2475)
+        assert round(effective_dpi(p, 5.5)) == 300
+
+    def test_never_downscales(self, tmp_path):
+        """Extra pixels are harmless; discarding them is irreversible."""
+        p = _art(tmp_path / "b.png", 1800, 2700)
+        assert upscale_for_print(p, 4.5) is False
+        with Image.open(p) as im:
+            assert im.size == (1800, 2700)
+
+    def test_preserves_aspect_ratio(self, tmp_path):
+        p = _art(tmp_path / "c.png", 1024, 1536)
+        before = 1024 / 1536
+        upscale_for_print(p, 6.0)
+        with Image.open(p) as im:
+            assert im.size[0] / im.size[1] == pytest.approx(before, rel=1e-3)
+
+    def test_dpi_tag_survives_the_upscale(self, tmp_path):
+        p = _art(tmp_path / "d.png", 1024, 1536)
+        upscale_for_print(p, 5.5)
+        with Image.open(p) as im:
+            assert round(im.info["dpi"][0], 2) == 300.0
+
+    def test_is_idempotent(self, tmp_path):
+        p = _art(tmp_path / "e.png", 1024, 1536)
+        upscale_for_print(p, 4.5)
+        with Image.open(p) as im:
+            size_after_first = im.size
+        assert upscale_for_print(p, 4.5) is False
+        with Image.open(p) as im:
+            assert im.size == size_after_first
+
+    def test_handles_transparency(self, tmp_path):
+        p = _art(tmp_path / "f.png", 1024, 1024, mode="RGBA")
+        assert upscale_for_print(p, 4.5) is True
+        with Image.open(p) as im:
+            assert im.size[0] >= 1350
+
+
+class TestSanitizeAppliesResolution:
+    def test_width_argument_upscales(self, tmp_path):
+        p = _art(tmp_path / "a.png", 1024, 1536)
+        sanitize_for_print(p, PRINT_DPI, width_in=4.5)
+        assert round(effective_dpi(p, 4.5)) >= 300
+        assert audit_image(p, width_in=4.5) == []
+
+    def test_metadata_still_stripped_after_upscale(self, tmp_path):
+        p = _art(tmp_path / "b.png", 1024, 1536)
+        sanitize_for_print(p, PRINT_DPI, width_in=4.5)
+        raw = p.read_bytes()
+        for marker in (b"tEXt", b"iTXt", b"zTXt", b"eXIf", b"caBX"):
+            assert marker not in raw
+
+
+class TestExportersEmbedHighResArt:
+    """The real guarantee: what ends up inside the .docx is 300 DPI."""
+
+    def test_trivia_embeds_upscaled_art(self, tmp_path):
+        from trivia import export as ex
+        from trivia.engine import (
+            BookConfig, Chapter, ChapterConfig, DidYouKnowFact,
+            TriviaBook, TriviaQuestion,
+        )
+        art = _art(tmp_path / "chap.png", 1024, 1536)
+        cfg = BookConfig(
+            book_title="T", topic="birds",
+            chapters=[ChapterConfig.from_dict(
+                {"chapter_title": "Owls", "chapter_scope": "owls"}, 1)],
+        )
+        book = TriviaBook(config=cfg, chapters=[Chapter(
+            1, "Owls", "owls",
+            trivia=[TriviaQuestion("q", 1, "Q?",
+                                   {"A": "a", "B": "b", "C": "c", "D": "d"}, "B")],
+            facts=[DidYouKnowFact("f", 1, "A fact.")],
+            illustration_path=str(art),
+        )])
+        docx = tmp_path / "book.docx"
+        ex.build_docx(book, docx, image_width_in=4.5)
+
+        need = required_pixels(4.5)[0]
+        with zipfile.ZipFile(docx) as z:
+            media = [n for n in z.namelist() if n.startswith("word/media/")]
+            assert media, "no image embedded"
+            for name in media:
+                out = tmp_path / Path(name).name
+                out.write_bytes(z.read(name))
+                with Image.open(out) as im:
+                    assert im.size[0] >= need, (
+                        f"{name} is {im.size[0]}px, needs {need}px for 300 DPI"
+                    )

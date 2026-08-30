@@ -39,7 +39,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 
-from print_hygiene import sanitize_for_print
+from print_hygiene import PrintHygieneError, sanitize_for_print
 
 from .engine import PAGE_H_IN, PAGE_W_IN, PRINT_DPI, PuzzleBook, SECTION_LABELS
 
@@ -216,7 +216,10 @@ def _grid(doc: Document, rows: int, cols: int, col_w_in: float):
 def _add_image(container, image_path: str, width_in: float, *, align=WD_ALIGN_PARAGRAPH.CENTER) -> bool:
     if not image_path or not Path(image_path).exists():
         return False
-    sanitize_for_print(image_path, PRINT_DPI)
+    try:
+        sanitize_for_print(image_path, PRINT_DPI, width_in=width_in)
+    except PrintHygieneError:
+        return False  # a corrupt asset must not abort the layout
     para = container.add_paragraph()
     para.alignment = align
     para.paragraph_format.space_before = Pt(0)

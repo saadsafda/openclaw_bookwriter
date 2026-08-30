@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from docx import Document
+from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -18,6 +19,34 @@ CHAPTER_LABEL_RE = re.compile(r"^CHAPTER\s+\d+$", re.IGNORECASE)
 FRONT_BACK_RE = re.compile(r"^(Introduction|Conclusion|Epilogue|Foreword|Preface|Prologue)\b", re.IGNORECASE)
 SUBHEADING_RE = re.compile(r"^(\d+\.\s+.+|[\-•*–—]\s+.+|Focus:\s+.+)$", re.IGNORECASE)
 LIST_BULLET_STYLE_RE = re.compile(r"^List Bullet(?: \d+)?$", re.IGNORECASE)
+
+# Paragraphs carrying this style are body text by declaration and are never
+# promoted to a heading, whatever their shape.
+#
+# The heading rules below are shape heuristics meant for prose manuscripts,
+# where a short numbered or unpunctuated line really is a heading. Structured
+# content breaks that assumption wholesale: a trivia question ("1. Which owl
+# ...") matches SUBHEADING_RE, each answer choice matches the bare-topic test,
+# and choices lettered C or D match ROMAN_HEADING_RE and become chapter titles.
+# The outline_topics guard cannot help a generator with no prose outline to
+# supply. Such a generator marks its own body text with this style instead,
+# which is exact rather than another guess.
+BODY_TEXT_STYLE = "OpenclawBodyText"
+
+
+def _is_forced_body(paragraph: Paragraph) -> bool:
+    return (paragraph.style.name or "").strip() == BODY_TEXT_STYLE
+
+
+def ensure_body_text_style(doc: Document):
+    """Create/return the opt-out style, based on Normal so it inherits sizing."""
+    try:
+        return doc.styles[BODY_TEXT_STYLE]
+    except KeyError:
+        style = doc.styles.add_style(BODY_TEXT_STYLE, WD_STYLE_TYPE.PARAGRAPH)
+        style.base_style = doc.styles["Normal"]
+        style.quick_style = False
+        return style
 
 # ── Smart heading identification patterns ──────────────────────────────────
 _NUMBER_WORDS = (
@@ -224,6 +253,40 @@ def _set_page_number_start(section, start: int) -> None:
     pg_num_type.set(qn("w:start"), str(start))
 
 
+def _enable_mirror_margins(doc: Document) -> None:
+    """Turn on mirrored (inside/outside) margins for the whole document.
+
+    KDP prints and binds double-sided, so the gutter has to swap edges between
+    recto and verso. With ``w:mirrorMargins`` set, Word reinterprets every
+    section's ``w:left``/``w:right`` page margin as *inside*/*outside*, so the
+    wide gutter follows the spine automatically instead of sitting on the left
+    of every page — which on a left-hand page puts it on the outer edge and
+    pushes the text into the binding.
+    """
+    settings = doc.settings.element
+    mirror = settings.find(qn("w:mirrorMargins"))
+    if mirror is None:
+        mirror = OxmlElement("w:mirrorMargins")
+        settings.append(mirror)
+    # Canonical form for an OOXML on/off toggle: a bare element means "on".
+    # Explicitly clear any w:val="0"/"false" left by a previous run.
+    if mirror.get(qn("w:val")) is not None:
+        del mirror.attrib[qn("w:val")]
+
+
+def _set_section_gutter(section, gutter_in: float = 0.0) -> None:
+    """Set ``w:gutter`` — extra binding space added on top of the inside margin.
+
+    Kept at 0 by default: the inside margin already carries the full KDP
+    gutter, and a non-zero value here would be added on top of it.
+    """
+    sect_pr = section._sectPr
+    pg_mar = sect_pr.find(qn("w:pgMar"))
+    if pg_mar is None:
+        return
+    pg_mar.set(qn("w:gutter"), str(int(round(gutter_in * 1440))))
+
+
 def _add_section_break(paragraph: Paragraph, break_type: str = "nextPage") -> None:
     """Add a section break to a paragraph. break_type: 'nextPage' or 'oddPage'."""
     p_pr = paragraph._p.get_or_add_pPr()
@@ -380,15 +443,43 @@ def _set_footer_page_number(footer, alignment: WD_ALIGN_PARAGRAPH) -> None:
     _insert_page_number_field(fp)
 
 
+# A 6x9 page with 0.5" top/bottom margins at ~11pt/1.15 holds roughly this many
+# text lines, and a 6x9 text column fits roughly this many characters per line.
+_LINES_PER_PAGE = 32
+_CHARS_PER_LINE = 62
+
+
 def _estimate_page_count(doc: Document) -> int:
-    words = 0
+    """Estimate the printed page count, used only to pick the gutter width.
+
+    Counted in *lines*, not words. A words-per-page ratio assumes dense
+    justified prose, so it badly undercounts structured books: a trivia answer
+    choice or a crossword clue is a handful of words but still occupies a whole
+    line. Undercounting picks a gutter one tier too narrow, which is what pushes
+    text toward the spine — so this deliberately rounds a short line up to the
+    full line it actually occupies.
+    """
+    lines = 0
     for p in doc.paragraphs:
-        t = (p.text or "").strip()
-        if t:
-            words += len(t.split())
+        text = (p.text or "").strip()
+        if not text:
+            continue
+        lines += _estimated_wrapped_lines(text, _CHARS_PER_LINE)
+        style_name = (p.style.name or "").lower()
+        if style_name.startswith("heading"):
+            # Headings are set larger and carry space around them.
+            lines += 2
+
     image_count = len(doc.inline_shapes)
-    estimated = round(words / 280) + int(round(image_count * 0.35))
+    estimated = round(lines / _LINES_PER_PAGE) + int(round(image_count * 0.35))
     return max(24, estimated)
+
+
+# KDP's minimum outside/top/bottom margin is 0.25". Printing tolerance means a
+# page trimmed at the edge of that can lose visible text, so the outside margin
+# carries a small buffer over the minimum — this is the single biggest visual
+# difference between a default-margin book and a professionally set one.
+PAPERBACK_OUTSIDE_MARGIN_IN = 0.375
 
 
 def _inside_margin_for_page_count(page_count: int) -> float:
@@ -425,6 +516,15 @@ def _canonical_title_key(text: str) -> str:
     cleaned = _normalize_heading_text(text or "")
     cleaned = cleaned.strip(":-_ ")
     return cleaned.upper()
+
+
+def canonical_title_key(text: str) -> str:
+    """Public alias: canonicalise a title the way outline matching does.
+
+    Callers that build ``outline_topics`` in memory rather than from an outline
+    file need the same normalisation the matcher applies.
+    """
+    return _canonical_title_key(text)
 
 
 def load_outline_topics(outline_path: str) -> set[str]:
@@ -587,6 +687,13 @@ def _set_heading_styles_and_collect_bookmarks(
 
         text = (p.text or "").strip()
         if not text:
+            continue
+
+        # Declared body text wins over every heuristic below, including the
+        # pre-applied-style checks: the generator has stated what this is.
+        if _is_forced_body(p):
+            pending_chapter_label = False
+            pending_chapter_label_text = ""
             continue
 
         style_name = (p.style.name or "").strip().lower()
@@ -753,6 +860,18 @@ def _apply_base_text_styles(doc: Document, body_start_idx: int, font_name: str, 
                 p.alignment = WD_ALIGN_PARAGRAPH.LEFT
                 for r in p.runs:
                     _ensure_run_font(r, font_name, 12)
+            continue
+
+        # Declared body text keeps the layout its generator chose: structured
+        # content is laid out as a block (left-aligned, no first-line indent,
+        # its own indents and spacing) and its emphasis is deliberate, so the
+        # justification, indent and bold-stripping below are all skipped.
+        if _is_forced_body(p):
+            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            p.paragraph_format.first_line_indent = Inches(0)
+            p.paragraph_format.line_spacing = 1.15
+            for r in p.runs:
+                _ensure_run_font(r, font_name, body_size_pt)
             continue
 
         p.alignment = WD_ALIGN_PARAGRAPH.LEFT if kindle_mode else WD_ALIGN_PARAGRAPH.JUSTIFY
@@ -1108,8 +1227,13 @@ def _find_first_body_section_idx(doc: Document) -> int:
 
 def _apply_paperback_layout(doc: Document, estimated_pages: int, book_title: str, author_name: str) -> float:
     inside_margin = _inside_margin_for_page_count(estimated_pages)
-    outside_margin = 0.25
+    outside_margin = PAPERBACK_OUTSIDE_MARGIN_IN
     doc.settings.odd_and_even_pages_header_footer = True
+    # Mirror the margins so the gutter follows the spine: with this on, the
+    # left/right values below mean inside/outside, and Word swaps them on
+    # left-hand pages. Without it the gutter stays on the left of every page,
+    # which puts the *outside* margin against the spine on every verso.
+    _enable_mirror_margins(doc)
     first_numbered_idx = _find_first_body_section_idx(doc)
 
     for idx, sec in enumerate(doc.sections):
@@ -1117,8 +1241,11 @@ def _apply_paperback_layout(doc: Document, estimated_pages: int, book_title: str
         sec.page_height = Inches(9)
         sec.top_margin = Inches(0.5)
         sec.bottom_margin = Inches(0.5)
+        # Under mirrorMargins these are inside/outside, not left/right.
         sec.left_margin = Inches(inside_margin)
         sec.right_margin = Inches(outside_margin)
+        # The inside margin already includes the binding allowance.
+        _set_section_gutter(sec, 0.0)
         if idx == 0:
             _set_section_vertical_alignment_center(sec)
         else:

@@ -160,7 +160,7 @@
                 </div>
                 <div>
                     <label class="block text-xs font-medium text-slate-600 mb-1.5">OpenClaw agent</label>
-                    <input id="agent" class="field w-full rounded-xl px-3.5 py-2.5 text-sm" value="main">
+                    <input id="agent" class="field w-full rounded-xl px-3.5 py-2.5 text-sm" value="trivia-agent-1">
                 </div>
                 <div class="md:col-span-2 flex flex-wrap gap-5 pt-1">
                     <label class="flex items-center gap-2 text-sm text-slate-700">
@@ -425,7 +425,7 @@ function readConfig() {
         illustrations: $("illustrations").checked,
         editing_pass: $("editing_pass").checked,
         use_judge: $("use_judge").checked,
-        agent: $("agent").value.trim() || "main",
+        agent: $("agent").value.trim() || "trivia-agent-1",
         chapters,
     };
 }
@@ -440,7 +440,7 @@ function applyConfig(cfg, bookId = null) {
     $("illustrations").checked = cfg.illustrations !== false;
     $("editing_pass").checked = !!cfg.editing_pass;
     $("use_judge").checked = cfg.use_judge !== false;
-    $("agent").value = cfg.agent || "main";
+    $("agent").value = cfg.agent || "trivia-agent-1";
     $("chapters").innerHTML = "";
     (cfg.chapters || []).forEach(c => addChapter(c));
     updateTotals();

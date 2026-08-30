@@ -31,7 +31,11 @@ from typing import Any, Optional
 from openclaw_docx_writer import parse_openclaw_reply
 
 DEFAULT_TIMEOUT = 600
-DEFAULT_AGENT = "main"
+# Each generator runs on its own agent so concurrent builds do not share a
+# session store or a workspace: three books can build at once without their
+# conversations, logs or caches interleaving. Operators can still override
+# this per book from the "OpenClaw agent" field in the UI.
+DEFAULT_AGENT = "puzzle-agent-1"
 
 # --------------------------------------------------------------------------
 # Spec constants (Puzzle_Book_Automation_Spec.docx)

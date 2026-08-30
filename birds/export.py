@@ -128,15 +128,21 @@ def _add_plate_page(
     embed = _flatten_to_white(image_path) if flatten else image_path
     temporary = embed != image_path
     try:
+        # Work out the printed size first: the 300 DPI guarantee below is
+        # relative to how large the plate is actually placed, so it cannot be
+        # checked before the fit is known.
+        width_in, height_in = _fitted_size(embed)
+
         # Last line of defence before embedding, matching puzzle/export.py:
-        # guarantee 300 DPI and no AI/EXIF metadata whatever the plate's route
-        # here was.
+        # guarantee 300 DPI at the placed size and no AI/EXIF metadata whatever
+        # the plate's route here was.
         try:
-            sanitize_for_print(embed, PRINT_DPI)
+            sanitize_for_print(
+                embed, PRINT_DPI, width_in=width_in, height_in=height_in
+            )
         except Exception:
             pass
 
-        width_in, height_in = _fitted_size(embed)
         para = doc.add_paragraph()
         para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         run = para.add_run()

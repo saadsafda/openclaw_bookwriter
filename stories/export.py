@@ -16,7 +16,12 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt
 
-from print_hygiene import PRINT_DPI, sanitize_for_print
+from print_hygiene import (
+    PRINT_DPI,
+    PrintHygieneError,
+    sanitize_for_print,
+    strip_control_chars,
+)
 
 from .engine import StoryBook
 
@@ -172,6 +177,8 @@ def build_docx(
     image_width_in: float = 4.5,
 ) -> Path:
     """Plain manuscript DOCX. Styling/sizing is left to the KDP formatter."""
+    # OOXML forbids control characters; one aborts the whole export.
+    strip_control_chars(book)
     cfg = book.config
     grouped = _has_chapters(book)
     doc = Document()
@@ -198,12 +205,23 @@ def build_docx(
             if chapter.intro:
                 doc.add_paragraph(chapter.intro)
             if chapter.illustration_path and Path(chapter.illustration_path).exists():
-                sanitize_for_print(chapter.illustration_path, PRINT_DPI)
-                pic = doc.add_paragraph()
-                pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                pic.add_run().add_picture(
-                    str(chapter.illustration_path), width=Inches(image_width_in)
-                )
+                # The placed width is what makes this a true 300 DPI check
+                # rather than just a tag.
+                # A corrupt illustration must not cost the whole book.
+                try:
+                    sanitize_for_print(
+                        chapter.illustration_path, PRINT_DPI, width_in=image_width_in
+                    )
+                except PrintHygieneError as exc:
+                    book.warnings.append(
+                        f"Illustration skipped for chapter — {exc}"
+                    )
+                else:
+                    pic = doc.add_paragraph()
+                    pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    pic.add_run().add_picture(
+                        str(chapter.illustration_path), width=Inches(image_width_in)
+                    )
 
         for story in chapter.stories:
             # Story titles sit one level below chapter headings in a grouped
@@ -214,12 +232,21 @@ def build_docx(
             )
 
             if story.illustration_path and Path(story.illustration_path).exists():
-                sanitize_for_print(story.illustration_path, PRINT_DPI)
-                pic = doc.add_paragraph()
-                pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                pic.add_run().add_picture(
-                    str(story.illustration_path), width=Inches(image_width_in)
-                )
+                # A corrupt illustration must not cost the whole book.
+                try:
+                    sanitize_for_print(
+                        story.illustration_path, PRINT_DPI, width_in=image_width_in
+                    )
+                except PrintHygieneError as exc:
+                    book.warnings.append(
+                        f"Illustration skipped for story — {exc}"
+                    )
+                else:
+                    pic = doc.add_paragraph()
+                    pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    pic.add_run().add_picture(
+                        str(story.illustration_path), width=Inches(image_width_in)
+                    )
 
             for block in story.body.split("\n\n"):
                 block = block.strip()

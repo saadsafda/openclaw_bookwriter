@@ -30,7 +30,11 @@ from typing import Any, Callable, Iterable, Optional
 from openclaw_docx_writer import parse_openclaw_reply
 
 DEFAULT_TIMEOUT = 600
-DEFAULT_AGENT = "main"
+# Each generator runs on its own agent so concurrent builds do not share a
+# session store or a workspace: three books can build at once without their
+# conversations, logs or caches interleaving. Operators can still override
+# this per book from the "OpenClaw agent" field in the UI.
+DEFAULT_AGENT = "trivia-agent-1"
 
 # Batch sizes: the spec calls for 10-15 per request because asking for 50 at
 # once measurably degrades question quality (models start recycling stems).
@@ -162,7 +166,9 @@ class BookConfig:
     timeout_s: int = DEFAULT_TIMEOUT
     use_judge: bool = True
     image_model: str = "gpt-image-1"
-    image_size: str = "1024x1024"
+    # Portrait: the page is 6x9, and 1024x1536 is the tallest gpt-image-1
+    # offers. More real pixels before the print upscale has to make any up.
+    image_size: str = "1024x1536"
     image_quality: str = "high"
     illustration_style_hint: str = ""
     openai_api_key: str = ""
@@ -219,7 +225,7 @@ class BookConfig:
             timeout_s=int(d.get("timeout_s") or DEFAULT_TIMEOUT),
             use_judge=_flag("use_judge", True),
             image_model=str(d.get("image_model") or "gpt-image-1").strip(),
-            image_size=str(d.get("image_size") or "1024x1024").strip(),
+            image_size=str(d.get("image_size") or "1024x1536").strip(),
             image_quality=str(d.get("image_quality") or "high").strip(),
             illustration_style_hint=str(d.get("illustration_style_hint") or "").strip(),
             openai_api_key=str(d.get("openai_api_key") or "").strip(),

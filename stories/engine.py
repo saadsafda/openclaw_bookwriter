@@ -34,7 +34,11 @@ from typing import Any, Callable, Optional
 from openclaw_docx_writer import parse_openclaw_reply
 
 DEFAULT_TIMEOUT = 600
-DEFAULT_AGENT = "main"
+# Each generator runs on its own agent so concurrent builds do not share a
+# session store or a workspace: three books can build at once without their
+# conversations, logs or caches interleaving. Operators can still override
+# this per book from the "OpenClaw agent" field in the UI.
+DEFAULT_AGENT = "stories-agent-1"
 
 # The spec's target from the video: "a 300 to 500 word little story".
 DEFAULT_MIN_WORDS = 300
@@ -61,6 +65,17 @@ MAX_STORY_ATTEMPTS = 4
 # their first few words.
 OPENER_WORDS = 6
 MAX_OPENER_REPEATS = 2
+
+# A paragraph standing alone as a single sentence reads as a pull quote rather
+# than prose, and a page carrying several of them looks like the text was
+# chopped up rather than written. Two sentences is the floor for a real
+# paragraph; the closing paragraph is the one place a single sentence earns its
+# place, so the last paragraph is exempt.
+MIN_SENTENCES_PER_PARAGRAPH = 2
+
+# A one-sentence paragraph long enough to fill several printed lines does not
+# read as a stranded fragment, so length buys an exemption. Measured in words.
+LONE_SENTENCE_WORD_EXEMPTION = 30
 
 # Jaccard token overlap above which two stories are considered to be retelling
 # the same event.
@@ -295,7 +310,9 @@ class BookConfig:
     timeout_s: int = DEFAULT_TIMEOUT
     check_duplicates: bool = True
     image_model: str = "gpt-image-1"
-    image_size: str = "1024x1024"
+    # Portrait: the page is 6x9, and 1024x1536 is the tallest gpt-image-1
+    # offers. More real pixels before the print upscale has to make any up.
+    image_size: str = "1024x1536"
     image_quality: str = "high"
     illustration_style_hint: str = ""
     openai_api_key: str = ""
@@ -395,7 +412,7 @@ class BookConfig:
             timeout_s=_int("timeout_s", DEFAULT_TIMEOUT),
             check_duplicates=_flag("check_duplicates", True),
             image_model=str(d.get("image_model") or "gpt-image-1").strip(),
-            image_size=str(d.get("image_size") or "1024x1024").strip(),
+            image_size=str(d.get("image_size") or "1024x1536").strip(),
             image_quality=str(d.get("image_quality") or "high").strip(),
             illustration_style_hint=str(d.get("illustration_style_hint") or "").strip(),
             openai_api_key=str(d.get("openai_api_key") or "").strip(),
@@ -897,8 +914,13 @@ def build_story_prompt(
         "3. Open with the specific scene or the hook, not with a throat-clearing "
         "preamble. Never begin with 'In the world of', 'Picture this', 'Imagine', "
         "'It was a', or a dictionary-style definition.\n"
-        "4. Plain, vivid, conversational prose. Short paragraphs. No bullet "
+        "4. Plain, vivid, conversational prose. No bullet "
         "lists, no headings, no markdown inside the story body.\n"
+        f"4a. Every paragraph must contain at least "
+        f"{MIN_SENTENCES_PER_PARAGRAPH} complete sentences. Never leave a "
+        "single sentence standing alone as its own paragraph: it reads as a "
+        "pull quote, not prose. The only exception is the final paragraph, "
+        "which may be one sentence that lands the point.\n"
         "5. Do not address the reader as 'you', and do not editorialize about "
         "the book itself.\n"
         f"6. Match the tone: {cfg.tone}.\n"
@@ -1057,6 +1079,85 @@ def parse_story_reply(
     )
 
 
+# Abbreviations whose trailing period does not end a sentence. Without these a
+# naive split on [.!?] turns "the U.S. Army" into two sentences and a real
+# one-sentence paragraph escapes the check.
+_ABBREVIATIONS = (
+    "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "mt", "lt", "sgt",
+    "capt", "gen", "gov", "sen", "rep", "col", "adm", "rev", "hon",
+    "inc", "ltd", "co", "corp", "vs", "etc", "e.g", "i.e", "approx",
+    "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct",
+    "nov", "dec", "no", "vol", "fig", "u.s", "u.k", "a.m", "p.m",
+)
+
+
+def split_sentences(text: str) -> list[str]:
+    """Split prose into sentences, without breaking on common abbreviations.
+
+    Deliberately simple: this decides whether a paragraph has one sentence or
+    several, so it only has to be right about obvious boundaries. An initial
+    ("Horatio N. Jackson") and an abbreviation ("U.S. Army") are the two cases
+    that would otherwise inflate the count and let a lone sentence through.
+    """
+    if not text or not text.strip():
+        return []
+    # Normalise line endings first: a CRLF file would otherwise never match the
+    # paragraph/sentence boundaries below.
+    normalised = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    # Protect "..." and the ellipsis character: they are intra-sentence pauses,
+    # not sentence ends, and splitting on them undercounts a lone sentence as
+    # two and lets it escape the check.
+    guarded = normalised.replace("...", "\x00E\x00").replace("\u2026", "\x00U\x00")
+    parts = re.split(r"(?<=[.!?])[\"\')\]]*\s+", guarded)
+
+    merged: list[str] = []
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        if merged:
+            prev = merged[-1]
+            last_word = re.split(r"[\s(\[]", prev.rstrip())[-1].rstrip(".").lower()
+            # A single capital letter is an initial ("Horatio N."), and a known
+            # abbreviation is not a sentence end either.
+            if prev.endswith(".") and (
+                last_word in _ABBREVIATIONS or len(last_word) == 1
+            ):
+                merged[-1] = f"{prev} {part}"
+                continue
+        merged.append(part)
+    return [p.replace("\x00E\x00", "...").replace("\x00U\x00", "\u2026")
+            for p in merged]
+
+
+def split_paragraphs(text: str) -> list[str]:
+    """The body's paragraphs, blank-line separated, empties dropped."""
+    if not text:
+        return []
+    normalised = text.replace("\r\n", "\n").replace("\r", "\n")
+    return [p.strip() for p in re.split(r"\n\s*\n", normalised.strip()) if p.strip()]
+
+
+def lone_sentence_paragraphs(body: str) -> list[int]:
+    """Indices of paragraphs that are a single sentence and should not be.
+
+    The final paragraph is exempt: ending on one plain sentence that lands the
+    point is deliberate style, not a defect. A long single sentence is exempt
+    too, because it fills the line and does not read as a stranded fragment.
+    """
+    paragraphs = split_paragraphs(body)
+    flagged: list[int] = []
+    for i, para in enumerate(paragraphs):
+        if i == len(paragraphs) - 1:
+            continue  # closing beat may stand alone
+        if len(split_sentences(para)) >= MIN_SENTENCES_PER_PARAGRAPH:
+            continue
+        if len(para.split()) >= LONE_SENTENCE_WORD_EXEMPTION:
+            continue
+        flagged.append(i)
+    return flagged
+
+
 def check_story_quality(
     story: Story,
     cfg: BookConfig,
@@ -1104,6 +1205,16 @@ def check_story_quality(
 
     if re.search(r"^\s*[-*•]\s", story.body, re.MULTILINE):
         problems.append("contains a bullet list; the body must be flowing prose")
+
+    stranded = lone_sentence_paragraphs(story.body)
+    if stranded:
+        paragraphs = split_paragraphs(story.body)
+        preview = paragraphs[stranded[0]][:60] if paragraphs else ""
+        problems.append(
+            f"{len(stranded)} one-sentence paragraph(s) that must be merged or "
+            f"expanded, e.g. \"{preview}\" — every paragraph except the last "
+            f"needs at least {MIN_SENTENCES_PER_PARAGRAPH} sentences"
+        )
 
     return problems
 

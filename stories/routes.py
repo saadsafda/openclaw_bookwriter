@@ -25,6 +25,7 @@ from . import image_edit as imgedit
 from . import outline as outline_parser
 from . import pipeline
 from .engine import (
+    DEFAULT_AGENT,
     BookConfig,
     RawOutputCache,
     StoryError,
@@ -398,7 +399,8 @@ def register(app) -> None:  # noqa: ANN001
                 topic,
                 count,
                 notes=str(payload.get("notes") or "").strip(),
-                agent=str(payload.get("agent") or "main").strip() or "main",
+                agent=(str(payload.get("agent") or "").strip()
+                      or DEFAULT_AGENT),
                 ledger=ledger,
             )
             return jsonify({
