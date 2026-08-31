@@ -148,6 +148,7 @@ class TriviaBuilder:
             cache=self.cache,
             ledger=self.ledger,
             session_id=self.session_id,
+            model=self.cfg.model,
             log=self.log,
         )
         return engine._extract_json_array(reply)
@@ -162,6 +163,7 @@ class TriviaBuilder:
             cache=self.cache,
             ledger=self.ledger,
             session_id=self.session_id,
+            model=self.cfg.model,
             log=self.log,
         )
         return engine.clean_prose_reply(reply)

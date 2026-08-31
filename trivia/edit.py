@@ -305,7 +305,7 @@ def ai_edit_question(
     reply = engine.call_openclaw_raw(
         cfg.agent, prompt,
         local=cfg.local, thinking=cfg.thinking, timeout_s=cfg.timeout_s,
-        cache=cache, ledger=ledger,
+        cache=cache, ledger=ledger, model=cfg.model,
     )
     data = _extract_json_object(reply)
 
@@ -354,7 +354,7 @@ def ai_edit_fact(
     reply = engine.call_openclaw_raw(
         cfg.agent, prompt,
         local=cfg.local, thinking=cfg.thinking, timeout_s=cfg.timeout_s,
-        cache=cache, ledger=ledger,
+        cache=cache, ledger=ledger, model=cfg.model,
     )
     data = _extract_json_object(reply)
 

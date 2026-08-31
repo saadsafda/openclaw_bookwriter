@@ -2650,6 +2650,10 @@ _AGENT_CACHE: dict[str, Any] = {"data": None, "ts": 0.0}
 _MODEL_CACHE_TTL = 300  # seconds
 _AGENT_CACHE_TTL = 300
 
+# Whose view of the model catalog to ask for. Not a choice about which agent
+# runs a build -- that rides in each job's own config.
+MODEL_QUERY_AGENT = "main"
+
 
 @app.get("/api/openclaw-models")
 def list_openclaw_models() -> Any:
@@ -2662,8 +2666,11 @@ def list_openclaw_models() -> Any:
         return jsonify(_MODEL_CACHE["data"])
 
     try:
+        # With several agents configured, model inspection has no implicit
+        # owner and the CLI refuses to start; the catalog is the same for all
+        # of them, so any one agent can answer for the list.
         models_proc = subprocess.run(
-            ["openclaw", "models", "list", "--json"],
+            ["openclaw", "models", "list", "--agent", MODEL_QUERY_AGENT, "--json"],
             capture_output=True, text=True, timeout=60,
         )
         if models_proc.returncode != 0:
@@ -2671,7 +2678,7 @@ def list_openclaw_models() -> Any:
         models_data = json.loads(models_proc.stdout)
 
         status_proc = subprocess.run(
-            ["openclaw", "models", "status", "--json"],
+            ["openclaw", "models", "status", "--agent", MODEL_QUERY_AGENT, "--json"],
             capture_output=True, text=True, timeout=60,
         )
         default_model = ""

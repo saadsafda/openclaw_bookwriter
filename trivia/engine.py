@@ -36,6 +36,11 @@ DEFAULT_TIMEOUT = 600
 # this per book from the "OpenClaw agent" field in the UI.
 DEFAULT_AGENT = "trivia-agent-1"
 
+# Trivia is a recall-and-phrasing job rather than a reasoning one, and Sonnet
+# holds the question format more consistently than the agent's own default.
+# Empty string keeps whatever the agent is configured with.
+DEFAULT_MODEL = "anthropic/claude-sonnet-5"
+
 # Batch sizes: the spec calls for 10-15 per request because asking for 50 at
 # once measurably degrades question quality (models start recycling stems).
 TRIVIA_BATCH = 12
@@ -161,6 +166,7 @@ class BookConfig:
 
     # Runtime knobs (not part of the operator-facing spec schema).
     agent: str = DEFAULT_AGENT
+    model: str = DEFAULT_MODEL
     thinking: str = ""
     local: bool = False
     timeout_s: int = DEFAULT_TIMEOUT
@@ -220,6 +226,9 @@ class BookConfig:
             editing_pass=_flag("editing_pass", False),
             chapters=chapters,
             agent=str(d.get("agent") or DEFAULT_AGENT).strip() or DEFAULT_AGENT,
+            # Unlike agent, a blank model is meaningful: it hands the choice
+            # back to the agent, so an explicit "" must survive.
+            model=str(d.get("model", DEFAULT_MODEL)).strip(),
             thinking=str(d.get("thinking") or "").strip(),
             local=_flag("local", False),
             timeout_s=int(d.get("timeout_s") or DEFAULT_TIMEOUT),
@@ -467,10 +476,14 @@ class RawOutputCache:
         self.path.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
-    def key_for(agent_id: str, message: str) -> str:
+    def key_for(agent_id: str, message: str, model: str = "") -> str:
         import hashlib
         h = hashlib.sha256()
         h.update(agent_id.encode("utf-8"))
+        h.update(b"\x00")
+        # The model is part of the identity of a reply: without it, switching
+        # models would replay the previous model's answers from cache.
+        h.update(model.encode("utf-8"))
         h.update(b"\x00")
         h.update(message.encode("utf-8"))
         return h.hexdigest()[:32]
@@ -522,6 +535,7 @@ def call_openclaw_raw(
     cache: Optional["RawOutputCache"] = None,
     ledger: Optional["UsageLedger"] = None,
     session_id: str = "",
+    model: str = "",
     log: Optional[Callable[[str], None]] = None,
 ) -> str:
     """One openclaw agent call, same shape as email_agent._call_openclaw.
@@ -542,7 +556,7 @@ def call_openclaw_raw(
     )
 
     say = log or (lambda _m: None)
-    key = RawOutputCache.key_for(agent_id, message) if cache is not None else ""
+    key = RawOutputCache.key_for(agent_id, message, model) if cache is not None else ""
     if cache is not None:
         hit = cache.get(key)
         if hit is not None:
@@ -558,6 +572,8 @@ def call_openclaw_raw(
                 return replay
 
     cmd = ["openclaw", "agent", "--agent", agent_id, "--message", message, "--json"]
+    if model:
+        cmd += ["--model", model]
     if local:
         cmd.append("--local")
     if thinking:
@@ -1088,6 +1104,7 @@ class DedupChecker:
                     cache=self.cache,
                     ledger=self.ledger,
                     session_id=self.session_id,
+                    model=self.cfg.model,
                     log=self.log,
                 )
                 parsed = _extract_json_array(reply)
