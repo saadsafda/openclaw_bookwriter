@@ -42,6 +42,46 @@ LETTERS = ("A", "B", "C", "D")
 TRIVIA_SECTION_TITLE = "Trivia"
 FACTS_SECTION_TITLE = "Did You Know"
 ANSWER_KEY_TITLE = "Answer Key"
+INTRODUCTION_TITLE = "Introduction"
+CONCLUSION_TITLE = "Conclusion"
+
+
+# --------------------------------------------------------------------------
+# Front and back matter
+# --------------------------------------------------------------------------
+
+def _default_introduction(cfg: Any) -> str:
+    """Fallback for a book whose Introduction was never generated.
+
+    Older books predate the generated front matter, and a provider refusal
+    leaves the field empty, so the export still needs something to print.
+    """
+    return (
+        f"This book collects trivia questions and surprising facts about "
+        f"{cfg.topic}. Each chapter opens with a round of multiple-choice "
+        f"questions, then a set of Did You Know facts. "
+        + (
+            "Answers for every chapter are gathered in the answer key at the "
+            "back of the book."
+            if cfg.answer_key_position == ANSWER_KEY_END_OF_BOOK
+            else "Answers appear at the end of each chapter."
+        )
+    )
+
+
+def _default_conclusion(cfg: Any) -> str:
+    return (
+        f"That is the end of the questions, but it does not have to be the end "
+        f"of the subject. The best trivia leaves you curious about what else "
+        f"you have not heard yet, and {cfg.topic} rewards anyone willing to "
+        f"keep looking. Thank you for reading."
+    )
+
+
+def _front_matter_paragraphs(text: str, fallback: str) -> list[str]:
+    from .engine import split_paragraphs
+
+    return split_paragraphs(text) or split_paragraphs(fallback)
 
 
 # --------------------------------------------------------------------------
@@ -54,6 +94,10 @@ def to_markdown(book: TriviaBook) -> str:
 
     if cfg.topic:
         lines += [f"*A trivia and facts collection about {cfg.topic}.*", ""]
+
+    lines += [f"## {INTRODUCTION_TITLE}", ""]
+    for para in _front_matter_paragraphs(book.introduction, _default_introduction(cfg)):
+        lines += [para, ""]
 
     for chapter in book.chapters:
         lines += [f"## Chapter {chapter.number} — {chapter.title}", ""]
@@ -91,6 +135,10 @@ def to_markdown(book: TriviaBook) -> str:
             for i, q in enumerate(chapter.trivia, start=1):
                 lines.append(f"{i}. {q.correct_answer} - {q.correct_text()}")
             lines.append("")
+
+    lines += [f"## {CONCLUSION_TITLE}", ""]
+    for para in _front_matter_paragraphs(book.conclusion, _default_conclusion(cfg)):
+        lines += [para, ""]
 
     return "\n".join(lines).rstrip() + "\n"
 
@@ -159,19 +207,9 @@ def build_docx(book: TriviaBook, path: Path, *, image_width_in: float = 4.5) -> 
 
     doc.add_page_break()
 
-    # Introduction — short and generic so it fits any subject.
-    _add_heading(doc, "Introduction", 1)
-    doc.add_paragraph(
-        f"This book collects trivia questions and surprising facts about "
-        f"{cfg.topic}. Each chapter opens with a round of multiple-choice "
-        f"questions, then a set of Did You Know facts. "
-        + (
-            "Answers for every chapter are gathered in the answer key at the "
-            "back of the book."
-            if cfg.answer_key_position == ANSWER_KEY_END_OF_BOOK
-            else "Answers appear at the end of each chapter."
-        )
-    )
+    _add_heading(doc, INTRODUCTION_TITLE, 1)
+    for para in _front_matter_paragraphs(book.introduction, _default_introduction(cfg)):
+        doc.add_paragraph(xml_safe(para))
     doc.add_page_break()
 
     for chapter in book.chapters:
@@ -233,6 +271,11 @@ def build_docx(book: TriviaBook, path: Path, *, image_width_in: float = 4.5) -> 
     if cfg.answer_key_position == ANSWER_KEY_END_OF_BOOK:
         _add_heading(doc, ANSWER_KEY_TITLE, 1)
         _add_answer_key_block(doc, book.chapters, heading_level=2)
+        doc.add_page_break()
+
+    _add_heading(doc, CONCLUSION_TITLE, 1)
+    for para in _front_matter_paragraphs(book.conclusion, _default_conclusion(cfg)):
+        doc.add_paragraph(xml_safe(para))
 
     path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(path))
@@ -271,7 +314,8 @@ def build_kdp_files(
 
     # Turns on the formatter's outline guard for anything not declared body text.
     raw_topics = {
-        "Introduction",
+        INTRODUCTION_TITLE,
+        CONCLUSION_TITLE,
         ANSWER_KEY_TITLE,
         TRIVIA_SECTION_TITLE,
         FACTS_SECTION_TITLE,

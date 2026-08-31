@@ -152,6 +152,77 @@ class TriviaBuilder:
         )
         return engine._extract_json_array(reply)
 
+    def _generate_prose(self, prompt: str) -> str:
+        reply = engine.call_openclaw_raw(
+            self.cfg.agent,
+            prompt,
+            local=self.cfg.local,
+            thinking=self.cfg.thinking,
+            timeout_s=self.cfg.timeout_s,
+            cache=self.cache,
+            ledger=self.ledger,
+            session_id=self.session_id,
+            log=self.log,
+        )
+        return engine.clean_prose_reply(reply)
+
+    def _generate_front_matter(self, label: str, prompt: str) -> str:
+        """One piece of authored prose, retried once if it lands short.
+
+        Asking for 300-500 words tends to produce a tidy 150-word paragraph on
+        the first try. A single retry that names the shortfall is enough to
+        pull it up, and it costs one call rather than failing the build.
+        """
+        text = self._generate_prose(prompt)
+        count = engine.word_count(text)
+
+        if count < engine.FRONT_MATTER_MIN_WORDS:
+            self.log(
+                f"  {label} came back at {count} words; asking again for "
+                f"{engine.FRONT_MATTER_MIN_WORDS}-{engine.FRONT_MATTER_MAX_WORDS}"
+            )
+            retry = (
+                f"{prompt}\n\nYour previous attempt was only {count} words, "
+                f"which is far too short. Write the full "
+                f"{engine.FRONT_MATTER_MIN_WORDS} to "
+                f"{engine.FRONT_MATTER_MAX_WORDS} words this time. Develop the "
+                "ideas with real specifics instead of adding filler.\n"
+            )
+            longer = self._generate_prose(retry)
+            if engine.word_count(longer) > count:
+                text, count = longer, engine.word_count(longer)
+
+        if not text:
+            self.book.warnings.append(f"{label} could not be generated.")
+        elif count < engine.FRONT_MATTER_MIN_WORDS:
+            self.book.warnings.append(
+                f"{label} is {count} words, short of the "
+                f"{engine.FRONT_MATTER_MIN_WORDS}-word target."
+            )
+        else:
+            self.log(f"  {label}: {count} words")
+        return text
+
+    def generate_front_matter(self) -> None:
+        """Introduction and Conclusion, written once the chapters are known.
+
+        Both run after generation so the prose can speak to the book that
+        actually exists, not the one the config asked for. Neither is worth
+        failing a finished book over, so a provider refusal is recorded as a
+        warning and the export falls back to its generic paragraph.
+        """
+        for label, builder, attr in (
+            ("Introduction", engine.build_introduction_prompt, "introduction"),
+            ("Conclusion", engine.build_conclusion_prompt, "conclusion"),
+        ):
+            self._check_stop()
+            try:
+                prompt = builder(self.cfg, self.cfg.chapters)
+                setattr(self.book, attr, self._generate_front_matter(label, prompt))
+            except ProviderRejectionError as exc:
+                self.book.warnings.append(f"{label} refused by provider: {exc}")
+                self.log(f"  {label} refused by provider; using the default text")
+
     def _all_trivia(self) -> list[TriviaQuestion]:
         return [q for ch in self.book.chapters for q in ch.trivia]
 
@@ -754,7 +825,7 @@ class TriviaBuilder:
             self.cache = engine.RawOutputCache(out_dir / "raw_cache")
             self.checker.cache = self.cache
 
-        total_steps = max(1, len(self.cfg.chapters) * 2 + 3)
+        total_steps = max(1, len(self.cfg.chapters) * 2 + 4)
         step = 0
 
         # A chapter that comes up short must not abort the run. Chapters after
@@ -838,6 +909,11 @@ class TriviaBuilder:
         step += 1
         self.progress("illustrations", step / total_steps)
 
+        self._check_stop()
+        self.generate_front_matter()
+        step += 1
+        self.progress("front matter", step / total_steps)
+
         errors = self.validate_for_export()
         if errors or gate_failures:
             # validate_for_export already reports the resulting counts, so the
@@ -911,6 +987,8 @@ def load_json(path: Path) -> TriviaBook:
     cfg = BookConfig.from_dict(data.get("config") or data)
     book = TriviaBook(
         config=cfg,
+        introduction=str(data.get("introduction") or ""),
+        conclusion=str(data.get("conclusion") or ""),
         warnings=list(data.get("warnings") or []),
         usage=dict(data.get("usage") or {}),
     )

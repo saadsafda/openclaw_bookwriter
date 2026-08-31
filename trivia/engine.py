@@ -302,6 +302,9 @@ class Chapter:
 class TriviaBook:
     config: BookConfig
     chapters: list[Chapter] = field(default_factory=list)
+    # Authored front and back matter (Introduction / Conclusion prose).
+    introduction: str = ""
+    conclusion: str = ""
     warnings: list[str] = field(default_factory=list)
     # Token/cost totals for this build (Section 12).
     usage: dict[str, Any] = field(default_factory=dict)
@@ -332,6 +335,8 @@ class TriviaBook:
             "difficulty": self.config.difficulty,
             "answer_key_position": self.config.answer_key_position,
             "config": self.config.to_dict(),
+            "introduction": self.introduction,
+            "conclusion": self.conclusion,
             "chapters": [c.to_dict() for c in self.chapters],
             "answer_key": self.answer_key(),
             "warnings": list(self.warnings),
@@ -723,6 +728,133 @@ def build_facts_prompt(
         "\nReturn ONLY a JSON array, no prose, no markdown fence. Each element:\n"
         '{"fact": "...", "fact_seed": "short_snake_case_slug_of_the_core_fact"}\n'
     )
+
+
+FRONT_MATTER_MIN_WORDS = 300
+FRONT_MATTER_MAX_WORDS = 500
+
+
+def _chapter_roster(chapters: list[ChapterConfig]) -> str:
+    return "\n".join(
+        f"- Chapter {c.chapter_number}: {c.chapter_title}"
+        + (f" — {c.chapter_scope}" if c.chapter_scope else "")
+        for c in chapters
+    )
+
+
+def _front_matter_rules(cfg: BookConfig) -> str:
+    """Shared rules for the two pieces of authored prose in the book.
+
+    The trivia and facts prompts demand JSON; these two want flowing prose, so
+    they have to say so explicitly or the agent answers in the book's house
+    format out of habit.
+    """
+    return (
+        f"\nHARD REQUIREMENTS:\n"
+        f"1. Between {FRONT_MATTER_MIN_WORDS} and {FRONT_MATTER_MAX_WORDS} "
+        f"words. This is the one place in the book that runs long, so do not "
+        f"stop at a paragraph.\n"
+        "2. Flowing prose in three to five paragraphs. No headings, no bullet "
+        "lists, no numbered lists, no questions with lettered choices.\n"
+        "3. Speak to the reader as an author writing a real book. Never "
+        "mention AI, generation, prompts, models, or that this is a "
+        "collection assembled from anything.\n"
+        f"4. Stay concrete about {cfg.topic}. Name real specifics from the "
+        "subject rather than writing generic filler that would fit any book.\n"
+        "5. Do not repeat any trivia question or state any answer.\n"
+        "\nReturn ONLY the prose itself. No title, no heading, no preamble, "
+        "no markdown fence, no commentary about the task.\n"
+    )
+
+
+def build_introduction_prompt(cfg: BookConfig, chapters: list[ChapterConfig]) -> str:
+    """The Introduction a reader meets before Chapter 1."""
+    key_note = (
+        "Answers are collected in the answer key at the back of the book."
+        if cfg.answer_key_position == ANSWER_KEY_END_OF_BOOK
+        else "Answers wait at the end of each chapter."
+    )
+    return (
+        f"BOOK TITLE: {cfg.book_title}\n"
+        f"BOOK TOPIC: {cfg.topic}\n"
+        f"AUDIENCE: {cfg.audience}\n"
+        f"DIFFICULTY: {cfg.difficulty}\n"
+        f"CHAPTERS:\n{_chapter_roster(chapters)}\n"
+        f"\nWrite the Introduction for this trivia book.\n"
+        "\nCover, in your own order and phrasing: why this subject rewards a "
+        "curious reader, what makes the questions here worth sitting with, how "
+        "the book is arranged, and how someone should use it — alone, or "
+        "reading aloud with other people. "
+        f"{key_note}\n"
+        "\nOpen with something specific and surprising about the subject, not "
+        "with a definition and not with the book's own title. Earn the "
+        "reader's attention in the first sentence.\n"
+        f"{_front_matter_rules(cfg)}"
+    )
+
+
+def build_conclusion_prompt(cfg: BookConfig, chapters: list[ChapterConfig]) -> str:
+    """The closing note after the last chapter."""
+    return (
+        f"BOOK TITLE: {cfg.book_title}\n"
+        f"BOOK TOPIC: {cfg.topic}\n"
+        f"AUDIENCE: {cfg.audience}\n"
+        f"CHAPTERS:\n{_chapter_roster(chapters)}\n"
+        f"\nWrite the Conclusion for this trivia book. The reader has just "
+        "finished every chapter.\n"
+        "\nSend them off well: reflect on what the whole subject looks like "
+        "once these pieces sit together, point to where a curious reader can "
+        "keep going on their own, and close warmly without gushing.\n"
+        "\nDo not summarize the chapters one by one, and do not congratulate "
+        "the reader on finishing. Write the last page of a book someone chose "
+        "to read, not a wrap-up of a task they completed.\n"
+        f"{_front_matter_rules(cfg)}"
+    )
+
+
+def clean_prose_reply(text: str) -> str:
+    """Strip the wrappers a model adds around prose it was told not to wrap.
+
+    Fences and a restated "Introduction" heading are the two that survive the
+    instruction most often, and both would print verbatim in the DOCX.
+    """
+    s = (text or "").strip()
+
+    if s.startswith("```"):
+        s = re.sub(r"^```[a-zA-Z]*\s*", "", s)
+        s = re.sub(r"\s*```$", "", s).strip()
+
+    s = re.sub(
+        r"^#{1,6}\s*(introduction|conclusion)\s*:?\s*\n+",
+        "",
+        s,
+        flags=re.IGNORECASE,
+    )
+    s = re.sub(
+        r"^\*{0,2}(introduction|conclusion)\*{0,2}\s*:?\s*\n+",
+        "",
+        s,
+        flags=re.IGNORECASE,
+    )
+    return s.strip()
+
+
+def split_paragraphs(text: str) -> list[str]:
+    """Blank-line paragraphs, falling back to single newlines.
+
+    Models return prose both ways, and a book page needs the breaks either way.
+    """
+    s = clean_prose_reply(text)
+    if not s:
+        return []
+    parts = [p.strip() for p in re.split(r"\n\s*\n", s) if p.strip()]
+    if len(parts) == 1:
+        parts = [p.strip() for p in parts[0].split("\n") if p.strip()]
+    return parts
+
+
+def word_count(text: str) -> int:
+    return len(re.findall(r"\b[\w'-]+\b", text or ""))
 
 
 def build_judge_prompt(pairs: list[tuple[str, str]]) -> str:

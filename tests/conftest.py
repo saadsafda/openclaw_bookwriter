@@ -79,7 +79,14 @@ def trivia_builder(trivia_cfg):
                 ]
             return [{"fact": f"Fact {seq}_{i} about the subject"} for i in range(take)]
 
+        def fake_prose(prompt: str) -> str:
+            calls.append(prompt)
+            # Long enough to clear the word-count floor, so build() does not
+            # spend a second call retrying the fake.
+            return " ".join([f"Sentence {i} of the front matter." for i in range(80)])
+
         b._generate_batch = fake_ask
+        b._generate_prose = fake_prose
         b.checker.find_collisions = collide or (lambda *a, **k: set())
         return b, calls, budget
 
