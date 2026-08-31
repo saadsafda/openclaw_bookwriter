@@ -44,8 +44,12 @@ class TestTemplatesMatchTheEngine:
     def test_agent_field_and_js_fallbacks_use_the_right_agent(self, page, expected):
         html = (ROOT / "templates" / f"{page}.html").read_text(encoding="utf-8")
 
+        # The field is an <input value=...> on some pages and a <select> whose
+        # placeholder <option value=...> is the pre-load default on others.
         values = re.findall(r'id="agent"[^>]*value="([^"]*)"', html)
-        assert values, f"no agent input found in {page}.html"
+        values += re.findall(
+            r'<select[^>]*id="agent".*?<option value="([^"]*)"', html, re.S)
+        assert values, f"no agent field found in {page}.html"
         for v in values:
             assert v == expected, f"{page}.html prefills {v!r}, engine says {expected!r}"
 

@@ -163,16 +163,20 @@
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-600 mb-1.5">OpenClaw agent</label>
-                        <input id="agent" class="field w-full rounded-xl px-3.5 py-2.5 text-sm" value="stories-agent-1">
+                        <select id="agent" class="field w-full rounded-xl px-3.5 py-2.5 text-sm">
+                            <option value="stories-agent-1">Loading agents…</option>
+                        </select>
+                        <p class="text-[11px] text-slate-500 mt-1" id="agentHint">Fetching agents…</p>
                     </div>
 
                     <div class="md:col-span-2">
                         <label class="block text-xs font-medium text-slate-600 mb-1.5">Writing model
                             <span class="text-slate-400 font-normal">&mdash; prose quality depends on this. Leave blank to use the agent&rsquo;s own default.</span>
                         </label>
-                        <input id="model" class="field w-full rounded-xl px-3.5 py-2.5 text-sm"
-                               value="anthropic/claude-opus-4-6"
-                               placeholder="anthropic/claude-opus-4-6">
+                        <select id="model" class="field w-full rounded-xl px-3.5 py-2.5 text-sm">
+                            <option value="">Loading models…</option>
+                        </select>
+                        <p class="text-[11px] text-slate-500 mt-1" id="modelHint">Fetching models…</p>
                     </div>
 
                     <div class="md:col-span-2">
@@ -358,6 +362,10 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
+
+const DEFAULT_STORY_AGENT = "stories-agent-1";
+const DEFAULT_STORY_MODEL = "anthropic/claude-opus-4-6";
+
 let pollTimer = null;
 let currentJob = null;
 
@@ -476,7 +484,7 @@ function readConfig() {
         illustrations: $("illustrations").checked,
         illustrate_every_story: $("illustrate_every_story").checked,
         check_duplicates: $("check_duplicates").checked,
-        agent: $("agent").value.trim() || "stories-agent-1",
+        agent: $("agent").value.trim() || DEFAULT_STORY_AGENT,
         model: $("model").value.trim(),
         stories: readStories(),
     };
@@ -499,8 +507,8 @@ function applyConfig(cfg) {
     $("illustrations").checked = !!cfg.illustrations;
     $("illustrate_every_story").checked = !!cfg.illustrate_every_story;
     $("check_duplicates").checked = cfg.check_duplicates !== false;
-    $("agent").value = cfg.agent || "stories-agent-1";
-    $("model").value = cfg.model === undefined ? "anthropic/claude-opus-4-6" : cfg.model;
+    selectValue($("agent"), cfg.agent || DEFAULT_STORY_AGENT);
+    selectValue($("model"), cfg.model === undefined ? DEFAULT_STORY_MODEL : cfg.model);
 
     // A config may carry either shape; flatten chapters into the flat editor.
     const flat = cfg.stories && cfg.stories.length
@@ -628,7 +636,7 @@ $("btn-suggest").addEventListener("click", async () => {
             body: JSON.stringify({
                 book_title, topic, count,
                 notes: $("global_context").value.trim(),
-                agent: $("agent").value.trim() || "stories-agent-1",
+                agent: $("agent").value.trim() || DEFAULT_STORY_AGENT,
                 model: $("model").value.trim(),
             }),
         });
@@ -857,8 +865,92 @@ $("import-file").addEventListener("change", async (e) => {
 ["min_words", "max_words"].forEach(id =>
     $(id).addEventListener("input", updateTotals));
 
+// --- OpenClaw agent + model pickers -----------------------------------
+// Both are per-job: the chosen model rides along in the job payload rather
+// than switching OpenClaw's global default, so two books can build at once
+// on different models.
+// A select silently drops an assignment when no option matches, which would
+// quietly downgrade an imported config to whatever sits first in the list.
+// Keeping a custom entry preserves what the operator actually asked for.
+function selectValue(sel, value) {
+    if (value && !Array.from(sel.options).some(o => o.value === value)) {
+        const opt = document.createElement("option");
+        opt.value = value;
+        opt.textContent = `${value} (from config)`;
+        sel.appendChild(opt);
+    }
+    sel.value = value;
+}
+
+async function loadStoryAgents(forceRefresh) {
+    const sel = $("agent");
+    const hint = $("agentHint");
+    const keep = sel.value || DEFAULT_STORY_AGENT;
+    hint.textContent = "Fetching agents…";
+    hint.className = "text-[11px] text-slate-500 mt-1";
+    try {
+        const res = await fetch("/api/openclaw-agents" + (forceRefresh ? "?refresh=1" : ""));
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Agent list request failed");
+        const agents = data.agents || [];
+        sel.innerHTML = "";
+        agents.forEach(a => {
+            const opt = document.createElement("option");
+            opt.value = a.id;
+            opt.textContent = (a.name || a.id)
+                + (a.model ? ` — ${a.model.split("/").pop()}` : "")
+                + (a.isDefault ? " (★ default)" : "");
+            sel.appendChild(opt);
+        });
+        selectValue(sel, keep);
+        hint.textContent = `${agents.length} agent(s) available`;
+    } catch (e) {
+        sel.innerHTML = `<option value="${DEFAULT_STORY_AGENT}">${DEFAULT_STORY_AGENT}</option>`;
+        selectValue(sel, keep);
+        hint.innerHTML = `${e.message} — <a href="#" class="underline text-rose-600" id="retry-agents">Retry</a>`;
+        hint.className = "text-[11px] text-rose-600 mt-1";
+        $("retry-agents")?.addEventListener("click", ev => { ev.preventDefault(); loadStoryAgents(true); });
+    }
+}
+
+async function loadStoryModels(forceRefresh) {
+    const sel = $("model");
+    const hint = $("modelHint");
+    const keep = sel.value || DEFAULT_STORY_MODEL;
+    hint.textContent = "Fetching models…";
+    hint.className = "text-[11px] text-slate-500 mt-1";
+    try {
+        const res = await fetch("/api/openclaw-models" + (forceRefresh ? "?refresh=1" : ""));
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Model list request failed");
+        const models = data.models || [];
+        sel.innerHTML = "";
+        // Blank is meaningful here: it hands the choice back to the agent.
+        const blank = document.createElement("option");
+        blank.value = "";
+        blank.textContent = "— agent's own default —";
+        sel.appendChild(blank);
+        models.forEach(m => {
+            const opt = document.createElement("option");
+            opt.value = m.key;
+            opt.textContent = (m.name || m.key) + (m.available === false ? " (unavailable)" : "");
+            sel.appendChild(opt);
+        });
+        selectValue(sel, keep);
+        hint.textContent = `${models.length} model(s) available`;
+    } catch (e) {
+        sel.innerHTML = `<option value="">— agent's own default —</option>`;
+        selectValue(sel, keep);
+        hint.innerHTML = `${e.message} — <a href="#" class="underline text-rose-600" id="retry-models">Retry</a>`;
+        hint.className = "text-[11px] text-rose-600 mt-1";
+        $("retry-models")?.addEventListener("click", ev => { ev.preventDefault(); loadStoryModels(true); });
+    }
+}
+
 addStory();
 loadLibrary();
+loadStoryAgents();
+loadStoryModels();
 </script>
 </body>
 </html>
