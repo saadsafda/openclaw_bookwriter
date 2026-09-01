@@ -178,3 +178,46 @@ class TestExportersEmbedHighResArt:
                     assert im.size[0] >= need, (
                         f"{name} is {im.size[0]}px, needs {need}px for 300 DPI"
                     )
+
+
+# -- the DOCX writer's own embed path --------------------------------------
+
+def test_docx_writer_upscales_to_its_placed_width(tmp_path):
+    """1024px art placed 5.5in wide prints at 186 DPI, not 300.
+
+    ``prepare_image_for_print`` used to stamp the tag without the placed width,
+    so the file claimed 300 DPI while KDP measured 186 and warned on every page.
+    """
+    import openclaw_docx_writer as w
+
+    art = _art(tmp_path / "art.png", 1024, 1536)
+    assert round(ph.effective_dpi(art, 5.5)) == 186
+
+    w.prepare_image_for_print(art, width_inches=5.5)
+
+    assert round(ph.effective_dpi(art, 5.5)) >= 300
+    assert ph.audit_image(art, width_in=5.5) == []
+    # 2:3 art on a 6x9 page must not be stretched to fit.
+    with Image.open(art) as im:
+        assert abs((im.size[1] / im.size[0]) - 1.5) < 0.01
+
+
+def test_tree_audit_measures_pixels_not_just_the_tag(tmp_path):
+    """A tag-only audit passes an under-sized image, which is the whole bug."""
+    art = _art(tmp_path / "art.png", 1024, 1536)
+    ph.sanitize_for_print(art)  # tags it 300 DPI, leaves the pixels alone
+
+    assert ph.audit_tree(tmp_path) == {}, "tag-only audit should see nothing wrong"
+    assert ph.audit_tree(tmp_path, width_in=5.5), "placed-size audit must flag it"
+
+
+def test_tree_walks_skip_the_pristine_sidecar(tmp_path):
+    """The pre-upscale backup never reaches the book, so auditing it would
+    report a failure for every image that was correctly upscaled."""
+    art = _art(tmp_path / "art.png", 1024, 1536)
+    ph.sanitize_for_print(art, width_in=5.5)
+
+    sidecars = [p for p in tmp_path.iterdir() if ph.is_original_sidecar(p)]
+    assert sidecars, "upscale should keep the original"
+    assert ph.audit_tree(tmp_path, width_in=5.5) == {}
+    assert all(not ph.is_original_sidecar(p) for p in ph.sanitize_tree(tmp_path))

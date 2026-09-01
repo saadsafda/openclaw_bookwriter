@@ -282,14 +282,20 @@ def build_docx(book: TriviaBook, path: Path, *, image_width_in: float = 4.5) -> 
     return path
 
 
-def verify_print_images(book: TriviaBook, job_dir: Path) -> list[str]:
+def verify_print_images(book: TriviaBook, job_dir: Path, *,
+                        image_width_in: float = 4.5) -> list[str]:
     """Confirm every image in ``job_dir`` is 300 DPI and metadata-free.
+
+    ``image_width_in`` must match the width :func:`build_docx` places the art
+    at. Without it the audit only reads the DPI tag, which is a label an
+    under-sized image passes happily -- the check has to measure pixels against
+    the printed size to mean anything.
 
     Returns human-readable problems and records them on ``book.warnings`` so a
     bad asset surfaces in the build log instead of reaching KDP unnoticed.
     """
     problems: list[str] = []
-    for path, issues in audit_tree(job_dir, PRINT_DPI).items():
+    for path, issues in audit_tree(job_dir, PRINT_DPI, width_in=image_width_in).items():
         rel = path.relative_to(job_dir) if path.is_relative_to(job_dir) else path
         problems.append(f"{rel}: {'; '.join(issues)}")
 

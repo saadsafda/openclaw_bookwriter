@@ -304,19 +304,24 @@ def clear_paragraph(paragraph: Paragraph) -> None:
         p.remove(child)
 
 
-def prepare_image_for_print(image_path: Path, dpi: int = 300) -> None:
+def prepare_image_for_print(image_path: Path, dpi: int = 300,
+                            width_inches: float = 0.0) -> None:
     """Strip all EXIF/metadata and set DPI for print publishing.
 
     Shared implementation lives in print_hygiene so every image embedded in a
     DOCX gets the same guarantees as the rest of the pipeline.
+
+    ``width_inches`` is the width the image is actually placed at, and passing
+    it is what makes the 300 DPI real rather than a label: 1024px art placed
+    5.5in wide prints at 186 DPI, and KDP measures pixels, not the tag.
     """
     from print_hygiene import sanitize_for_print
 
-    sanitize_for_print(image_path, dpi)
+    sanitize_for_print(image_path, dpi, width_in=width_inches)
 
 
 def set_paragraph_image(paragraph: Paragraph, image_path: Path, width_inches: float) -> None:
-    prepare_image_for_print(image_path)
+    prepare_image_for_print(image_path, width_inches=width_inches)
     clear_paragraph(paragraph)
     run = paragraph.add_run()
     run.add_picture(str(image_path), width=Inches(width_inches))

@@ -356,10 +356,16 @@ def audit_tree(root: str | Path, dpi: int = PRINT_DPI,
     Left at 0 the audit cannot know how each image is placed, so it only
     verifies the tag and metadata -- use :func:`audit_image` with a width, or
     the exporters' own embed-time check, for the real resolution guarantee.
+
+    The pristine copies :func:`upscale_for_print` keeps are skipped: they are
+    pre-upscale backups that never reach the book, so auditing them against a
+    placed size would report a failure for every image that was upscaled.
     """
     root = Path(root)
     bad: dict[Path, list[str]] = {}
     for p in sorted(root.rglob("*")):
+        if is_original_sidecar(p):
+            continue
         if p.is_file() and p.suffix.lower() in _RASTER_SUFFIXES:
             problems = audit_image(p, dpi, width_in=width_in)
             if problems:
@@ -372,6 +378,8 @@ def sanitize_tree(root: str | Path, dpi: int = PRINT_DPI) -> list[Path]:
     root = Path(root)
     done: list[Path] = []
     for p in sorted(root.rglob("*")):
+        if is_original_sidecar(p):
+            continue
         if p.is_file() and p.suffix.lower() in _RASTER_SUFFIXES:
             sanitize_for_print(p, dpi)
             done.append(p)
