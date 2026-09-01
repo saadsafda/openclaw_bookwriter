@@ -21,6 +21,8 @@ from flask import abort, jsonify, render_template, request, send_file
 
 import db as bookdb
 from print_hygiene import strip_ai_report
+
+from .layout import FULL_IMAGE_W_IN
 from . import edit as editor
 from . import export as exporter
 from . import pipeline
@@ -616,7 +618,10 @@ def register(app) -> None:  # noqa: ANN001
         apply = bool(payload.get("apply"))
         try:
             _row, json_path, book = _load_book_for_edit(book_id)
-            result = strip_ai_report(book, json_path.parent, apply=apply)
+            # Width matters: the widest placement in puzzle/layout.py, and
+            # without it the scan only reads the DPI tag.
+            result = strip_ai_report(book, json_path.parent, apply=apply,
+                                     width_in=FULL_IMAGE_W_IN)
             if apply:
                 _save_book(book, json_path)
             return jsonify({"ok": True, **result})

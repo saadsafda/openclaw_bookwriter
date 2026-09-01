@@ -221,3 +221,67 @@ def test_tree_walks_skip_the_pristine_sidecar(tmp_path):
     assert sidecars, "upscale should keep the original"
     assert ph.audit_tree(tmp_path, width_in=5.5) == {}
     assert all(not ph.is_original_sidecar(p) for p in ph.sanitize_tree(tmp_path))
+
+
+# -- every pipeline's final print check -------------------------------------
+
+class _Warned:
+    """Stands in for a book: verify_print_images only needs ``warnings``."""
+    def __init__(self):
+        self.warnings: list[str] = []
+
+
+@pytest.mark.parametrize("module_name, width_in", [
+    ("trivia.export", 4.5),
+    ("stories.export", 4.5),
+    ("puzzle.export", 4.75),
+])
+def test_every_pipeline_audit_measures_pixels(tmp_path, module_name, width_in):
+    """A tag-only audit passed under-resolution art in all three pipelines."""
+    import importlib
+
+    module = importlib.import_module(module_name)
+    art = _art(tmp_path / "art.png", 1024, 1536)
+    ph.sanitize_for_print(art)  # tag claims 300 DPI; the pixels do not back it
+
+    book = _Warned()
+    problems = module.verify_print_images(book, tmp_path)
+
+    assert problems, f"{module_name} must flag art that prints under 300 DPI"
+    assert "effective" in problems[0]
+    assert book.warnings, "the problem has to reach the build log"
+
+
+def test_pipeline_audit_passes_correctly_sized_art(tmp_path):
+    """The check must not cry wolf on art that is genuinely 300 DPI."""
+    import trivia.export as tex
+
+    art = _art(tmp_path / "art.png", 1350, 2025)
+    ph.sanitize_for_print(art, width_in=4.5)
+    assert tex.verify_print_images(_Warned(), tmp_path) == []
+
+
+def test_strip_ai_docx_repairs_resolution_at_the_placed_width(tmp_path):
+    """The book writer's Strip AI pass reads each image's real placed width
+    from the drawing XML, so it can fix resolution rather than only re-tag."""
+    from docx import Document
+    from docx.shared import Inches
+
+    art = _art(tmp_path / "art.png", 1024, 1536)
+    doc = Document()
+    doc.add_picture(str(art), width=Inches(5.5))
+    docx_path = tmp_path / "book.docx"
+    doc.save(str(docx_path))
+
+    flagged = ph.strip_ai_docx(docx_path)
+    assert flagged["images_flagged"] == 1
+    assert "186 DPI" in flagged["image_details"][0]["problems"][0]
+
+    ph.strip_ai_docx(docx_path, apply=True)
+    assert ph.strip_ai_docx(docx_path)["images_flagged"] == 0
+
+    with zipfile.ZipFile(docx_path) as z:
+        name = next(n for n in z.namelist() if n.startswith("word/media/"))
+        out = tmp_path / "embedded.png"
+        out.write_bytes(z.read(name))
+    assert round(ph.effective_dpi(out, 5.5)) >= 300

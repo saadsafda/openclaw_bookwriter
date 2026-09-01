@@ -32,6 +32,7 @@ from print_hygiene import (
     strip_control_chars,
 )
 
+from .layout import FULL_IMAGE_W_IN
 from .engine import (
     PAGE_H_IN,
     PAGE_W_IN,
@@ -411,15 +412,22 @@ def _build_answer_key(doc: Document, book: PuzzleBook) -> None:
 # Print-readiness verification
 # --------------------------------------------------------------------------
 
-def verify_print_images(book: PuzzleBook, job_dir: Path) -> list[str]:
+def verify_print_images(book: PuzzleBook, job_dir: Path, *,
+                        image_width_in: float = FULL_IMAGE_W_IN) -> list[str]:
     """Confirm every rendered image in ``job_dir`` is 300 DPI and metadata-free.
+
+    ``image_width_in`` is the widest size the layout places art at, since that
+    is the binding constraint: a plate with enough pixels for a full-page
+    placement also clears the smaller answer-key slots. Without a width the
+    audit reads only the DPI tag, which an under-sized image passes happily --
+    KDP measures pixels against the printed size, not the label.
 
     Returns a list of human-readable problems and appends them to
     ``book.warnings``, so a bad asset shows up in the build log rather than
     reaching KDP unnoticed. An empty list means the whole tree is clean.
     """
     problems: list[str] = []
-    for path, issues in audit_tree(job_dir, PRINT_DPI).items():
+    for path, issues in audit_tree(job_dir, PRINT_DPI, width_in=image_width_in).items():
         rel = path.relative_to(job_dir) if path.is_relative_to(job_dir) else path
         problems.append(f"{rel}: {'; '.join(issues)}")
 
@@ -502,9 +510,11 @@ def build_handoff_zip(book: PuzzleBook, job_dir: Path, zip_path: Path) -> Path:
             p = Path(path_str)
             if path_str and p.exists():
                 # The formatter's copy must carry the same guarantees as the
-                # manuscript's: exactly 300 DPI, no AI metadata.
+                # manuscript's: exactly 300 DPI at the size it will be placed,
+                # no AI metadata. Without the width this only writes the tag,
+                # and the formatter would lay out under-resolution art.
                 try:
-                    sanitize_for_print(p, PRINT_DPI)
+                    sanitize_for_print(p, PRINT_DPI, width_in=FULL_IMAGE_W_IN)
                 except PrintHygieneError as exc:
                     book.warnings.append(f"Handoff ZIP omitted {p.name} — {exc}")
                     return

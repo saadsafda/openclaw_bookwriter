@@ -373,15 +373,20 @@ def audit_tree(root: str | Path, dpi: int = PRINT_DPI,
     return bad
 
 
-def sanitize_tree(root: str | Path, dpi: int = PRINT_DPI) -> list[Path]:
-    """Sanitize every image under ``root``. Returns the paths touched."""
+def sanitize_tree(root: str | Path, dpi: int = PRINT_DPI,
+                  width_in: float = 0.0) -> list[Path]:
+    """Sanitize every image under ``root``. Returns the paths touched.
+
+    ``width_in`` is the placed width; passing it upscales anything with too few
+    pixels to hold ``dpi`` at that size, rather than only re-writing the tag.
+    """
     root = Path(root)
     done: list[Path] = []
     for p in sorted(root.rglob("*")):
         if is_original_sidecar(p):
             continue
         if p.is_file() and p.suffix.lower() in _RASTER_SUFFIXES:
-            sanitize_for_print(p, dpi)
+            sanitize_for_print(p, dpi, width_in=width_in)
             done.append(p)
     return done
 
@@ -603,18 +608,25 @@ def scrub_book_text(obj: object) -> int:
     return changed
 
 
-def strip_ai_report(book: object, job_dir: str | Path, *, apply: bool = False) -> dict:
+def strip_ai_report(book: object, job_dir: str | Path, *, apply: bool = False,
+                    width_in: float = 0.0) -> dict:
     """Scan (or clean) a book's images and prose in one pass.
 
     With ``apply=False`` this only reports, so the operator can confirm before
     any manuscript is rewritten. With ``apply=True`` it strips image metadata,
     pins DPI, and scrubs text fingerprints in place.
 
+    ``width_in`` is the width the book places its art at. Pass it and the scan
+    also measures real resolution, and ``apply`` upscales anything short of
+    ``dpi`` at that size; left at 0 only the tag and metadata are handled,
+    which under-resolution art passes while still failing KDP's preflight.
+
     The caller is responsible for persisting ``book`` and re-exporting.
     """
     job_dir = Path(job_dir)
 
-    image_problems = audit_tree(job_dir, PRINT_DPI) if job_dir.exists() else {}
+    image_problems = (audit_tree(job_dir, PRINT_DPI, width_in=width_in)
+                      if job_dir.exists() else {})
     images_total = sum(
         1 for p in job_dir.rglob("*")
         if p.is_file() and p.suffix.lower() in _RASTER_SUFFIXES
@@ -637,7 +649,7 @@ def strip_ai_report(book: object, job_dir: str | Path, *, apply: bool = False) -
 
     if apply:
         if job_dir.exists():
-            sanitize_tree(job_dir, PRINT_DPI)
+            sanitize_tree(job_dir, PRINT_DPI, width_in=width_in)
         result["text_fields_changed"] = scrub_book_text(book)
         result["applied"] = True
 
@@ -673,6 +685,20 @@ def strip_ai_docx(docx_path: str | Path, *, apply: bool = False) -> dict:
     # --- images (inspect the zip parts directly) ---
     import zipfile
 
+    # The width each image is placed at is recorded in the drawing XML, so the
+    # resolution check measures the real printed size instead of assuming one.
+    # Repeated art takes the widest placement, which is the binding constraint.
+    placed_width_in: dict[str, float] = {}
+    for shape in doc.inline_shapes:
+        try:
+            rid = shape._inline.graphic.graphicData.pic.blipFill.blip.embed
+            partname = str(doc.part.related_parts[rid].partname).lstrip("/")
+            width = shape.width / 914400.0  # EMUs per inch
+        except Exception:
+            continue
+        if width > placed_width_in.get(partname, 0.0):
+            placed_width_in[partname] = width
+
     image_problems: dict[str, list[str]] = {}
     images_total = 0
     with zipfile.ZipFile(docx_path) as zf:
@@ -685,7 +711,8 @@ def strip_ai_docx(docx_path: str | Path, *, apply: bool = False) -> dict:
                 images_total += 1
                 scratch = Path(tmp) / Path(name).name
                 scratch.write_bytes(zf.read(name))
-                problems = audit_image(scratch, PRINT_DPI)
+                problems = audit_image(scratch, PRINT_DPI,
+                                       width_in=placed_width_in.get(name, 0.0))
                 if problems:
                     image_problems[name] = problems
 
@@ -722,15 +749,20 @@ def strip_ai_docx(docx_path: str | Path, *, apply: bool = False) -> dict:
                             changed_runs += 1
     doc.save(str(docx_path))
 
-    _sanitize_docx_media(docx_path)
+    _sanitize_docx_media(docx_path, placed_width_in)
 
     result["text_fields_changed"] = changed_runs
     result["applied"] = True
     return result
 
 
-def _sanitize_docx_media(docx_path: Path) -> int:
-    """Rewrite every raster in ``word/media/`` of a .docx, preserving the zip."""
+def _sanitize_docx_media(docx_path: Path,
+                         placed_width_in: dict[str, float] | None = None) -> int:
+    """Rewrite every raster in ``word/media/`` of a .docx, preserving the zip.
+
+    ``placed_width_in`` maps each media part to the width it is placed at, so
+    an under-resolution image is upscaled and not merely re-tagged.
+    """
     import zipfile
 
     with zipfile.ZipFile(docx_path) as zf:
@@ -745,7 +777,10 @@ def _sanitize_docx_media(docx_path: Path) -> int:
                 scratch = Path(tmp) / Path(info.filename).name
                 scratch.write_bytes(data)
                 try:
-                    sanitize_for_print(scratch, PRINT_DPI)
+                    sanitize_for_print(
+                        scratch, PRINT_DPI,
+                        width_in=(placed_width_in or {}).get(info.filename, 0.0),
+                    )
                     data = scratch.read_bytes()
                     cleaned_count += 1
                 except PrintHygieneError:

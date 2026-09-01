@@ -807,7 +807,10 @@ def register(app) -> None:  # noqa: ANN001
         apply = bool(payload.get("apply"))
         try:
             _row, json_path, book = _load_book_for_edit(book_id)
-            result = strip_ai_report(book, json_path.parent, apply=apply)
+            # Width matters: trivia/export.py build_docx places art 4.5in wide, and
+            # without it the scan only reads the DPI tag.
+            result = strip_ai_report(book, json_path.parent, apply=apply,
+                                     width_in=4.5)
             if apply:
                 _save_book(book, json_path)
             return jsonify({"ok": True, **result})

@@ -20,6 +20,7 @@ from kdp_docx_formatter import BODY_TEXT_STYLE, ensure_body_text_style
 from print_hygiene import (
     PRINT_DPI,
     PrintHygieneError,
+    audit_tree,
     sanitize_for_print,
     strip_control_chars,
 )
@@ -294,3 +295,25 @@ def build_kdp_files(
         "estimated_pages": str(estimated),
         "inside_margin_in": f"{inside:.3f}",
     }
+
+
+def verify_print_images(book: StoryBook, job_dir: Path, *,
+                        image_width_in: float = 4.5) -> list[str]:
+    """Confirm every image in ``job_dir`` is 300 DPI at its placed size.
+
+    ``image_width_in`` must match the width :func:`build_docx` places art at.
+    A DPI tag on its own is only a label -- an image with too few pixels for
+    the printed size passes a tag check and still trips KDP's preflight -- so
+    the audit measures pixels against that width.
+
+    Returns human-readable problems and records them on ``book.warnings`` so a
+    bad asset surfaces in the build log instead of reaching KDP unnoticed.
+    """
+    problems: list[str] = []
+    for path, issues in audit_tree(job_dir, PRINT_DPI, width_in=image_width_in).items():
+        rel = path.relative_to(job_dir) if path.is_relative_to(job_dir) else path
+        problems.append(f"{rel}: {'; '.join(issues)}")
+
+    for message in problems:
+        book.warnings.append(f"Print check — {message}")
+    return problems

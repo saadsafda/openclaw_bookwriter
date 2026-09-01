@@ -156,6 +156,15 @@ def _run_build(job_id: str) -> None:
         job.outputs["docx"] = str(docx_path)
         _log(f"Wrote DOCX manuscript: {docx_path.name}")
 
+        _log("Verifying every image is 300 DPI with no AI metadata")
+        image_problems = exporter.verify_print_images(book, out_dir)
+        if image_problems:
+            for problem in image_problems:
+                _log(f"WARNING: print check — {problem}")
+            job.warnings.extend(f"Print check — {p}" for p in image_problems)
+        else:
+            _log("Print check passed: all images 300 DPI, metadata clean")
+
         _progress("formatting", 0.97)
         try:
             kdp = exporter.build_kdp_files(book, docx_path, out_dir)
@@ -588,7 +597,10 @@ def register(app) -> None:  # noqa: ANN001
         apply = bool(payload.get("apply"))
         try:
             _row, json_path, book = _load_book_for_edit(book_id)
-            result = strip_ai_report(book, json_path.parent, apply=apply)
+            # Width matters: stories/export.py build_docx places art 4.5in wide, and
+            # without it the scan only reads the DPI tag.
+            result = strip_ai_report(book, json_path.parent, apply=apply,
+                                     width_in=4.5)
             if apply:
                 _save_book(book, json_path)
             return jsonify({"ok": True, **result})
@@ -881,6 +893,7 @@ def register(app) -> None:  # noqa: ANN001
             md_path = exporter.write_markdown(book, out_dir / f"{stem}.md")
             fc_path = exporter.write_factcheck(book, out_dir / f"{stem}_factcheck.md")
             docx_path = exporter.build_docx(book, out_dir / f"{stem}.docx")
+            exporter.verify_print_images(book, out_dir)
             pipeline.write_json(book, json_path)
 
             updates: dict[str, Any] = {
