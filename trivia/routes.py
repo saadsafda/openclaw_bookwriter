@@ -583,6 +583,17 @@ def register(app) -> None:  # noqa: ANN001
         except TriviaError as exc:
             return jsonify({"error": str(exc)}), 400
 
+    @app.patch("/api/trivia/books/<book_id>/front-matter/<section>")
+    def trivia_edit_front_matter(book_id: str, section: str):  # noqa: ANN202
+        payload = request.get_json(silent=True) or {}
+        try:
+            _, json_path, book = _load_book_for_edit(book_id)
+            text = editor.apply_front_matter_edit(book, section, payload)
+            _save_book(book, json_path)
+            return jsonify({"ok": True, "section": section, "text": text})
+        except TriviaError as exc:
+            return jsonify({"error": str(exc)}), 400
+
     @app.delete("/api/trivia/books/<book_id>/items/<item_id>")
     def trivia_delete_item(book_id: str, item_id: str):  # noqa: ANN202
         try:

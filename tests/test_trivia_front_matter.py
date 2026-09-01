@@ -158,3 +158,46 @@ def test_both_sections_reach_the_kdp_outline_guard(tmp_path):
     heads = _headings(tmp_path / "src_paperback.docx")
     assert "Introduction" in heads
     assert "Conclusion" in heads
+
+
+# -- editing ---------------------------------------------------------------
+
+def test_front_matter_is_editable_by_hand():
+    """The build writes the prose, but an operator has the last word on it."""
+    from trivia import edit as editor
+
+    book = _book(introduction="Original opening.", conclusion="Original close.")
+
+    assert editor.apply_front_matter_edit(
+        book, "introduction", {"text": "A better opening."}
+    ) == "A better opening."
+    assert book.introduction == "A better opening."
+
+    # A model's restated heading is stripped on the way in, the same as during
+    # generation, so pasting a reply straight from a chat window is safe.
+    editor.apply_front_matter_edit(book, "conclusion", {"text": "## Conclusion\n\nA close."})
+    assert book.conclusion == "A close."
+
+
+def test_clearing_front_matter_restores_the_default_paragraph():
+    """Blanking is the only way to undo a bad generation without a rebuild."""
+    from trivia import edit as editor
+
+    book = _book(introduction="Something wrong.")
+    editor.apply_front_matter_edit(book, "introduction", {"text": "   "})
+    assert book.introduction == ""
+    # The export still has to put *something* before Chapter 1.
+    assert "## Introduction" in ex.to_markdown(book)
+
+
+def test_front_matter_edit_rejects_bad_input():
+    from trivia import edit as editor
+    from trivia.engine import TriviaError
+
+    book = _book()
+    for section, payload in (("chapters", {"text": "x"}), ("introduction", {})):
+        try:
+            editor.apply_front_matter_edit(book, section, payload)
+        except TriviaError:
+            continue
+        raise AssertionError(f"{section}/{payload} should have been rejected")
