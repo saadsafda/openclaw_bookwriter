@@ -57,6 +57,22 @@
         }
         .story-card.thin { border-left: 3px solid #f59e0b; }
         .story-card.rich { border-left: 3px solid #10b981; }
+        /* A chapter is the illustrated Heading 1; its stories are the Heading 2
+           entries nested inside it, so it reads as a container, not a sibling. */
+        .chapter-card {
+            background: linear-gradient(180deg, rgba(244,63,94,.045), rgba(255,255,255,0) 80px);
+            border: 1px solid rgba(244, 63, 94, 0.22);
+        }
+        .chapter-card + .chapter-card { margin-top: 14px; }
+        .chapter-stories:empty::after {
+            content: "No stories in this chapter yet.";
+            display: block;
+            padding: 10px 12px;
+            font-size: 12px;
+            color: #94a3b8;
+            border: 1px dashed rgba(15,23,42,.14);
+            border-radius: 12px;
+        }
         .fade-up { animation: fadeUp .5s ease both; }
         @keyframes fadeUp { from { opacity: 0; transform: translateY(8px);} to {opacity:1; transform:none;} }
         .log-line { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
@@ -224,7 +240,7 @@
                         <input type="checkbox" id="illustrate_every_story"
                                class="rounded bg-white border-slate-300 text-rose-600 focus:ring-rose-500/40">
                         One per story
-                        <span class="text-[11px] text-slate-500">(otherwise per chapter)</span>
+                        <span class="text-[11px] text-slate-500">(otherwise one per chapter)</span>
                     </label>
                     <label class="flex items-center gap-2 text-sm text-slate-700">
                         <input type="checkbox" id="check_duplicates" checked
@@ -269,7 +285,8 @@
 
                 <div class="flex items-center justify-between mb-3">
                     <h3 class="text-sm font-semibold text-slate-900">
-                        Stories <span class="text-slate-500 font-normal">— a title plus whatever context you have</span>
+                        Chapters &amp; stories
+                        <span class="text-slate-500 font-normal">— chapters are the illustrated headings; stories sit under them</span>
                     </h3>
                     <div class="flex gap-2">
                         <button id="btn-clear-stories" class="btn-ghost px-3 py-1.5 rounded-lg text-xs text-slate-500">
@@ -277,6 +294,9 @@
                         </button>
                         <button id="btn-add-story" class="btn-ghost px-3 py-1.5 rounded-lg text-xs">
                             <i class="fas fa-plus mr-1"></i> Add story
+                        </button>
+                        <button id="btn-add-chapter" class="btn-ghost px-3 py-1.5 rounded-lg text-xs">
+                            <i class="fas fa-folder-plus mr-1"></i> Add chapter
                         </button>
                     </div>
                 </div>
@@ -433,35 +453,124 @@ function markContext(div) {
     div.classList.toggle("thin", !hasContext);
 }
 
+/* ---------------- Chapter cards ----------------
+
+   A chapter is the Heading 1 that gets the illustration; the stories inside it
+   are the Heading 2 entries. The editor mirrors that nesting so the operator
+   sees the same structure the exported book will have — a flat list of stories
+   silently collapsed every chapter into one untitled group, which is how the
+   chapter titles used to disappear between upload and export. */
+
+function chapterCard(data = {}) {
+    const div = document.createElement("div");
+    div.className = "chapter-card rounded-2xl p-4";
+    div.innerHTML = `
+        <div class="flex items-center gap-2 mb-3">
+            <span class="badge chapter-num uppercase font-semibold text-rose-700 bg-rose-100 border border-rose-200 px-2 py-0.5 rounded-md shrink-0">CH 1</span>
+            <input class="ch-title field flex-1 rounded-lg px-3 py-2 text-sm font-semibold" placeholder="Chapter title — e.g. Bank Jobs Gone Wrong">
+            <button class="ch-add btn-ghost px-2.5 h-8 rounded-lg text-xs shrink-0" title="Add a story to this chapter">
+                <i class="fas fa-plus mr-1"></i> Story
+            </button>
+            <button class="ch-remove btn-ghost w-8 h-8 rounded-lg text-xs text-slate-400 hover:text-red-600 shrink-0" title="Remove chapter">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+        <textarea class="ch-intro field w-full rounded-lg px-3 py-2 text-sm mb-3" rows="1"
+                  placeholder="Chapter intro (optional) — a line or two opening the chapter"></textarea>
+        <div class="chapter-stories space-y-3 pl-3 border-l-2 border-rose-100"></div>`;
+
+    div.querySelector(".ch-title").value = data.chapter_title || "";
+    div.querySelector(".ch-intro").value = data.chapter_intro || "";
+
+    const holder = div.querySelector(".chapter-stories");
+    (data.stories || []).forEach(st => holder.appendChild(storyRow(st)));
+
+    div.querySelector(".ch-add").addEventListener("click", () => {
+        holder.appendChild(storyRow({}));
+        renumber(); updateTotals();
+    });
+    div.querySelector(".ch-remove").addEventListener("click", () => {
+        const n = holder.children.length;
+        if (n && !confirm(`Remove this chapter and its ${n} stories?`)) return;
+        div.remove(); renumber(); updateTotals();
+    });
+    div.querySelectorAll(".ch-title, .ch-intro").forEach(el =>
+        el.addEventListener("input", updateTotals));
+
+    return div;
+}
+
+/* Number chapters, and number stories continuously across the whole book —
+   the export and the editor must agree on a story's number, and the source
+   outline often restarts at 1 inside every chapter. */
 function renumber() {
-    [...$("stories").children].forEach((el, i) => {
-        el.querySelector(".story-num").textContent = i + 1;
+    let n = 1;
+    [...$("stories").children].forEach((ch, i) => {
+        ch.querySelector(".chapter-num").textContent = "CH " + (i + 1);
+        [...ch.querySelector(".chapter-stories").children].forEach(el => {
+            el.querySelector(".story-num").textContent = n++;
+        });
     });
 }
 
+/* The chapter a new story lands in: the last one, or a fresh untitled chapter
+   for a book the operator is starting from scratch. */
+function lastChapter() {
+    const kids = $("stories").children;
+    if (!kids.length) $("stories").appendChild(chapterCard({}));
+    return $("stories").lastElementChild;
+}
+
 function addStory(data = {}) {
-    $("stories").appendChild(storyRow(data));
+    lastChapter().querySelector(".chapter-stories").appendChild(storyRow(data));
     renumber();
     updateTotals();
 }
 
-function setStories(list) {
+function addChapter(data = {}) {
+    $("stories").appendChild(chapterCard(data));
+    renumber();
+    updateTotals();
+}
+
+function setChapters(list) {
     $("stories").innerHTML = "";
-    (list || []).forEach(s => $("stories").appendChild(storyRow(s)));
+    (list || []).forEach(c => $("stories").appendChild(chapterCard(c)));
     renumber();
     updateTotals();
 }
 
-function readStories() {
-    return [...$("stories").children].map((el, i) => ({
-        number: i + 1,
+/* A flat list of stories is still accepted — an older config, or an outline
+   with no chapter headings — and becomes one untitled chapter. */
+function setStories(list) {
+    setChapters((list || []).length ? [{ chapter_title: "", stories: list }] : []);
+}
+
+function readStory(el, number) {
+    return {
+        number,
         title: el.querySelector(".st-title").value.trim(),
         context: el.querySelector(".st-context").value.trim(),
         who: el.querySelector(".st-who").value.trim(),
         year: el.querySelector(".st-year").value.trim(),
         where: el.querySelector(".st-where").value.trim(),
         sources: el.querySelector(".st-sources").value.trim(),
+    };
+}
+
+function readChapters() {
+    let n = 1;
+    return [...$("stories").children].map((ch, i) => ({
+        chapter_number: i + 1,
+        chapter_title: ch.querySelector(".ch-title").value.trim(),
+        chapter_intro: ch.querySelector(".ch-intro").value.trim(),
+        stories: [...ch.querySelector(".chapter-stories").children]
+            .map(el => readStory(el, n++)),
     }));
+}
+
+function readStories() {
+    return readChapters().flatMap(c => c.stories);
 }
 
 /* ---------------- Config ---------------- */
@@ -486,6 +595,11 @@ function readConfig() {
         check_duplicates: $("check_duplicates").checked,
         agent: $("agent").value.trim() || DEFAULT_STORY_AGENT,
         model: $("model").value.trim(),
+        // `chapters` carries the real structure — the backend prefers it and
+        // builds Heading 1 per chapter, Heading 2 per story, one illustration
+        // per chapter. `stories` stays as the flattened view for the estimate
+        // helpers and for anything still reading the old flat shape.
+        chapters: readChapters(),
         stories: readStories(),
     };
 }
@@ -510,11 +624,13 @@ function applyConfig(cfg) {
     selectValue($("agent"), cfg.agent || DEFAULT_STORY_AGENT);
     selectValue($("model"), cfg.model === undefined ? DEFAULT_STORY_MODEL : cfg.model);
 
-    // A config may carry either shape; flatten chapters into the flat editor.
-    const flat = cfg.stories && cfg.stories.length
-        ? cfg.stories
-        : (cfg.chapters || []).flatMap(c => c.stories || []);
-    setStories(flat);
+    // A config may carry either shape. Chapters win when present so their
+    // titles survive a round-trip; a flat list becomes one untitled chapter.
+    if (cfg.chapters && cfg.chapters.length) {
+        setChapters(cfg.chapters);
+    } else {
+        setStories(cfg.stories || []);
+    }
 }
 
 function updateTotals() {
@@ -524,18 +640,34 @@ function updateTotals() {
         s.context || s.who || s.year || s.where).length;
     const lo = (n * cfg.min_words).toLocaleString();
     const hi = (n * cfg.max_words).toLocaleString();
+    const chapters = cfg.chapters.length;
+    const titled = cfg.chapters.filter(c => c.chapter_title).length;
     $("totals").innerHTML = n
-        ? `${n} stories · ~${lo}-${hi} words<br>
+        ? `${chapters} chapter${chapters === 1 ? "" : "s"} · ${n} stories · ~${lo}-${hi} words<br>
            <span class="${withContext === n ? 'text-emerald-600' : 'text-amber-600'}">
-           ${withContext}/${n} with context</span>`
+           ${withContext}/${n} with context</span>` +
+          // Illustrations are made per chapter, so an untitled chapter has
+          // nothing to illustrate — worth saying before the build starts.
+          (($("illustrations").checked && !$("illustrate_every_story").checked && titled < chapters)
+            ? `<br><span class="text-amber-600">${chapters - titled} chapter(s) untitled — illustrations need a title</span>`
+            : "")
         : "No stories yet";
-    $("outline-summary").textContent = n ? `${n} stories` : "";
+    $("outline-summary").textContent = n
+        ? `${chapters} chapter${chapters === 1 ? "" : "s"} · ${n} stories`
+        : "";
 }
 
 /* ---------------- Outline import ---------------- */
 
 function applyParsedOutline(data) {
-    setStories(data.stories || []);
+    // The parser already groups stories under their chapter headings. Using
+    // `data.stories` here — the flattened convenience list — was what threw the
+    // chapter titles away, leaving the book a single unnamed chapter.
+    if (data.chapters && data.chapters.length) {
+        setChapters(data.chapters);
+    } else {
+        setStories(data.stories || []);
+    }
 
     // Only fill a book title the form does not already have, so re-importing
     // never overwrites a name the operator has typed.
@@ -553,7 +685,7 @@ function applyParsedOutline(data) {
         }
     }
     const thin = (data.stories || []).length - (data.with_context || 0);
-    alert(`Imported ${data.story_count} stories.` +
+    alert(`Imported ${data.chapter_count || 1} chapters and ${data.story_count} stories.` +
           (thin > 0 ? `\n\n${thin} have no context — they will be written from the model's own knowledge and flagged for fact-checking.` : ""));
 }
 
@@ -654,9 +786,10 @@ $("btn-suggest").addEventListener("click", async () => {
 });
 
 $("btn-add-story").addEventListener("click", () => addStory());
+$("btn-add-chapter").addEventListener("click", () => addChapter());
 $("btn-clear-stories").addEventListener("click", () => {
     if (!$("stories").children.length) return;
-    if (confirm("Remove every story from the outline?")) setStories([]);
+    if (confirm("Remove every chapter and story from the outline?")) setChapters([]);
 });
 
 /* ---------------- Build status ---------------- */
@@ -864,6 +997,10 @@ $("import-file").addEventListener("change", async (e) => {
 
 ["min_words", "max_words"].forEach(id =>
     $(id).addEventListener("input", updateTotals));
+// The untitled-chapter warning only applies when illustrations are per
+// chapter, so both toggles have to refresh it.
+["illustrations", "illustrate_every_story"].forEach(id =>
+    $(id).addEventListener("change", updateTotals));
 
 // --- OpenClaw agent + model pickers -----------------------------------
 // Both are per-job: the chosen model rides along in the job payload rather

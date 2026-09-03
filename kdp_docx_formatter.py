@@ -515,13 +515,127 @@ def canonical_title_key(text: str) -> str:
     return _canonical_title_key(text)
 
 
-def load_outline_topics(outline_path: str) -> set[str]:
-    """Return the canonical keys of every non-empty line in the source outline.
+class OutlineTopics(set):
+    """The outline's topic keys, plus the heading level each one was written at.
 
-    Used as the authoritative list of what may become a Heading 2. Outlines are
-    often written with no bullet/heading styles at all (every paragraph is
-    "normal"), so the text itself is the only structural signal we get. Matching
-    against it keeps AI-written body prose from being promoted to a heading.
+    Subclasses ``set`` so every existing caller -- the pipelines build a plain
+    set of titles in memory -- keeps working unchanged; ``levels`` is simply
+    empty for those, and the formatter falls back to its shape heuristics.
+    """
+
+    def __init__(self, keys=(), levels: dict[str, int] | None = None):
+        super().__init__(keys)
+        self.levels: dict[str, int] = dict(levels or {})
+
+    def level_of(self, key: str) -> int:
+        """1 for a chapter, 2 for a subheading, 0 when the outline didn't say."""
+        return self.levels.get(key, 0)
+
+
+def _effective_font_pt(para) -> float:
+    """Largest font size on the paragraph, counting the style it inherits from.
+
+    Outline documents often carry their size on a custom paragraph style (a
+    "p1" chapter style at 18pt) rather than on the runs, which
+    :func:`_largest_font_pt` alone cannot see.
+    """
+    size = _largest_font_pt(para)
+    if size:
+        return size
+    style = para.style
+    seen = 0
+    while style is not None and seen < 10:   # cheap guard against a style cycle
+        if style.font is not None and style.font.size:
+            return style.font.size.pt
+        style = style.base_style
+        seen += 1
+    return 0.0
+
+
+def _effective_bold(para) -> bool:
+    """True when the paragraph reads as bold, from runs or its style."""
+    if _is_all_bold(para):
+        return True
+    style = para.style
+    seen = 0
+    while style is not None and seen < 10:
+        if style.font is not None and style.font.bold:
+            return True
+        style = style.base_style
+        seen += 1
+    return False
+
+
+def _infer_levels_by_format(paras: list) -> dict[str, int]:
+    """Infer chapter/subheading levels from how the outline is formatted.
+
+    Real outlines are frequently written with custom styles that carry no
+    outline level at all ("p1" for chapters, "Normal" for the bullets under
+    them), so the styles are useless as structure but the *formatting* is not:
+    chapters are set larger, or bold against non-bold bullets.
+
+    Only a clear, consistent split counts. When every line looks alike there is
+    no signal here and this returns nothing, leaving the text heuristics to
+    decide rather than inventing a structure the outline never expressed.
+    """
+    entries = []
+    for para in paras:
+        key = _canonical_title_key(para.text)
+        if key:
+            entries.append((key, _effective_font_pt(para), _effective_bold(para)))
+    if len(entries) < 2:
+        return {}
+
+    sizes = {size for _, size, _ in entries if size}
+    # A size split is the strongest signal: biggest tier is the chapters.
+    if len(sizes) >= 2:
+        top = max(sizes)
+        # Every line must have a known size, or "smaller" is not meaningful.
+        if all(size for _, size, _ in entries):
+            levels = {key: (1 if size == top else 2) for key, size, _ in entries}
+            if any(v == 1 for v in levels.values()) and any(v == 2 for v in levels.values()):
+                return levels
+
+    # Otherwise fall back to a bold/non-bold split at a uniform size.
+    bolds = {bold for _, _, bold in entries}
+    if len(bolds) == 2:
+        return {key: (1 if bold else 2) for key, _, bold in entries}
+
+    return {}
+
+
+def _outline_level(para) -> int:
+    """The heading level a source-outline paragraph was written at.
+
+    An outline carries its structure in the paragraph styles: chapters as a
+    heading style, the bullets under them as list or body paragraphs. Returns 0
+    when the style says nothing, which is the common "everything is Normal"
+    outline -- those fall through to the text heuristics as before.
+    """
+    style_name = ((para.style.name if para.style is not None else "") or "").strip().lower()
+
+    if style_name.startswith("heading "):
+        tail = style_name[len("heading "):].strip()
+        if tail.isdigit():
+            # Anything deeper than 2 still prints as a subheading.
+            return 1 if int(tail) == 1 else 2
+    # Word's built-in outline styles for a plain-text outline document.
+    if style_name.startswith("title"):
+        return 1
+    if LIST_BULLET_STYLE_RE.match(style_name) or style_name.startswith("list "):
+        return 2
+    return 0
+
+
+def load_outline_topics(outline_path: str) -> OutlineTopics:
+    """Return the canonical keys of every non-empty line in the source outline,
+    along with the heading level each was written at.
+
+    Used as the authority on what may become a heading and, when the outline
+    styled its own structure, at which level. Outlines are often written with no
+    bullet/heading styles at all (every paragraph is "normal"), so the text
+    itself is frequently the only structural signal we get; those entries get
+    level 0 and the caller's heuristics decide.
 
     Returns an empty set if the outline is missing or unreadable — callers treat
     that as "fall back to the heuristic" rather than an error.
@@ -529,14 +643,27 @@ def load_outline_topics(outline_path: str) -> set[str]:
     try:
         outline_doc = Document(outline_path)
     except Exception:
-        return set()
+        return OutlineTopics()
 
     topics: set[str] = set()
+    levels: dict[str, int] = {}
     for para in outline_doc.paragraphs:
         key = _canonical_title_key(para.text)
-        if key:
-            topics.add(key)
-    return topics
+        if not key:
+            continue
+        topics.add(key)
+        level = _outline_level(para)
+        # A title repeated at two levels keeps the shallower one: a line that is
+        # a chapter anywhere in the outline is a chapter.
+        if level and (key not in levels or level < levels[key]):
+            levels[key] = level
+
+    # Styles said nothing (the usual custom-style or all-Normal outline), so
+    # read the structure off the formatting instead.
+    if not levels:
+        levels = _infer_levels_by_format(outline_doc.paragraphs)
+
+    return OutlineTopics(topics, levels)
 
 
 # Markers identifying front matter this formatter previously inserted. Matched
@@ -700,7 +827,15 @@ def _set_heading_styles_and_collect_bookmarks(
         # short paragraph that happens to be bold or centered matches the format
         # fallback. The only guard was a length test, which short paragraphs pass
         # by definition, so real prose was silently restyled as a chapter title.
-        in_outline = (not outline_topics) or (_canonical_title_key(text) in outline_topics)
+        canonical = _canonical_title_key(text)
+        in_outline = (not outline_topics) or (canonical in outline_topics)
+
+        # The level the outline itself declared, when it styled its structure.
+        # 0 means it didn't say and the pattern/format tests below decide.
+        declared_level = (
+            outline_topics.level_of(canonical)
+            if isinstance(outline_topics, OutlineTopics) else 0
+        )
 
         # ── Heading 1 detection (smart) ─────────────────────────────────
         is_main_heading = in_outline and (
@@ -721,6 +856,17 @@ def _set_heading_styles_and_collect_bookmarks(
         # since generated prose can arrive bold or centered from an earlier pass.
         if not is_main_heading and in_outline and _looks_like_heading_by_format(p, text):
             is_main_heading = True
+
+        # An outline that declared its own levels overrides the guesses above,
+        # in both directions: a chapter titled as a plain phrase ("Finding Your
+        # Voice") matches no chapter pattern and would be demoted to a
+        # subheading, while a bullet that happens to open with a number would be
+        # promoted to a chapter. The outline is the book's own statement of its
+        # structure, so it wins.
+        if declared_level == 1:
+            is_main_heading = True
+        elif declared_level == 2:
+            is_main_heading = False
 
         # Same length guard as Heading 2 below: a pre-applied "Heading 1" on a
         # full paragraph is a styling mistake upstream, not a chapter title.
@@ -766,7 +912,7 @@ def _set_heading_styles_and_collect_bookmarks(
         # purchased") and short quotes all look exactly like an outline topic,
         # and once promoted their body text reads as an empty bullet.
         if outline_topics:
-            is_bare_topic = _canonical_title_key(text) in outline_topics
+            is_bare_topic = canonical in outline_topics
         else:
             is_bare_topic = (
                 2 <= len(text.split()) <= 15
@@ -780,6 +926,8 @@ def _set_heading_styles_and_collect_bookmarks(
             or SECTION_RE.match(text) is not None
             or is_bare_topic
         )
+        if declared_level == 2:
+            is_sub_heading = True
 
         # A heading is a short label, never a paragraph. Body text can reach
         # here already carrying a Heading 2 style — an upstream stage styles
