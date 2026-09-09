@@ -470,16 +470,24 @@ def _estimate_page_count(doc: Document) -> int:
 PAPERBACK_OUTSIDE_MARGIN_IN = 0.375
 
 
+# The inside margin is the outside margin plus binding space. KDP's inside
+# minimums (0.375" up to 150pp, rising to 0.875" past 700pp) only guarantee the
+# text is *printed*; they leave it visibly crowding the spine because a bound
+# paperback curves into the gutter and swallows the last few millimetres. A
+# professional setter adds a real binding allowance on top: the reference bird
+# book was set at 1.14" inside against a 0.375" outside. These tiers match that
+# at the short end and keep widening with page count, since a thicker book has a
+# stiffer spine that hides more of the inside edge.
 def _inside_margin_for_page_count(page_count: int) -> float:
     if page_count <= 150:
-        return 0.375
+        return 1.14
     if page_count <= 300:
-        return 0.5
+        return 1.25
     if page_count <= 500:
-        return 0.625
+        return 1.375
     if page_count <= 700:
-        return 0.75
-    return 0.875
+        return 1.5
+    return 1.625
 
 
 def _normalize_heading_text(text: str) -> str:
@@ -1504,7 +1512,13 @@ def build_kdp_documents(
         title_placeholder=title,
         author_placeholder=author,
     )
-    _resize_inline_images_to_fit(paperback_doc, max_width_inches=4.9)
+    # Derived from the margins _apply_paperback_layout is about to set, not a
+    # fixed width: the inside margin grows with page count, and an image sized
+    # against a stale constant would run past the text column into the gutter.
+    _resize_inline_images_to_fit(
+        paperback_doc,
+        max_width_inches=6.0 - _inside_margin_for_page_count(estimated) - PAPERBACK_OUTSIDE_MARGIN_IN,
+    )
     _keep_heading_with_following_image(paperback_doc)
     _isolate_image_pages(paperback_doc)
     _force_recto_chapter_starts(paperback_doc)

@@ -93,9 +93,11 @@ class TestMirroredMargins:
         _, pb = _build(manuscript, pages)
         doc = Document(str(pb))
         inside = _inside_margin_for_page_count(pages)
+        # Word stores margins in twips, so a target that isn't a whole number of
+        # twips (1.14" = 1641.6) comes back rounded. Compare at that resolution.
         for i, sec in enumerate(doc.sections):
-            assert sec.left_margin.inches == pytest.approx(inside), f"section {i}"
-            assert sec.right_margin.inches == pytest.approx(PAPERBACK_OUTSIDE_MARGIN_IN)
+            assert sec.left_margin.inches == pytest.approx(inside, abs=1 / 1440), f"section {i}"
+            assert sec.right_margin.inches == pytest.approx(PAPERBACK_OUTSIDE_MARGIN_IN, abs=1 / 1440)
 
     @pytest.mark.parametrize("pages,min_inside", KDP_MIN_INSIDE)
     def test_inside_margin_meets_kdp_minimum(self, pages, min_inside):
@@ -132,3 +134,46 @@ class TestMirroredMargins:
         widths = [_inside_margin_for_page_count(n) for n in (100, 200, 400, 600, 800)]
         assert widths == sorted(widths)
         assert widths[0] < widths[-1]
+
+    @pytest.mark.parametrize("pages", [24, 100, 200, 400, 800])
+    def test_inside_margin_carries_a_real_binding_allowance(self, pages):
+        """The inside margin must exceed the outside, or there is no gutter.
+
+        Meeting KDP's inside minimum is not enough: at the short-book tier that
+        minimum equals the outside margin, which mirrors a zero-width gutter and
+        prints text hard against the spine.
+        """
+        inside = _inside_margin_for_page_count(pages)
+        assert inside > PAPERBACK_OUTSIDE_MARGIN_IN
+        assert inside - PAPERBACK_OUTSIDE_MARGIN_IN >= 0.5
+
+
+class TestImagesFitTextColumn:
+    """Images are sized before the margins are applied, so the width they are
+    capped at must track the gutter rather than a hardcoded constant."""
+
+    @pytest.fixture(scope="class")
+    def illustrated(self, tmp_path_factory) -> Path:
+        from PIL import Image
+        out = tmp_path_factory.mktemp("kdp_images")
+        img = out / "plate.png"
+        Image.new("RGB", (2400, 1800), "white").save(img)
+        doc = Document()
+        doc.add_heading("Chapter 1", level=1)
+        for i in range(20):
+            doc.add_paragraph(f"Paragraph {i} of body text before the plate.")
+        doc.add_picture(str(img))
+        doc.add_paragraph("Text after the plate.")
+        path = out / "src.docx"
+        doc.save(str(path))
+        return path
+
+    @pytest.mark.parametrize("pages", [24, 200, 800])
+    def test_no_image_exceeds_the_text_column(self, illustrated, pages):
+        _, pb = _build(illustrated, pages)
+        doc = Document(str(pb))
+        for sec in doc.sections:
+            # Subtracting Length objects yields plain EMUs, not a Length.
+            column = (sec.page_width - sec.left_margin - sec.right_margin) / 914400
+            for shape in doc.inline_shapes:
+                assert shape.width.inches <= column + 1 / 1440
