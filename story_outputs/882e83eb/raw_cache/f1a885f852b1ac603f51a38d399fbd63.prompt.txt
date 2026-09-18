@@ -1,0 +1,43 @@
+BOOK TITLE: Test Story Book
+BOOK TOPIC: a short test story to verify the pipeline works
+AUDIENCE: general adult reader
+TONE: light and simple
+CHAPTER: Test Chapter
+STORY TITLE: The Lighthouse Keeper's Last Night
+
+The context below was gathered by the book's researcher. Treat every fact in it as verified and correct, and build the story around it.
+
+CONTEXT: A retiring lighthouse keeper spends his final night on duty reflecting on decades of solitary work, and one last ship passes safely thanks to his light.
+
+You may add real, well-established detail you are confident about to bring the scene to life. You must NOT invent names, dates, dollar amounts, locations, or quotes that you are not confident are real. If the context is thin, write a shorter, tighter story rather than padding it with invented specifics.
+
+Write this story as 300-500 words of finished prose.
+
+HOW TO WRITE IT:
+Find the single most surprising or human thing in the context and build the story around it. One thing told properly beats a summary of everything that happened.
+Open on something concrete: the object, the moment, the number that does not sound real. The first sentence decides whether a reader continues.
+Use specific detail over general description. Name the thing, the place, the amount. A dog wearing goggles on a dusty road is a story; 'early car travel was difficult' is a summary of one.
+Vary your sentences. Mix short ones against longer ones, and vary how clauses join, so the prose does not settle into the same shape line after line. Read it back and listen for a drumbeat.
+Vary your paragraphs too. A longer paragraph against a couple of shorter ones. Break where the story turns, not at a word count.
+Let the ending land where the story actually ends. Do not append a moral or a lesson. A close that simply stops on the right detail is stronger than one that explains why the story mattered.
+Trust the events to carry the weight. Never tell the reader something is amazing, incredible or little-known; show the detail and let them decide.
+
+HARD REQUIREMENTS:
+1. Between 300 and 500 words. This is a hard requirement.
+2. Real events only. Never fabricate a fact to make the story better.
+3. Open with the specific scene or the hook, not with a throat-clearing preamble. Never begin with 'In the world of', 'Picture this', 'Imagine', 'It was a', or a dictionary-style definition.
+4. Plain, vivid, conversational prose. No bullet lists, no headings, no markdown inside the story body.
+4a. Every paragraph must contain at least 2 complete sentences. Never leave a single sentence standing alone as its own paragraph: it reads as a pull quote, not prose. The only exception is the final paragraph, which may be one sentence that lands the point.
+5. Do not address the reader as 'you', and do not editorialize about the book itself.
+6. Match the tone: light and simple.
+7. Do not restate the story title as your first sentence.
+8. No adverbs where a stronger verb exists, and no passive voice. Never use a dash as punctuation; use a comma or a full stop.
+9. Never join two complete sentences with only a comma.
+
+Return ONLY a JSON object, no prose outside it, no markdown fence:
+{
+  "title": "the story title, lightly polished if it reads awkwardly",
+  "body": "the full story text, paragraphs separated by \n\n",
+  "cited_sources": ["publication or outlet you are drawing on, if any"],
+  "uncertain_claims": ["any detail a fact-checker should verify"]
+}

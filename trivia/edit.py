@@ -141,6 +141,25 @@ def apply_chapter_edit(book: TriviaBook, chapter_number: int, payload: dict[str,
     return ch
 
 
+FRONT_MATTER_FIELDS = ("introduction", "conclusion")
+
+
+def apply_front_matter_edit(book: TriviaBook, section: str, payload: dict[str, Any]) -> str:
+    """Hand-edit the Introduction or Conclusion prose.
+
+    Blank is allowed and meaningful: it clears the authored text so the export
+    falls back to its generic paragraph, which is the only way to undo a bad
+    generation without rebuilding the book.
+    """
+    if section not in FRONT_MATTER_FIELDS:
+        raise TriviaError(f"'{section}' is not front matter.")
+    if "text" not in payload:
+        raise TriviaError("No text supplied.")
+    text = engine.clean_prose_reply(str(payload["text"] or ""))
+    setattr(book, section, text)
+    return text
+
+
 def delete_item(book: TriviaBook, item_id: str) -> bool:
     """Remove a question or fact. Chapter counts drift from the config after
     this, which the export check reports — deliberate, since the operator is
@@ -305,7 +324,7 @@ def ai_edit_question(
     reply = engine.call_openclaw_raw(
         cfg.agent, prompt,
         local=cfg.local, thinking=cfg.thinking, timeout_s=cfg.timeout_s,
-        cache=cache, ledger=ledger,
+        cache=cache, ledger=ledger, model=cfg.model,
     )
     data = _extract_json_object(reply)
 
@@ -354,7 +373,7 @@ def ai_edit_fact(
     reply = engine.call_openclaw_raw(
         cfg.agent, prompt,
         local=cfg.local, thinking=cfg.thinking, timeout_s=cfg.timeout_s,
-        cache=cache, ledger=ledger,
+        cache=cache, ledger=ledger, model=cfg.model,
     )
     data = _extract_json_object(reply)
 

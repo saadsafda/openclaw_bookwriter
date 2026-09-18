@@ -30,7 +30,16 @@ from typing import Any, Callable, Iterable, Optional
 from openclaw_docx_writer import parse_openclaw_reply
 
 DEFAULT_TIMEOUT = 600
-DEFAULT_AGENT = "main"
+# Each generator runs on its own agent so concurrent builds do not share a
+# session store or a workspace: three books can build at once without their
+# conversations, logs or caches interleaving. Operators can still override
+# this per book from the "OpenClaw agent" field in the UI.
+DEFAULT_AGENT = "trivia-agent-1"
+
+# Trivia is a recall-and-phrasing job rather than a reasoning one, and Sonnet
+# holds the question format more consistently than the agent's own default.
+# Empty string keeps whatever the agent is configured with.
+DEFAULT_MODEL = "anthropic/claude-sonnet-5"
 
 # Batch sizes: the spec calls for 10-15 per request because asking for 50 at
 # once measurably degrades question quality (models start recycling stems).
@@ -157,12 +166,15 @@ class BookConfig:
 
     # Runtime knobs (not part of the operator-facing spec schema).
     agent: str = DEFAULT_AGENT
+    model: str = DEFAULT_MODEL
     thinking: str = ""
     local: bool = False
     timeout_s: int = DEFAULT_TIMEOUT
     use_judge: bool = True
     image_model: str = "gpt-image-1"
-    image_size: str = "1024x1024"
+    # Portrait: the page is 6x9, and 1024x1536 is the tallest gpt-image-1
+    # offers. More real pixels before the print upscale has to make any up.
+    image_size: str = "1024x1536"
     image_quality: str = "high"
     illustration_style_hint: str = ""
     openai_api_key: str = ""
@@ -214,12 +226,15 @@ class BookConfig:
             editing_pass=_flag("editing_pass", False),
             chapters=chapters,
             agent=str(d.get("agent") or DEFAULT_AGENT).strip() or DEFAULT_AGENT,
+            # Unlike agent, a blank model is meaningful: it hands the choice
+            # back to the agent, so an explicit "" must survive.
+            model=str(d.get("model", DEFAULT_MODEL)).strip(),
             thinking=str(d.get("thinking") or "").strip(),
             local=_flag("local", False),
             timeout_s=int(d.get("timeout_s") or DEFAULT_TIMEOUT),
             use_judge=_flag("use_judge", True),
             image_model=str(d.get("image_model") or "gpt-image-1").strip(),
-            image_size=str(d.get("image_size") or "1024x1024").strip(),
+            image_size=str(d.get("image_size") or "1024x1536").strip(),
             image_quality=str(d.get("image_quality") or "high").strip(),
             illustration_style_hint=str(d.get("illustration_style_hint") or "").strip(),
             openai_api_key=str(d.get("openai_api_key") or "").strip(),
@@ -296,6 +311,9 @@ class Chapter:
 class TriviaBook:
     config: BookConfig
     chapters: list[Chapter] = field(default_factory=list)
+    # Authored front and back matter (Introduction / Conclusion prose).
+    introduction: str = ""
+    conclusion: str = ""
     warnings: list[str] = field(default_factory=list)
     # Token/cost totals for this build (Section 12).
     usage: dict[str, Any] = field(default_factory=dict)
@@ -326,6 +344,8 @@ class TriviaBook:
             "difficulty": self.config.difficulty,
             "answer_key_position": self.config.answer_key_position,
             "config": self.config.to_dict(),
+            "introduction": self.introduction,
+            "conclusion": self.conclusion,
             "chapters": [c.to_dict() for c in self.chapters],
             "answer_key": self.answer_key(),
             "warnings": list(self.warnings),
@@ -456,10 +476,14 @@ class RawOutputCache:
         self.path.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
-    def key_for(agent_id: str, message: str) -> str:
+    def key_for(agent_id: str, message: str, model: str = "") -> str:
         import hashlib
         h = hashlib.sha256()
         h.update(agent_id.encode("utf-8"))
+        h.update(b"\x00")
+        # The model is part of the identity of a reply: without it, switching
+        # models would replay the previous model's answers from cache.
+        h.update(model.encode("utf-8"))
         h.update(b"\x00")
         h.update(message.encode("utf-8"))
         return h.hexdigest()[:32]
@@ -511,6 +535,7 @@ def call_openclaw_raw(
     cache: Optional["RawOutputCache"] = None,
     ledger: Optional["UsageLedger"] = None,
     session_id: str = "",
+    model: str = "",
     log: Optional[Callable[[str], None]] = None,
 ) -> str:
     """One openclaw agent call, same shape as email_agent._call_openclaw.
@@ -531,7 +556,7 @@ def call_openclaw_raw(
     )
 
     say = log or (lambda _m: None)
-    key = RawOutputCache.key_for(agent_id, message) if cache is not None else ""
+    key = RawOutputCache.key_for(agent_id, message, model) if cache is not None else ""
     if cache is not None:
         hit = cache.get(key)
         if hit is not None:
@@ -547,6 +572,8 @@ def call_openclaw_raw(
                 return replay
 
     cmd = ["openclaw", "agent", "--agent", agent_id, "--message", message, "--json"]
+    if model:
+        cmd += ["--model", model]
     if local:
         cmd.append("--local")
     if thinking:
@@ -717,6 +744,133 @@ def build_facts_prompt(
         "\nReturn ONLY a JSON array, no prose, no markdown fence. Each element:\n"
         '{"fact": "...", "fact_seed": "short_snake_case_slug_of_the_core_fact"}\n'
     )
+
+
+FRONT_MATTER_MIN_WORDS = 300
+FRONT_MATTER_MAX_WORDS = 500
+
+
+def _chapter_roster(chapters: list[ChapterConfig]) -> str:
+    return "\n".join(
+        f"- Chapter {c.chapter_number}: {c.chapter_title}"
+        + (f" — {c.chapter_scope}" if c.chapter_scope else "")
+        for c in chapters
+    )
+
+
+def _front_matter_rules(cfg: BookConfig) -> str:
+    """Shared rules for the two pieces of authored prose in the book.
+
+    The trivia and facts prompts demand JSON; these two want flowing prose, so
+    they have to say so explicitly or the agent answers in the book's house
+    format out of habit.
+    """
+    return (
+        f"\nHARD REQUIREMENTS:\n"
+        f"1. Between {FRONT_MATTER_MIN_WORDS} and {FRONT_MATTER_MAX_WORDS} "
+        f"words. This is the one place in the book that runs long, so do not "
+        f"stop at a paragraph.\n"
+        "2. Flowing prose in three to five paragraphs. No headings, no bullet "
+        "lists, no numbered lists, no questions with lettered choices.\n"
+        "3. Speak to the reader as an author writing a real book. Never "
+        "mention AI, generation, prompts, models, or that this is a "
+        "collection assembled from anything.\n"
+        f"4. Stay concrete about {cfg.topic}. Name real specifics from the "
+        "subject rather than writing generic filler that would fit any book.\n"
+        "5. Do not repeat any trivia question or state any answer.\n"
+        "\nReturn ONLY the prose itself. No title, no heading, no preamble, "
+        "no markdown fence, no commentary about the task.\n"
+    )
+
+
+def build_introduction_prompt(cfg: BookConfig, chapters: list[ChapterConfig]) -> str:
+    """The Introduction a reader meets before Chapter 1."""
+    key_note = (
+        "Answers are collected in the answer key at the back of the book."
+        if cfg.answer_key_position == ANSWER_KEY_END_OF_BOOK
+        else "Answers wait at the end of each chapter."
+    )
+    return (
+        f"BOOK TITLE: {cfg.book_title}\n"
+        f"BOOK TOPIC: {cfg.topic}\n"
+        f"AUDIENCE: {cfg.audience}\n"
+        f"DIFFICULTY: {cfg.difficulty}\n"
+        f"CHAPTERS:\n{_chapter_roster(chapters)}\n"
+        f"\nWrite the Introduction for this trivia book.\n"
+        "\nCover, in your own order and phrasing: why this subject rewards a "
+        "curious reader, what makes the questions here worth sitting with, how "
+        "the book is arranged, and how someone should use it — alone, or "
+        "reading aloud with other people. "
+        f"{key_note}\n"
+        "\nOpen with something specific and surprising about the subject, not "
+        "with a definition and not with the book's own title. Earn the "
+        "reader's attention in the first sentence.\n"
+        f"{_front_matter_rules(cfg)}"
+    )
+
+
+def build_conclusion_prompt(cfg: BookConfig, chapters: list[ChapterConfig]) -> str:
+    """The closing note after the last chapter."""
+    return (
+        f"BOOK TITLE: {cfg.book_title}\n"
+        f"BOOK TOPIC: {cfg.topic}\n"
+        f"AUDIENCE: {cfg.audience}\n"
+        f"CHAPTERS:\n{_chapter_roster(chapters)}\n"
+        f"\nWrite the Conclusion for this trivia book. The reader has just "
+        "finished every chapter.\n"
+        "\nSend them off well: reflect on what the whole subject looks like "
+        "once these pieces sit together, point to where a curious reader can "
+        "keep going on their own, and close warmly without gushing.\n"
+        "\nDo not summarize the chapters one by one, and do not congratulate "
+        "the reader on finishing. Write the last page of a book someone chose "
+        "to read, not a wrap-up of a task they completed.\n"
+        f"{_front_matter_rules(cfg)}"
+    )
+
+
+def clean_prose_reply(text: str) -> str:
+    """Strip the wrappers a model adds around prose it was told not to wrap.
+
+    Fences and a restated "Introduction" heading are the two that survive the
+    instruction most often, and both would print verbatim in the DOCX.
+    """
+    s = (text or "").strip()
+
+    if s.startswith("```"):
+        s = re.sub(r"^```[a-zA-Z]*\s*", "", s)
+        s = re.sub(r"\s*```$", "", s).strip()
+
+    s = re.sub(
+        r"^#{1,6}\s*(introduction|conclusion)\s*:?\s*\n+",
+        "",
+        s,
+        flags=re.IGNORECASE,
+    )
+    s = re.sub(
+        r"^\*{0,2}(introduction|conclusion)\*{0,2}\s*:?\s*\n+",
+        "",
+        s,
+        flags=re.IGNORECASE,
+    )
+    return s.strip()
+
+
+def split_paragraphs(text: str) -> list[str]:
+    """Blank-line paragraphs, falling back to single newlines.
+
+    Models return prose both ways, and a book page needs the breaks either way.
+    """
+    s = clean_prose_reply(text)
+    if not s:
+        return []
+    parts = [p.strip() for p in re.split(r"\n\s*\n", s) if p.strip()]
+    if len(parts) == 1:
+        parts = [p.strip() for p in parts[0].split("\n") if p.strip()]
+    return parts
+
+
+def word_count(text: str) -> int:
+    return len(re.findall(r"\b[\w'-]+\b", text or ""))
 
 
 def build_judge_prompt(pairs: list[tuple[str, str]]) -> str:
@@ -950,6 +1104,7 @@ class DedupChecker:
                     cache=self.cache,
                     ledger=self.ledger,
                     session_id=self.session_id,
+                    model=self.cfg.model,
                     log=self.log,
                 )
                 parsed = _extract_json_array(reply)

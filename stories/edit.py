@@ -277,6 +277,7 @@ def ai_edit_story(
         cache=cache,
         ledger=ledger,
         session_id=f"stories-edit-{uuid.uuid4().hex[:8]}",
+        model=cfg.model,
     )
     raw = engine._extract_json_object(reply)
 
@@ -341,6 +342,7 @@ def regenerate_story(
         cache=cache,
         ledger=ledger,
         session_id=f"stories-regen-{uuid.uuid4().hex[:8]}",
+        model=cfg.model,
     )
     raw = engine._extract_json_object(reply)
     fresh = engine.parse_story_reply(raw, st_cfg, chapter.number)
@@ -409,6 +411,7 @@ def add_story(
         cache=cache,
         ledger=ledger,
         session_id=f"stories-add-{uuid.uuid4().hex[:8]}",
+        model=cfg.model,
     )
     raw = engine._extract_json_object(reply)
     story = engine.parse_story_reply(raw, st_cfg, chapter.number)

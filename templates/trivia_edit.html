@@ -50,6 +50,11 @@
             outline: 2px solid rgba(16,185,129,.5); border-radius: 4px;
             background: #fff; outline-offset: 2px;
         }
+        .editable-prose { border-radius: 6px; padding: 4px; transition: background .12s ease; }
+        .editable-prose:hover { background: rgba(16,185,129,.05); }
+        .editable-prose:focus {
+            outline: 2px solid rgba(16,185,129,.5); background: #fff; outline-offset: 2px;
+        }
         .badge { font-size: 10.5px; letter-spacing: .04em; }
         .toast {
             position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
@@ -287,6 +292,9 @@ const $ = (id) => document.getElementById(id);
 
 let BOOK = null;
 let activeChapter = null;
+// Front matter is a peer of the chapters in the outline: when this is set the
+// preview shows prose instead of the active chapter.
+let activeSection = null;   // "introduction" | "conclusion" | null
 let selected = null;   // { kind: "question"|"fact", id }
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c =>
@@ -347,17 +355,36 @@ function renderUsage(u) {
         `${(u.total_tokens||0).toLocaleString()} tokens`;
 }
 
+function sectionRow(section, label) {
+    const words = countWords(BOOK[section]);
+    const state = words ? `${words} words` : "not generated";
+    return `
+        <div class="outline-item px-4 py-2.5 border-l-[3px] border-transparent ${activeSection === section ? "active" : ""}"
+             data-section="${section}">
+            <div class="text-sm truncate">${label}</div>
+            <div class="text-[11px] text-slate-500">${state}</div>
+        </div>`;
+}
+
 function renderOutline() {
     const wrap = $("outline");
-    wrap.innerHTML = BOOK.chapters.map(ch => `
-        <div class="outline-item px-4 py-2.5 border-l-[3px] border-transparent ${ch.chapter_number === activeChapter ? "active" : ""}"
+    wrap.innerHTML =
+        sectionRow("introduction", "Introduction") +
+        BOOK.chapters.map(ch => `
+        <div class="outline-item px-4 py-2.5 border-l-[3px] border-transparent ${activeSection === null && ch.chapter_number === activeChapter ? "active" : ""}"
              data-ch="${ch.chapter_number}">
             <div class="text-sm truncate">${esc(ch.chapter_title)}</div>
             <div class="text-[11px] text-slate-500">${ch.trivia.length} Q · ${ch.facts.length} facts</div>
-        </div>`).join("");
+        </div>`).join("") +
+        sectionRow("conclusion", "Conclusion");
     wrap.querySelectorAll(".outline-item").forEach(el =>
         el.addEventListener("click", () => {
-            activeChapter = parseInt(el.dataset.ch, 10);
+            if (el.dataset.section) {
+                activeSection = el.dataset.section;
+            } else {
+                activeSection = null;
+                activeChapter = parseInt(el.dataset.ch, 10);
+            }
             selected = null;
             renderOutline(); renderPreview(); renderSelection();
         }));
@@ -374,10 +401,12 @@ function countWords(text) {
     return m ? m.length : 0;
 }
 
-// Every piece of prose that ends up in the printed book: chapter titles, the
-// questions with all four choices, and the "Did You Know" facts.
+// Every piece of prose that ends up in the printed book: the Introduction and
+// Conclusion, chapter titles, the questions with all four choices, and the
+// "Did You Know" facts.
 function totalWords() {
-    return BOOK.chapters.reduce((sum, ch) => {
+    return countWords(BOOK.introduction) + countWords(BOOK.conclusion) +
+        BOOK.chapters.reduce((sum, ch) => {
         let n = countWords(ch.chapter_title);
         ch.trivia.forEach(q => {
             n += countWords(q.question);
@@ -392,7 +421,61 @@ function currentChapter() {
     return BOOK.chapters.find(c => c.chapter_number === activeChapter);
 }
 
+// The Introduction and Conclusion are single blocks of prose, so they get a
+// paragraph editor rather than the question/fact machinery.
+function renderFrontMatter(section) {
+    const label = section === "introduction" ? "Introduction" : "Conclusion";
+    const text = String(BOOK[section] || "");
+    const where = section === "introduction"
+        ? "Printed after the title page, before Chapter 1."
+        : "Printed last, after the final chapter and the answer key.";
+
+    $("chapter-head").innerHTML = `
+        <div class="flex items-center justify-between gap-3">
+            <div class="field rounded-lg px-3 py-2 text-sm font-semibold flex-1">${label}</div>
+        </div>
+        <p class="text-xs text-slate-500 mt-2 px-1">${where}</p>`;
+
+    const body = text
+        ? esc(text).split(/\n\s*\n/).map(para =>
+            `<p class="mb-4 text-[15px] leading-relaxed text-slate-800">${para.replace(/\n/g, "<br>")}</p>`
+          ).join("")
+        : `<p class="text-sm text-slate-400 italic">No ${label.toLowerCase()} was generated.
+             The export will fall back to a generic paragraph. Write one here.</p>`;
+
+    $("preview").innerHTML = `
+        <h2 class="text-center text-xl font-semibold text-slate-900 mb-8">${label}</h2>
+        <div id="fm-body" class="editable-prose focus:outline-none"
+             contenteditable="true" data-section="${section}">${body}</div>
+        <p class="text-[11px] text-slate-400 mt-6">Click to edit · changes save when you click away.</p>`;
+
+    const el = $("fm-body");
+    el.addEventListener("blur", () => saveFrontMatter(section, el.innerText));
+    el.addEventListener("keydown", e => {
+        if (e.key === "Escape") { renderPreview(); }
+    });
+}
+
+async function saveFrontMatter(section, raw) {
+    const text = String(raw || "").replace(/\n{3,}/g, "\n\n").trim();
+    if (text === String(BOOK[section] || "").trim()) return;
+    try {
+        const r = await api(`/api/trivia/books/${BOOK_ID}/front-matter/${section}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text }),
+        });
+        BOOK[section] = r.text;
+        toast(`${section === "introduction" ? "Introduction" : "Conclusion"} saved`);
+        renderOutline();
+    } catch (e) {
+        toast(e.message, "err");
+        renderPreview();
+    }
+}
+
 function renderPreview() {
+    if (activeSection) { renderFrontMatter(activeSection); return; }
     const ch = currentChapter();
     if (!ch) { $("preview").innerHTML = ""; return; }
 

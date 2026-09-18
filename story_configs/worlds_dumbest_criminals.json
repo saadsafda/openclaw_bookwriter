@@ -15,7 +15,8 @@
   "illustrations": false,
   "illustrate_every_story": false,
   "check_duplicates": true,
-  "agent": "main",
+  "agent": "stories-agent-1",
+  "model": "anthropic/claude-opus-4-6",
   "stories": [
     {
       "number": 1,

@@ -31,7 +31,11 @@ from typing import Any, Optional
 from openclaw_docx_writer import parse_openclaw_reply
 
 DEFAULT_TIMEOUT = 600
-DEFAULT_AGENT = "main"
+# Each generator runs on its own agent so concurrent builds do not share a
+# session store or a workspace: three books can build at once without their
+# conversations, logs or caches interleaving. Operators can still override
+# this per book from the "OpenClaw agent" field in the UI.
+DEFAULT_AGENT = "puzzle-agent-1"
 
 # --------------------------------------------------------------------------
 # Spec constants (Puzzle_Book_Automation_Spec.docx)
@@ -76,9 +80,80 @@ class ValidationGateError(PuzzleError):
     """A hard constraint (word counts, grid fit) rejected the book."""
 
 
+class ProviderRejectionError(PuzzleError):
+    """The upstream provider refused the request itself.
+
+    Distinct from a content failure: retrying the identical prompt immediately
+    cannot fix it, so callers back off rather than burning their whole refill
+    budget on instant re-failures. Also never cached — see RawOutputCache.set.
+
+    Mirrors trivia/engine.py, which hit exactly this failure first.
+    """
+
+
+# OpenClaw exits 0 for these: the CLI ran fine, the *provider* refused, and the
+# refusal arrives as ordinary reply text. Matched on the message because there
+# is no distinguishing status field to key on.
+_PROVIDER_REJECTION_MARKERS = (
+    "llm request failed",
+    "provider rejected the request",
+    "schema or tool payload",
+    "request too large",
+    "context length exceeded",
+    "prompt is too long",
+)
+
+# These arrive the other way round: openclaw exits *non-zero* and the cause is
+# only in stderr. The provider never ran the prompt, so they are rejections
+# rather than content failures — and being unauthenticated or rate-limited
+# persists, which is exactly what the outage breaker in pipeline._ask exists
+# to short-circuit. Without this a build re-sent every prompt at full retry
+# cost against a provider that could not answer any of them.
+_PROVIDER_STDERR_MARKERS = (
+    "oauth token refresh failed",
+    "token refresh failed",
+    "transcript compaction failed",
+    "gatewayclientrequesterror",
+    "401",
+    "429",
+    "rate limit",
+    "quota",
+    "503",
+    "502",
+    "upstream connect error",
+)
+
+
+def is_provider_stderr_failure(stderr: str) -> bool:
+    """True when a non-zero openclaw exit was caused upstream, not by us.
+
+    Deliberately narrow: a bad agent name or malformed flag must stay a plain
+    PuzzleError so it surfaces immediately instead of being absorbed as a
+    transient outage.
+    """
+    s = (stderr or "").lower()
+    return any(marker in s for marker in _PROVIDER_STDERR_MARKERS)
+
+
+def is_provider_rejection(reply: str) -> bool:
+    """True when a reply is an upstream refusal rather than model output.
+
+    Only meaningful for short replies — a legitimate riddle or clue batch could
+    quote one of these phrases, but never in a one-line reply.
+    """
+    s = (reply or "").strip().lower()
+    if not s or len(s) > 600:
+        return False
+    return any(marker in s for marker in _PROVIDER_REJECTION_MARKERS)
+
+
 # --------------------------------------------------------------------------
 # Config
 # --------------------------------------------------------------------------
+
+# The topic is embedded in every prompt by _book_context(), so it is capped
+# well below any model limit — see BookConfig.from_dict.
+MAX_TOPIC_CHARS = 200
 
 SECTION_PICTURE = "picture_puzzles"
 SECTION_MAZES = "mazes"
@@ -203,6 +278,17 @@ class BookConfig:
             raise PuzzleError("book_title is required.")
         if not topic:
             raise PuzzleError("topic is required.")
+        # A topic is pasted into every single prompt by _book_context(), so an
+        # oversized one inflates each call until the provider rejects the
+        # payload outright and the whole build's model budget is skipped.
+        if len(topic) > MAX_TOPIC_CHARS:
+            raise PuzzleError(
+                f"topic is {len(topic)} characters, over the {MAX_TOPIC_CHARS} "
+                "limit. It is included in every prompt, so a long list of "
+                "keywords makes the provider reject the request. Give a short "
+                "phrase describing the book instead, and put the keyword list "
+                "in each section's subjects box."
+            )
 
         raw_sections = d.get("sections") or {}
         if not isinstance(raw_sections, dict):
@@ -595,11 +681,49 @@ class RawOutputCache:
         return None
 
     def set(self, key: str, stdout: str, prompt: str = "") -> None:
+        """Store a reply, but only one worth replaying.
+
+        A provider rejection is a well-formed JSON envelope carrying an error
+        sentence as its payload text, so an emptiness check alone lets it
+        through. Caching one is permanent: the next run keys off the identical
+        prompt, hits this entry, and re-raises the failure without ever calling
+        the provider — so the build can never recover on its own, and reports
+        cache hits at zero cost while producing nothing.
+        """
         if not (stdout or "").strip():
+            return
+        if is_provider_rejection(parse_openclaw_reply(stdout)):
             return
         (self.path / f"{key}.json").write_text(stdout, encoding="utf-8")
         if prompt:
             (self.path / f"{key}.prompt.txt").write_text(prompt, encoding="utf-8")
+
+    def evict(self, key: str) -> None:
+        """Drop an entry that turned out to be unusable.
+
+        Covers caches written before set() screened rejections, so an existing
+        poisoned cache heals on the next run instead of needing a manual rm.
+        """
+        (self.path / f"{key}.json").unlink(missing_ok=True)
+        (self.path / f"{key}.prompt.txt").unlink(missing_ok=True)
+
+
+def _first_cause(stderr: str) -> str:
+    """The one line of stderr worth showing an operator.
+
+    openclaw prefixes every failure with routine state-migration warnings and
+    ANSI colour codes; echoing the lot (or the prompt that triggered it) made
+    the build log unreadable and hid the single line that names the cause.
+    """
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", stderr or "")
+    lines = [ln.strip() for ln in plain.splitlines() if ln.strip()]
+    for ln in lines:
+        low = ln.lower()
+        if low.startswith("- ") or "state migration" in low or "left " == low[:5]:
+            continue
+        if any(m in low for m in _PROVIDER_STDERR_MARKERS):
+            return ln[:200]
+    return (lines[-1][:200] if lines else "no error detail")
 
 
 def call_openclaw_raw(
@@ -611,17 +735,35 @@ def call_openclaw_raw(
     timeout_s: int = DEFAULT_TIMEOUT,
     cache: Optional[RawOutputCache] = None,
     ledger: Optional[UsageLedger] = None,
+    session_id: str = "",
 ) -> str:
-    """One openclaw agent call, same shape as trivia/engine.call_openclaw_raw."""
+    """One openclaw agent call, same shape as trivia/engine.call_openclaw_raw.
+
+    ``session_id`` isolates the build's calls in their own conversation. Every
+    prompt is self-contained, so sharing the agent's long-lived default session
+    only accumulates history: a book makes dozens of calls, and each one then
+    carries every earlier reply along with it. Left unbounded that grew to
+    hundreds of messages and the provider began rejecting the payload outright
+    — the request never reached the model and no tokens were billed.
+    """
     key = RawOutputCache.key_for(agent_id, message) if cache is not None else ""
     if cache is not None:
         hit = cache.get(key)
         if hit is not None:
-            if ledger is not None:
-                ledger.note_cache_hit()
-            return parse_openclaw_reply(hit)
+            replay = parse_openclaw_reply(hit)
+            # A cache written before set() screened rejections would otherwise
+            # replay the failure forever at zero cost. Drop it and fall through
+            # to a real call so the build can heal itself.
+            if is_provider_rejection(replay):
+                cache.evict(key)
+            else:
+                if ledger is not None:
+                    ledger.note_cache_hit()
+                return replay
 
     cmd = ["openclaw", "agent", "--agent", agent_id, "--message", message, "--json"]
+    if session_id:
+        cmd += ["--session-id", session_id]
     if local:
         cmd.append("--local")
     if thinking:
@@ -630,6 +772,14 @@ def call_openclaw_raw(
         cmd += ["--timeout", str(timeout_s)]
     p = subprocess.run(cmd, capture_output=True, text=True)
     if p.returncode != 0:
+        # An upstream cause (expired auth, rate limit, gateway error) is not
+        # something this prompt can fix, so raise the type the retry/outage
+        # logic understands. The full prompt is left out: it is identical on
+        # every retry and buried the actual cause under a wall of text.
+        if is_provider_stderr_failure(p.stderr):
+            raise ProviderRejectionError(
+                f"provider unavailable: {_first_cause(p.stderr)}"
+            )
         raise PuzzleError(
             "OpenClaw call failed.\n"
             f"Command: {' '.join(cmd[:6])} ...\n\n"
@@ -640,7 +790,36 @@ def call_openclaw_raw(
         ledger.record(p.stdout)
     if cache is not None:
         cache.set(key, p.stdout, prompt=message)
-    return parse_openclaw_reply(p.stdout)
+
+    reply = parse_openclaw_reply(p.stdout)
+    # Surfaced as its own type so refill loops can back off instead of
+    # re-sending an identical prompt that the provider just refused.
+    if is_provider_rejection(reply):
+        _dump_rejection(message, p.stdout, reply)
+        raise ProviderRejectionError(reply.strip())
+    return reply
+
+
+def _dump_rejection(message: str, stdout: str, reply: str) -> None:
+    """Persist the raw envelope behind a refusal.
+
+    The reply text alone ("provider rejected the request schema or tool
+    payload") names no cause, so without the surrounding JSON there is nothing
+    to diagnose from after a failed build.
+    """
+    try:
+        import time
+        d = Path("puzzle_outputs") / "_rejections"
+        d.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        (d / f"{stamp}-{abs(hash(message)) % 10**8}.txt").write_text(
+            f"=== REPLY ===\n{reply}\n\n"
+            f"=== PROMPT ({len(message)} chars) ===\n{message}\n\n"
+            f"=== RAW STDOUT ===\n{stdout[:20000]}\n",
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
 
 
 def extract_json_array(text: str) -> list[Any]:
@@ -898,6 +1077,46 @@ def build_crossword_prompt(cfg: BookConfig, title: str) -> str:
     )
 
 
+# Longest a derived subject may be. A subject becomes a puzzle title and is
+# pasted into later prompts, so an overlong one breaks both.
+MAX_SUBJECT_CHARS = 60
+
+
+def topic_keywords(topic: str) -> list[str]:
+    """Split a topic into usable per-puzzle subjects.
+
+    Operators routinely paste a long comma-separated keyword list into the
+    topic field. Each entry is exactly the kind of short noun phrase the
+    subject slot wants, so mine them before resorting to a numbered label.
+    """
+    pieces: list[str] = []
+    seen: set[str] = set()
+    for chunk in re.split(r"[,;\n|/]+", topic or ""):
+        piece = re.sub(r"\s+", " ", chunk).strip(" .-–—")
+        # One or two stray words make a poor puzzle subject; so does an essay.
+        if not piece or len(piece) > MAX_SUBJECT_CHARS or len(piece) < 3:
+            continue
+        key = piece.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        pieces.append(piece)
+    return pieces
+
+
+def short_topic(topic: str) -> str:
+    """A topic trimmed to something usable as a title fragment."""
+    s = re.sub(r"\s+", " ", topic or "").strip()
+    if not s:
+        return "Puzzle"
+    first = topic_keywords(s)
+    if first:
+        return first[0]
+    if len(s) > MAX_SUBJECT_CHARS:
+        s = s[:MAX_SUBJECT_CHARS].rsplit(" ", 1)[0].strip(" .,-") or s[:MAX_SUBJECT_CHARS]
+    return s
+
+
 def build_section_subject_prompt(cfg: BookConfig, kind: str, count: int) -> str:
     """Invent per-puzzle subjects when the operator supplied none.
 
@@ -934,6 +1153,10 @@ def parse_string_list(raw: list[Any], count: int) -> list[str]:
                     item = item[key]
                     break
         text = _as_text(item)
+        # A subject becomes a puzzle title and is pasted into later prompts,
+        # so a model that answers with a sentence must not poison both.
+        if len(text) > MAX_SUBJECT_CHARS:
+            continue
         if text and text not in out:
             out.append(text)
     return out[:count]

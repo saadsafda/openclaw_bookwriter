@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from docx import Document
+from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -18,6 +19,26 @@ CHAPTER_LABEL_RE = re.compile(r"^CHAPTER\s+\d+$", re.IGNORECASE)
 FRONT_BACK_RE = re.compile(r"^(Introduction|Conclusion|Epilogue|Foreword|Preface|Prologue)\b", re.IGNORECASE)
 SUBHEADING_RE = re.compile(r"^(\d+\.\s+.+|[\-•*–—]\s+.+|Focus:\s+.+)$", re.IGNORECASE)
 LIST_BULLET_STYLE_RE = re.compile(r"^List Bullet(?: \d+)?$", re.IGNORECASE)
+
+# Body text by declaration, never promoted to a heading whatever its shape.
+# The rules below are shape heuristics for prose; structured content (a numbered
+# question, a lettered choice) trips every one of them.
+BODY_TEXT_STYLE = "OpenclawBodyText"
+
+
+def _is_forced_body(paragraph: Paragraph) -> bool:
+    return (paragraph.style.name or "").strip() == BODY_TEXT_STYLE
+
+
+def ensure_body_text_style(doc: Document):
+    """Create/return the opt-out style, based on Normal so it inherits sizing."""
+    try:
+        return doc.styles[BODY_TEXT_STYLE]
+    except KeyError:
+        style = doc.styles.add_style(BODY_TEXT_STYLE, WD_STYLE_TYPE.PARAGRAPH)
+        style.base_style = doc.styles["Normal"]
+        style.quick_style = False
+        return style
 
 # ── Smart heading identification patterns ──────────────────────────────────
 _NUMBER_WORDS = (
@@ -224,6 +245,36 @@ def _set_page_number_start(section, start: int) -> None:
     pg_num_type.set(qn("w:start"), str(start))
 
 
+def _enable_mirror_margins(doc: Document) -> None:
+    """Turn on mirrored (inside/outside) margins for the whole document.
+
+    With this set, Word reads each section's w:left/w:right as inside/outside,
+    so the gutter follows the spine instead of sitting on the left of every page.
+    """
+    settings = doc.settings.element
+    mirror = settings.find(qn("w:mirrorMargins"))
+    if mirror is None:
+        mirror = OxmlElement("w:mirrorMargins")
+        settings.append(mirror)
+    # Canonical form for an OOXML on/off toggle: a bare element means "on".
+    # Explicitly clear any w:val="0"/"false" left by a previous run.
+    if mirror.get(qn("w:val")) is not None:
+        del mirror.attrib[qn("w:val")]
+
+
+def _set_section_gutter(section, gutter_in: float = 0.0) -> None:
+    """Set ``w:gutter`` — extra binding space added on top of the inside margin.
+
+    Kept at 0 by default: the inside margin already carries the full KDP
+    gutter, and a non-zero value here would be added on top of it.
+    """
+    sect_pr = section._sectPr
+    pg_mar = sect_pr.find(qn("w:pgMar"))
+    if pg_mar is None:
+        return
+    pg_mar.set(qn("w:gutter"), str(int(round(gutter_in * 1440))))
+
+
 def _add_section_break(paragraph: Paragraph, break_type: str = "nextPage") -> None:
     """Add a section break to a paragraph. break_type: 'nextPage' or 'oddPage'."""
     p_pr = paragraph._p.get_or_add_pPr()
@@ -380,27 +431,63 @@ def _set_footer_page_number(footer, alignment: WD_ALIGN_PARAGRAPH) -> None:
     _insert_page_number_field(fp)
 
 
+# A 6x9 page with 0.5" top/bottom margins at ~11pt/1.15 holds roughly this many
+# text lines, and a 6x9 text column fits roughly this many characters per line.
+_LINES_PER_PAGE = 32
+_CHARS_PER_LINE = 62
+
+
 def _estimate_page_count(doc: Document) -> int:
-    words = 0
+    """Estimate the printed page count, used only to pick the gutter width.
+
+    Counted in *lines*, not words. A words-per-page ratio assumes dense
+    justified prose, so it badly undercounts structured books: a trivia answer
+    choice or a crossword clue is a handful of words but still occupies a whole
+    line. Undercounting picks a gutter one tier too narrow, which is what pushes
+    text toward the spine — so this deliberately rounds a short line up to the
+    full line it actually occupies.
+    """
+    lines = 0
     for p in doc.paragraphs:
-        t = (p.text or "").strip()
-        if t:
-            words += len(t.split())
+        text = (p.text or "").strip()
+        if not text:
+            continue
+        lines += _estimated_wrapped_lines(text, _CHARS_PER_LINE)
+        style_name = (p.style.name or "").lower()
+        if style_name.startswith("heading"):
+            # Headings are set larger and carry space around them.
+            lines += 2
+
     image_count = len(doc.inline_shapes)
-    estimated = round(words / 280) + int(round(image_count * 0.35))
+    estimated = round(lines / _LINES_PER_PAGE) + int(round(image_count * 0.35))
     return max(24, estimated)
 
 
+# KDP's minimum outside/top/bottom margin is 0.25". Printing tolerance means a
+# page trimmed at the edge of that can lose visible text, so the outside margin
+# carries a small buffer over the minimum — this is the single biggest visual
+# difference between a default-margin book and a professionally set one.
+PAPERBACK_OUTSIDE_MARGIN_IN = 0.375
+
+
+# The inside margin is the outside margin plus binding space. KDP's inside
+# minimums (0.375" up to 150pp, rising to 0.875" past 700pp) only guarantee the
+# text is *printed*; they leave it visibly crowding the spine because a bound
+# paperback curves into the gutter and swallows the last few millimetres. A
+# professional setter adds a real binding allowance on top: the reference bird
+# book was set at 1.14" inside against a 0.375" outside. These tiers match that
+# at the short end and keep widening with page count, since a thicker book has a
+# stiffer spine that hides more of the inside edge.
 def _inside_margin_for_page_count(page_count: int) -> float:
     if page_count <= 150:
-        return 0.375
+        return 1.14
     if page_count <= 300:
-        return 0.5
+        return 1.25
     if page_count <= 500:
-        return 0.625
+        return 1.375
     if page_count <= 700:
-        return 0.75
-    return 0.875
+        return 1.5
+    return 1.625
 
 
 def _normalize_heading_text(text: str) -> str:
@@ -427,13 +514,136 @@ def _canonical_title_key(text: str) -> str:
     return cleaned.upper()
 
 
-def load_outline_topics(outline_path: str) -> set[str]:
-    """Return the canonical keys of every non-empty line in the source outline.
+def canonical_title_key(text: str) -> str:
+    """Public alias: canonicalise a title the way outline matching does.
 
-    Used as the authoritative list of what may become a Heading 2. Outlines are
-    often written with no bullet/heading styles at all (every paragraph is
-    "normal"), so the text itself is the only structural signal we get. Matching
-    against it keeps AI-written body prose from being promoted to a heading.
+    Callers that build ``outline_topics`` in memory rather than from an outline
+    file need the same normalisation the matcher applies.
+    """
+    return _canonical_title_key(text)
+
+
+class OutlineTopics(set):
+    """The outline's topic keys, plus the heading level each one was written at.
+
+    Subclasses ``set`` so every existing caller -- the pipelines build a plain
+    set of titles in memory -- keeps working unchanged; ``levels`` is simply
+    empty for those, and the formatter falls back to its shape heuristics.
+    """
+
+    def __init__(self, keys=(), levels: dict[str, int] | None = None):
+        super().__init__(keys)
+        self.levels: dict[str, int] = dict(levels or {})
+
+    def level_of(self, key: str) -> int:
+        """1 for a chapter, 2 for a subheading, 0 when the outline didn't say."""
+        return self.levels.get(key, 0)
+
+
+def _effective_font_pt(para) -> float:
+    """Largest font size on the paragraph, counting the style it inherits from.
+
+    Outline documents often carry their size on a custom paragraph style (a
+    "p1" chapter style at 18pt) rather than on the runs, which
+    :func:`_largest_font_pt` alone cannot see.
+    """
+    size = _largest_font_pt(para)
+    if size:
+        return size
+    style = para.style
+    seen = 0
+    while style is not None and seen < 10:   # cheap guard against a style cycle
+        if style.font is not None and style.font.size:
+            return style.font.size.pt
+        style = style.base_style
+        seen += 1
+    return 0.0
+
+
+def _effective_bold(para) -> bool:
+    """True when the paragraph reads as bold, from runs or its style."""
+    if _is_all_bold(para):
+        return True
+    style = para.style
+    seen = 0
+    while style is not None and seen < 10:
+        if style.font is not None and style.font.bold:
+            return True
+        style = style.base_style
+        seen += 1
+    return False
+
+
+def _infer_levels_by_format(paras: list) -> dict[str, int]:
+    """Infer chapter/subheading levels from how the outline is formatted.
+
+    Real outlines are frequently written with custom styles that carry no
+    outline level at all ("p1" for chapters, "Normal" for the bullets under
+    them), so the styles are useless as structure but the *formatting* is not:
+    chapters are set larger, or bold against non-bold bullets.
+
+    Only a clear, consistent split counts. When every line looks alike there is
+    no signal here and this returns nothing, leaving the text heuristics to
+    decide rather than inventing a structure the outline never expressed.
+    """
+    entries = []
+    for para in paras:
+        key = _canonical_title_key(para.text)
+        if key:
+            entries.append((key, _effective_font_pt(para), _effective_bold(para)))
+    if len(entries) < 2:
+        return {}
+
+    sizes = {size for _, size, _ in entries if size}
+    # A size split is the strongest signal: biggest tier is the chapters.
+    if len(sizes) >= 2:
+        top = max(sizes)
+        # Every line must have a known size, or "smaller" is not meaningful.
+        if all(size for _, size, _ in entries):
+            levels = {key: (1 if size == top else 2) for key, size, _ in entries}
+            if any(v == 1 for v in levels.values()) and any(v == 2 for v in levels.values()):
+                return levels
+
+    # Otherwise fall back to a bold/non-bold split at a uniform size.
+    bolds = {bold for _, _, bold in entries}
+    if len(bolds) == 2:
+        return {key: (1 if bold else 2) for key, _, bold in entries}
+
+    return {}
+
+
+def _outline_level(para) -> int:
+    """The heading level a source-outline paragraph was written at.
+
+    An outline carries its structure in the paragraph styles: chapters as a
+    heading style, the bullets under them as list or body paragraphs. Returns 0
+    when the style says nothing, which is the common "everything is Normal"
+    outline -- those fall through to the text heuristics as before.
+    """
+    style_name = ((para.style.name if para.style is not None else "") or "").strip().lower()
+
+    if style_name.startswith("heading "):
+        tail = style_name[len("heading "):].strip()
+        if tail.isdigit():
+            # Anything deeper than 2 still prints as a subheading.
+            return 1 if int(tail) == 1 else 2
+    # Word's built-in outline styles for a plain-text outline document.
+    if style_name.startswith("title"):
+        return 1
+    if LIST_BULLET_STYLE_RE.match(style_name) or style_name.startswith("list "):
+        return 2
+    return 0
+
+
+def load_outline_topics(outline_path: str) -> OutlineTopics:
+    """Return the canonical keys of every non-empty line in the source outline,
+    along with the heading level each was written at.
+
+    Used as the authority on what may become a heading and, when the outline
+    styled its own structure, at which level. Outlines are often written with no
+    bullet/heading styles at all (every paragraph is "normal"), so the text
+    itself is frequently the only structural signal we get; those entries get
+    level 0 and the caller's heuristics decide.
 
     Returns an empty set if the outline is missing or unreadable — callers treat
     that as "fall back to the heuristic" rather than an error.
@@ -441,14 +651,27 @@ def load_outline_topics(outline_path: str) -> set[str]:
     try:
         outline_doc = Document(outline_path)
     except Exception:
-        return set()
+        return OutlineTopics()
 
     topics: set[str] = set()
+    levels: dict[str, int] = {}
     for para in outline_doc.paragraphs:
         key = _canonical_title_key(para.text)
-        if key:
-            topics.add(key)
-    return topics
+        if not key:
+            continue
+        topics.add(key)
+        level = _outline_level(para)
+        # A title repeated at two levels keeps the shallower one: a line that is
+        # a chapter anywhere in the outline is a chapter.
+        if level and (key not in levels or level < levels[key]):
+            levels[key] = level
+
+    # Styles said nothing (the usual custom-style or all-Normal outline), so
+    # read the structure off the formatting instead.
+    if not levels:
+        levels = _infer_levels_by_format(outline_doc.paragraphs)
+
+    return OutlineTopics(topics, levels)
 
 
 # Markers identifying front matter this formatter previously inserted. Matched
@@ -589,6 +812,12 @@ def _set_heading_styles_and_collect_bookmarks(
         if not text:
             continue
 
+        # Declared body text wins over every heuristic below.
+        if _is_forced_body(p):
+            pending_chapter_label = False
+            pending_chapter_label_text = ""
+            continue
+
         style_name = (p.style.name or "").strip().lower()
 
         # ── pending "CHAPTER X" label line ──────────────────────────────
@@ -606,7 +835,15 @@ def _set_heading_styles_and_collect_bookmarks(
         # short paragraph that happens to be bold or centered matches the format
         # fallback. The only guard was a length test, which short paragraphs pass
         # by definition, so real prose was silently restyled as a chapter title.
-        in_outline = (not outline_topics) or (_canonical_title_key(text) in outline_topics)
+        canonical = _canonical_title_key(text)
+        in_outline = (not outline_topics) or (canonical in outline_topics)
+
+        # The level the outline itself declared, when it styled its structure.
+        # 0 means it didn't say and the pattern/format tests below decide.
+        declared_level = (
+            outline_topics.level_of(canonical)
+            if isinstance(outline_topics, OutlineTopics) else 0
+        )
 
         # ── Heading 1 detection (smart) ─────────────────────────────────
         is_main_heading = in_outline and (
@@ -627,6 +864,17 @@ def _set_heading_styles_and_collect_bookmarks(
         # since generated prose can arrive bold or centered from an earlier pass.
         if not is_main_heading and in_outline and _looks_like_heading_by_format(p, text):
             is_main_heading = True
+
+        # An outline that declared its own levels overrides the guesses above,
+        # in both directions: a chapter titled as a plain phrase ("Finding Your
+        # Voice") matches no chapter pattern and would be demoted to a
+        # subheading, while a bullet that happens to open with a number would be
+        # promoted to a chapter. The outline is the book's own statement of its
+        # structure, so it wins.
+        if declared_level == 1:
+            is_main_heading = True
+        elif declared_level == 2:
+            is_main_heading = False
 
         # Same length guard as Heading 2 below: a pre-applied "Heading 1" on a
         # full paragraph is a styling mistake upstream, not a chapter title.
@@ -672,7 +920,7 @@ def _set_heading_styles_and_collect_bookmarks(
         # purchased") and short quotes all look exactly like an outline topic,
         # and once promoted their body text reads as an empty bullet.
         if outline_topics:
-            is_bare_topic = _canonical_title_key(text) in outline_topics
+            is_bare_topic = canonical in outline_topics
         else:
             is_bare_topic = (
                 2 <= len(text.split()) <= 15
@@ -686,6 +934,8 @@ def _set_heading_styles_and_collect_bookmarks(
             or SECTION_RE.match(text) is not None
             or is_bare_topic
         )
+        if declared_level == 2:
+            is_sub_heading = True
 
         # A heading is a short label, never a paragraph. Body text can reach
         # here already carrying a Heading 2 style — an upstream stage styles
@@ -753,6 +1003,15 @@ def _apply_base_text_styles(doc: Document, body_start_idx: int, font_name: str, 
                 p.alignment = WD_ALIGN_PARAGRAPH.LEFT
                 for r in p.runs:
                     _ensure_run_font(r, font_name, 12)
+            continue
+
+        # Declared body text keeps the layout and emphasis its generator chose.
+        if _is_forced_body(p):
+            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            p.paragraph_format.first_line_indent = Inches(0)
+            p.paragraph_format.line_spacing = 1.15
+            for r in p.runs:
+                _ensure_run_font(r, font_name, body_size_pt)
             continue
 
         p.alignment = WD_ALIGN_PARAGRAPH.LEFT if kindle_mode else WD_ALIGN_PARAGRAPH.JUSTIFY
@@ -1108,8 +1367,9 @@ def _find_first_body_section_idx(doc: Document) -> int:
 
 def _apply_paperback_layout(doc: Document, estimated_pages: int, book_title: str, author_name: str) -> float:
     inside_margin = _inside_margin_for_page_count(estimated_pages)
-    outside_margin = 0.25
+    outside_margin = PAPERBACK_OUTSIDE_MARGIN_IN
     doc.settings.odd_and_even_pages_header_footer = True
+    _enable_mirror_margins(doc)
     first_numbered_idx = _find_first_body_section_idx(doc)
 
     for idx, sec in enumerate(doc.sections):
@@ -1117,8 +1377,11 @@ def _apply_paperback_layout(doc: Document, estimated_pages: int, book_title: str
         sec.page_height = Inches(9)
         sec.top_margin = Inches(0.5)
         sec.bottom_margin = Inches(0.5)
+        # Under mirrorMargins these are inside/outside, not left/right.
         sec.left_margin = Inches(inside_margin)
         sec.right_margin = Inches(outside_margin)
+        # The inside margin already includes the binding allowance.
+        _set_section_gutter(sec, 0.0)
         if idx == 0:
             _set_section_vertical_alignment_center(sec)
         else:
@@ -1249,7 +1512,13 @@ def build_kdp_documents(
         title_placeholder=title,
         author_placeholder=author,
     )
-    _resize_inline_images_to_fit(paperback_doc, max_width_inches=4.9)
+    # Derived from the margins _apply_paperback_layout is about to set, not a
+    # fixed width: the inside margin grows with page count, and an image sized
+    # against a stale constant would run past the text column into the gutter.
+    _resize_inline_images_to_fit(
+        paperback_doc,
+        max_width_inches=6.0 - _inside_margin_for_page_count(estimated) - PAPERBACK_OUTSIDE_MARGIN_IN,
+    )
     _keep_heading_with_following_image(paperback_doc)
     _isolate_image_pages(paperback_doc)
     _force_recto_chapter_starts(paperback_doc)

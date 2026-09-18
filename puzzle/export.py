@@ -24,8 +24,15 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt
 
-from print_hygiene import audit_tree, sanitize_for_print
+from kdp_docx_formatter import BODY_TEXT_STYLE, ensure_body_text_style
+from print_hygiene import (
+    PrintHygieneError,
+    audit_tree,
+    sanitize_for_print,
+    strip_control_chars,
+)
 
+from .layout import FULL_IMAGE_W_IN
 from .engine import (
     PAGE_H_IN,
     PAGE_W_IN,
@@ -178,11 +185,27 @@ def _add_image(doc: Document, image_path: str, width_in: float = IMAGE_WIDTH_IN)
     # Last line of defence before an image is embedded: guarantee 300 DPI and
     # no AI/EXIF metadata even if the file arrived from outside the renderer
     # (hand-drawn art, a re-run, an edited replacement).
-    sanitize_for_print(image_path, PRINT_DPI)
+    try:
+        sanitize_for_print(image_path, PRINT_DPI, width_in=width_in)
+    except PrintHygieneError:
+        return False
     para = doc.add_paragraph()
     para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     para.add_run().add_picture(image_path, width=Inches(width_in))
     return True
+
+
+def _body_paragraph(doc: Document, text: str = ""):
+    """A paragraph the KDP formatter must treat as body text, not a heading.
+
+    Puzzle content collides with the formatter's heading heuristics the same way
+    trivia does: a numbered riddle or clue ("1. ...") reads as a subheading, a
+    short answer choice or word list reads as an outline topic, and a choice
+    lettered C or D reads as a roman-numeral chapter title.
+    """
+    para = doc.add_paragraph(text)
+    para.style = doc.styles[BODY_TEXT_STYLE]
+    return para
 
 
 def _section_heading(doc: Document, text: str) -> None:
@@ -191,8 +214,10 @@ def _section_heading(doc: Document, text: str) -> None:
 
 
 def build_docx(book: PuzzleBook, path: Path) -> Path:
+    strip_control_chars(book)
     cfg = book.config
     doc = Document()
+    ensure_body_text_style(doc)
 
     # Title page.
     title_para = doc.add_paragraph()
@@ -201,11 +226,11 @@ def build_docx(book: PuzzleBook, path: Path) -> Path:
     run.bold = True
     run.font.size = Pt(28)
 
-    sub = doc.add_paragraph()
+    # Short and unpunctuated, so the formatter would read it as a heading.
+    sub = _body_paragraph(doc)
     sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
     sub_run = sub.add_run(f"A puzzle and activity book about {cfg.topic}")
     sub_run.italic = True
-    sub_run.font.size = Pt(13)
 
     doc.add_page_break()
     doc.add_heading("How to Use This Book", level=1)
@@ -219,7 +244,7 @@ def build_docx(book: PuzzleBook, path: Path) -> Path:
     # -- Section 1: picture puzzles (briefs only) -------------------------
     if book.picture_briefs and cfg.picture_briefs_only:
         _section_heading(doc, f"{_section_title('picture_puzzles')} — Illustrator Briefs")
-        note = doc.add_paragraph()
+        note = _body_paragraph(doc)
         note.add_run(
             "This section is drawn by hand. Each brief below becomes a "
             "left/right page pair of near-identical images, plus a solution "
@@ -228,10 +253,11 @@ def build_docx(book: PuzzleBook, path: Path) -> Path:
         ).italic = True
         for brief in book.picture_briefs:
             doc.add_heading(f"{brief.number}. {brief.scene_title}", level=2)
-            doc.add_paragraph(brief.scene_description)
-            doc.add_paragraph("Differences to hide:")
-            for idea in brief.difference_ideas:
-                doc.add_paragraph(idea, style="List Number")
+            _body_paragraph(doc, brief.scene_description)
+            _body_paragraph(doc, "Differences to hide:")
+            for i, idea in enumerate(brief.difference_ideas, start=1):
+                para = _body_paragraph(doc, f"{i}. {idea}")
+                para.paragraph_format.left_indent = Inches(0.25)
 
     # -- Section 2: mazes -------------------------------------------------
     if book.mazes:
@@ -245,7 +271,7 @@ def build_docx(book: PuzzleBook, path: Path) -> Path:
     if book.riddles:
         _section_heading(doc, _section_title("riddles"))
         for riddle in book.riddles:
-            para = doc.add_paragraph()
+            para = _body_paragraph(doc)
             para.paragraph_format.space_after = Pt(10)
             para.add_run(f"{riddle.number}. ").bold = True
             para.add_run(riddle.riddle.replace("\n", "  "))
@@ -257,7 +283,7 @@ def build_docx(book: PuzzleBook, path: Path) -> Path:
             doc.add_heading(f"{ws.number}. {ws.title}", level=2)
             if not _add_image(doc, ws.image_path):
                 # Fall back to a text word list when the render is missing.
-                doc.add_paragraph(", ".join(ws.words))
+                _body_paragraph(doc, ", ".join(ws.words))
             doc.add_page_break()
 
     # -- Section 5: cryptograms -------------------------------------------
@@ -269,32 +295,36 @@ def build_docx(book: PuzzleBook, path: Path) -> Path:
         )
         for gram in book.cryptograms:
             doc.add_heading(f"Cryptogram {gram.number}", level=2)
-            code = doc.add_paragraph()
+            code = _body_paragraph(doc)
             code_run = code.add_run(gram.encoded)
             code_run.font.name = "Courier New"
             code_run.font.size = Pt(14)
             code_run.bold = True
             if gram.hint:
-                hint = doc.add_paragraph()
+                hint = _body_paragraph(doc)
                 hint.add_run(f"Hint: {gram.hint}").italic = True
 
     # -- Section 6: trivia ------------------------------------------------
     if book.trivia_chapters:
         _section_heading(doc, _section_title("trivia"))
         for chapter in book.trivia_chapters:
-            doc.add_heading(f"Chapter {chapter.number} — {chapter.title}", level=2)
+            # "Chapter N — Title" is matched as a chapter opener and promoted to H1.
+            doc.add_heading(f"{chapter.title} (Chapter {chapter.number})", level=2)
             for q in chapter.questions:
-                q_para = doc.add_paragraph()
+                q_para = _body_paragraph(doc)
                 q_para.paragraph_format.space_after = Pt(4)
-                q_para.add_run(f"{q.number}. {q.question}").bold = True
+                q_para.paragraph_format.keep_with_next = True
+                q_para.add_run(f"{q.number}. ").bold = True
+                q_para.add_run(q.question)
                 for letter in LETTERS:
                     if letter not in q.choices:
                         continue
-                    c_para = doc.add_paragraph()
+                    c_para = _body_paragraph(doc)
                     c_para.paragraph_format.left_indent = Inches(0.3)
                     c_para.paragraph_format.space_after = Pt(0)
+                    c_para.paragraph_format.keep_with_next = letter != LETTERS[-1]
                     c_para.add_run(f"{letter}. {q.choices[letter]}")
-                doc.add_paragraph().paragraph_format.space_after = Pt(6)
+                _body_paragraph(doc).paragraph_format.space_after = Pt(6)
 
     # -- Section 7: crosswords --------------------------------------------
     if book.crosswords:
@@ -306,9 +336,9 @@ def build_docx(book: PuzzleBook, path: Path) -> Path:
                     group = [e for e in cw.entries if e.direction == label]
                     if not group:
                         continue
-                    doc.add_paragraph(label.upper())
+                    _body_paragraph(doc, label.upper())
                     for e in sorted(group, key=lambda x: x.number):
-                        doc.add_paragraph(f"{e.number}. {e.clue}")
+                        _body_paragraph(doc, f"{e.number}. {e.clue}")
             doc.add_page_break()
 
     # -- Section 8: consolidated answer key -------------------------------
@@ -339,7 +369,7 @@ def _build_answer_key(doc: Document, book: PuzzleBook) -> None:
     if book.riddles:
         doc.add_heading("Riddles", level=2)
         for riddle in book.riddles:
-            para = doc.add_paragraph()
+            para = _body_paragraph(doc)
             para.paragraph_format.space_after = Pt(2)
             para.add_run(f"{riddle.number}. ").bold = True
             para.add_run(riddle.answer)
@@ -349,12 +379,12 @@ def _build_answer_key(doc: Document, book: PuzzleBook) -> None:
         for ws in book.word_searches:
             doc.add_heading(f"{ws.number}. {ws.title}", level=3)
             if not _add_image(doc, ws.solution_path, width_in=3.4):
-                doc.add_paragraph(", ".join(ws.words))
+                _body_paragraph(doc, ", ".join(ws.words))
 
     if book.cryptograms:
         doc.add_heading("Cryptograms", level=2)
         for gram in book.cryptograms:
-            para = doc.add_paragraph()
+            para = _body_paragraph(doc)
             para.paragraph_format.space_after = Pt(2)
             para.add_run(f"{gram.number}. ").bold = True
             para.add_run(gram.phrase)
@@ -362,9 +392,9 @@ def _build_answer_key(doc: Document, book: PuzzleBook) -> None:
     if book.trivia_chapters:
         doc.add_heading("Trivia", level=2)
         for chapter in book.trivia_chapters:
-            doc.add_heading(f"Chapter {chapter.number} — {chapter.title}", level=3)
+            doc.add_heading(f"{chapter.title} (Chapter {chapter.number})", level=3)
             for q in chapter.questions:
-                para = doc.add_paragraph()
+                para = _body_paragraph(doc)
                 para.paragraph_format.space_after = Pt(2)
                 para.add_run(f"{q.number}. ").bold = True
                 para.add_run(f"{q.correct_answer} — {q.correct_text()}")
@@ -375,22 +405,29 @@ def _build_answer_key(doc: Document, book: PuzzleBook) -> None:
             doc.add_heading(f"{cw.number}. {cw.title}", level=3)
             if not _add_image(doc, cw.solution_path, width_in=3.4):
                 for e in sorted(cw.entries, key=lambda x: x.number):
-                    doc.add_paragraph(f"{e.number} {e.direction}. {e.word}")
+                    _body_paragraph(doc, f"{e.number} {e.direction}. {e.word}")
 
 
 # --------------------------------------------------------------------------
 # Print-readiness verification
 # --------------------------------------------------------------------------
 
-def verify_print_images(book: PuzzleBook, job_dir: Path) -> list[str]:
+def verify_print_images(book: PuzzleBook, job_dir: Path, *,
+                        image_width_in: float = FULL_IMAGE_W_IN) -> list[str]:
     """Confirm every rendered image in ``job_dir`` is 300 DPI and metadata-free.
+
+    ``image_width_in`` is the widest size the layout places art at, since that
+    is the binding constraint: a plate with enough pixels for a full-page
+    placement also clears the smaller answer-key slots. Without a width the
+    audit reads only the DPI tag, which an under-sized image passes happily --
+    KDP measures pixels against the printed size, not the label.
 
     Returns a list of human-readable problems and appends them to
     ``book.warnings``, so a bad asset shows up in the build log rather than
     reaching KDP unnoticed. An empty list means the whole tree is clean.
     """
     problems: list[str] = []
-    for path, issues in audit_tree(job_dir, PRINT_DPI).items():
+    for path, issues in audit_tree(job_dir, PRINT_DPI, width_in=image_width_in).items():
         rel = path.relative_to(job_dir) if path.is_relative_to(job_dir) else path
         problems.append(f"{rel}: {'; '.join(issues)}")
 
@@ -413,9 +450,19 @@ def build_kdp_files(
     """Run the existing KDP formatter over the puzzle manuscript for 6x9 print."""
     from kdp_docx_formatter import build_kdp_documents
 
+    from kdp_docx_formatter import canonical_title_key
+
     stem = source_docx.stem
     kindle_out = out_dir / f"{stem}_kindle.docx"
     paperback_out = out_dir / f"{stem}_paperback.docx"
+
+    # The headings already in the file are the authoritative outline.
+    outline_topics = {
+        canonical_title_key(p.text)
+        for p in Document(str(source_docx)).paragraphs
+        if (p.style.name or "").lower().startswith("heading") and p.text.strip()
+    }
+    outline_topics.discard("")
 
     kindle_path, paperback_path, estimated, inside = build_kdp_documents(
         source_docx=source_docx,
@@ -424,7 +471,7 @@ def build_kdp_files(
         estimated_pages=0,
         title_placeholder=book.config.book_title,
         author_placeholder=author_placeholder,
-        outline_topics=set(),
+        outline_topics=outline_topics,
     )
     return {
         "kindle": str(kindle_path),
@@ -463,8 +510,14 @@ def build_handoff_zip(book: PuzzleBook, job_dir: Path, zip_path: Path) -> Path:
             p = Path(path_str)
             if path_str and p.exists():
                 # The formatter's copy must carry the same guarantees as the
-                # manuscript's: exactly 300 DPI, no AI metadata.
-                sanitize_for_print(p, PRINT_DPI)
+                # manuscript's: exactly 300 DPI at the size it will be placed,
+                # no AI metadata. Without the width this only writes the tag,
+                # and the formatter would lay out under-resolution art.
+                try:
+                    sanitize_for_print(p, PRINT_DPI, width_in=FULL_IMAGE_W_IN)
+                except PrintHygieneError as exc:
+                    book.warnings.append(f"Handoff ZIP omitted {p.name} — {exc}")
+                    return
                 zf.write(p, arcname)
 
         for maze in book.mazes:
@@ -559,3 +612,35 @@ def _illustrator_brief_doc(book: PuzzleBook) -> str:
         lines += [f"{i}. {d}" for i, d in enumerate(brief.difference_ideas, start=1)]
         lines.append("")
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------
+# Print-ready interior (reference trade format)
+# --------------------------------------------------------------------------
+
+def build_interior_docx(
+    book: PuzzleBook,
+    path: Path,
+    *,
+    author: str = "Author Name",
+    isbn: str = "",
+    publisher: str = "",
+    support_email: str = "",
+) -> Path:
+    """Write the 6x9 interior in the reference book's trade format.
+
+    Unlike :func:`build_docx`, which produces a plain manuscript for the KDP
+    formatter, this file already carries its own trim size, mirrored margins,
+    section dividers, page numbers and Table of Contents — so it is handed to
+    the printer as-is and must not be passed to ``build_kdp_files()``.
+    """
+    from .layout import build_formatted_docx
+
+    return build_formatted_docx(
+        book,
+        path,
+        author=author,
+        isbn=isbn,
+        publisher=publisher,
+        support_email=support_email,
+    )

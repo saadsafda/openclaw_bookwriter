@@ -31,6 +31,7 @@ separate concern and lives in ``openclaw_docx_writer.humanize_text``.
 from __future__ import annotations
 
 import re
+import shutil
 import struct
 import tempfile
 from pathlib import Path
@@ -139,24 +140,181 @@ def _crc32(data: bytes) -> int:
     return zlib.crc32(data) & 0xFFFFFFFF
 
 
-def sanitize_for_print(path: str | Path, dpi: int = PRINT_DPI) -> Path:
-    """Strip all metadata and pin ``path`` to exactly ``dpi``. Idempotent."""
+# KDP judges resolution by pixels against printed size, not by the DPI tag.
+PAGE_W_IN = 6.0
+PAGE_H_IN = 9.0
+
+FULL_PAGE_PX = (int(PAGE_W_IN * PRINT_DPI), int(PAGE_H_IN * PRINT_DPI))
+
+# Keeps a degenerate aspect ratio from reaching Pillow's decompression-bomb limit.
+MAX_UPSCALE_PX = (FULL_PAGE_PX[0] * 4, FULL_PAGE_PX[1] * 4)
+
+
+# Appended after the extension so the sidecar is skipped by _RASTER_SUFFIXES scans.
+_ORIGINAL_SUFFIX = ".orig"
+
+
+def _original_sidecar(path: Path) -> Path:
+    """Path of the untouched copy kept beside ``path``."""
+    return path.with_name(path.name + _ORIGINAL_SUFFIX)
+
+
+def is_original_sidecar(path: str | Path) -> bool:
+    """True for the pristine copies :func:`upscale_for_print` keeps."""
+    return str(path).endswith(_ORIGINAL_SUFFIX)
+
+
+def required_pixels(width_in: float, height_in: float = 0.0,
+                    dpi: int = PRINT_DPI) -> tuple[int, int]:
+    """Pixels needed to print ``width_in`` x ``height_in`` at ``dpi``."""
+    return (int(round(width_in * dpi)),
+            int(round(height_in * dpi)) if height_in else 0)
+
+
+def effective_dpi(path: str | Path, width_in: float) -> float:
+    """The DPI an image will *actually* print at when placed ``width_in`` wide."""
+    with Image.open(path) as im:
+        w = im.size[0]
+    return w / float(width_in) if width_in else 0.0
+
+
+def upscale_for_print(
+    path: str | Path,
+    width_in: float,
+    height_in: float = 0.0,
+    dpi: int = PRINT_DPI,
+) -> bool:
+    """Enlarge ``path`` so it is at least ``dpi`` at its placed size.
+
+    Returns True when the file was resampled. Never downscales: extra pixels are
+    harmless in print, and throwing them away is irreversible. Aspect ratio is
+    preserved -- the image is scaled by the single factor that satisfies the
+    tightest of the width/height requirements, so it is never distorted.
+
+    Upscaling cannot invent detail the generator did not produce, but KDP's
+    preflight measures pixels against printed size, and a Lanczos-resampled
+    plate at true 300 DPI prints visibly cleaner than the same file left at 186.
+    The real fix is generating larger where the model allows it; this guarantees
+    the floor regardless.
+    """
+    path = Path(path)
+    if width_in <= 0 and height_in <= 0:
+        return False
+    need_w, need_h = required_pixels(max(width_in, 0.0), max(height_in, 0.0), dpi)
+
+    # Keeps a repeated export at the same width a genuine no-op.
+    with Image.open(path) as probe:
+        have_w, have_h = probe.size
+    if have_w >= need_w and have_h >= need_h:
+        return False
+
+    # Always resample from the original: softening compounds across passes.
+    source = _original_sidecar(path)
+    if not source.exists():
+        try:
+            shutil.copy2(path, source)
+        except OSError:
+            source = path  # read-only output dir: degrade to in-place, still correct
+    read_from = source if source.exists() else path
+
+    with Image.open(read_from) as im:
+        im.load()
+        cur_w, cur_h = im.size
+        mode = im.mode
+        if not cur_w or not cur_h:
+            return False
+        scale = max(
+            need_w / cur_w if need_w else 0.0,
+            need_h / cur_h if need_h else 0.0,
+            1.0,
+        )
+        if scale <= 1.0:
+            return False
+        new_size = (max(need_w, int(round(cur_w * scale))),
+                    max(need_h, int(round(cur_h * scale))))
+        # A 10x5000 strip needs a 135x scale, which would be 900 megapixels.
+        max_w, max_h = MAX_UPSCALE_PX
+        if new_size[0] > max_w or new_size[1] > max_h:
+            clamp = min(max_w / new_size[0], max_h / new_size[1])
+            new_size = (max(1, int(new_size[0] * clamp)),
+                        max(1, int(new_size[1] * clamp)))
+            if new_size[0] <= cur_w and new_size[1] <= cur_h:
+                return False  # clamping left nothing to gain
+        # Convert palette images first: resampling "P" would quantise badly.
+        work = im.convert("RGBA" if "A" in mode or mode == "P" else "RGB") \
+            if mode in ("P", "1") else im
+        resized = work.resize(new_size, Image.Resampling.LANCZOS)
+
+    save_kwargs = {"dpi": (dpi, dpi)}
+    if path.suffix.lower() == ".png":
+        save_kwargs["optimize"] = True
+    else:
+        if resized.mode == "RGBA":
+            resized = resized.convert("RGB")
+        save_kwargs["quality"] = 95
+    resized.save(str(path), **save_kwargs)
+    if path.suffix.lower() == ".png":
+        write_pHYs_exact(path, dpi)
+    return True
+
+
+def sanitize_for_print(path: str | Path, dpi: int = PRINT_DPI,
+                       width_in: float = 0.0, height_in: float = 0.0) -> Path:
+    """Strip all metadata and pin ``path`` to exactly ``dpi``. Idempotent.
+
+    Pass ``width_in`` (the width the image is actually placed at in the book) to
+    also guarantee the *real* resolution: the file is upscaled if it has too few
+    pixels to reach ``dpi`` at that size. Without it, only the DPI tag is fixed,
+    which is what let 1024px art ship as "300 DPI" while printing at 186.
+    """
     path = Path(path)
     if not path.is_file():
         raise PrintHygieneError(f"{path}: not a file")
     if path.suffix.lower() not in _RASTER_SUFFIXES:
         raise PrintHygieneError(f"{path}: unsupported image type for print")
 
-    _strip_via_reencode(path, dpi)
-    if path.suffix.lower() == ".png":
-        write_pHYs_exact(path, dpi)
+    # Callers catch PrintHygieneError to skip one bad asset; a raw Pillow
+    # exception would abort the whole export instead.
+    try:
+        if width_in:
+            upscale_for_print(path, width_in, height_in, dpi)
+
+        _strip_via_reencode(path, dpi)
+        if path.suffix.lower() == ".png":
+            write_pHYs_exact(path, dpi)
+    except PrintHygieneError:
+        raise
+    except Exception as exc:
+        raise PrintHygieneError(
+            f"{path}: not print-ready ({type(exc).__name__}: {exc})"
+        ) from exc
     return path
 
 
-def audit_image(path: str | Path, dpi: int = PRINT_DPI) -> list[str]:
-    """Return a list of print-readiness problems. Empty list means clean."""
+def audit_image(path: str | Path, dpi: int = PRINT_DPI,
+                width_in: float = 0.0) -> list[str]:
+    """Return a list of print-readiness problems. Empty list means clean.
+
+    When ``width_in`` is given, the *real* resolution is checked too: the DPI
+    tag is only a label, and an image with too few pixels for its placed size
+    prints under 300 DPI no matter what the tag claims.
+    """
     path = Path(path)
     problems: list[str] = []
+
+    if width_in:
+        try:
+            actual = effective_dpi(path, width_in)
+            if round(actual, 1) < float(dpi):
+                with Image.open(path) as im:
+                    px_w, px_h = im.size
+                need_w, _ = required_pixels(width_in, dpi=dpi)
+                problems.append(
+                    f"effective {actual:.0f} DPI at {width_in:g}in wide "
+                    f"({px_w}x{px_h}px); needs {need_w}px for {dpi} DPI"
+                )
+        except Exception as exc:
+            problems.append(f"unreadable: {type(exc).__name__}: {exc}")
     try:
         with Image.open(path) as im:
             found = im.info.get("dpi")
@@ -190,25 +348,45 @@ def audit_image(path: str | Path, dpi: int = PRINT_DPI) -> list[str]:
     return problems
 
 
-def audit_tree(root: str | Path, dpi: int = PRINT_DPI) -> dict[Path, list[str]]:
-    """Audit every image under ``root``. Returns {path: problems} for bad ones."""
+def audit_tree(root: str | Path, dpi: int = PRINT_DPI,
+               width_in: float = 0.0) -> dict[Path, list[str]]:
+    """Audit every image under ``root``. Returns {path: problems} for bad ones.
+
+    ``width_in`` applies the same placed-size resolution check to every file.
+    Left at 0 the audit cannot know how each image is placed, so it only
+    verifies the tag and metadata -- use :func:`audit_image` with a width, or
+    the exporters' own embed-time check, for the real resolution guarantee.
+
+    The pristine copies :func:`upscale_for_print` keeps are skipped: they are
+    pre-upscale backups that never reach the book, so auditing them against a
+    placed size would report a failure for every image that was upscaled.
+    """
     root = Path(root)
     bad: dict[Path, list[str]] = {}
     for p in sorted(root.rglob("*")):
+        if is_original_sidecar(p):
+            continue
         if p.is_file() and p.suffix.lower() in _RASTER_SUFFIXES:
-            problems = audit_image(p, dpi)
+            problems = audit_image(p, dpi, width_in=width_in)
             if problems:
                 bad[p] = problems
     return bad
 
 
-def sanitize_tree(root: str | Path, dpi: int = PRINT_DPI) -> list[Path]:
-    """Sanitize every image under ``root``. Returns the paths touched."""
+def sanitize_tree(root: str | Path, dpi: int = PRINT_DPI,
+                  width_in: float = 0.0) -> list[Path]:
+    """Sanitize every image under ``root``. Returns the paths touched.
+
+    ``width_in`` is the placed width; passing it upscales anything with too few
+    pixels to hold ``dpi`` at that size, rather than only re-writing the tag.
+    """
     root = Path(root)
     done: list[Path] = []
     for p in sorted(root.rglob("*")):
+        if is_original_sidecar(p):
+            continue
         if p.is_file() and p.suffix.lower() in _RASTER_SUFFIXES:
-            sanitize_for_print(p, dpi)
+            sanitize_for_print(p, dpi, width_in=width_in)
             done.append(p)
     return done
 
@@ -216,6 +394,11 @@ def sanitize_tree(root: str | Path, dpi: int = PRINT_DPI) -> list[Path]:
 # --------------------------------------------------------------------------
 # Text fingerprints
 # --------------------------------------------------------------------------
+
+# Control characters XML forbids. Tab, newline and carriage return are legal.
+_CONTROL_CHARS_RE = re.compile(
+    r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]"
+)
 
 # Characters that are invisible (or near-invisible) in a manuscript but are a
 # reliable tell that text came from a model or was pasted through a web UI.
@@ -263,6 +446,59 @@ _CHAR_NAMES = {
 }
 
 
+def xml_safe(text: str) -> str:
+    """Drop characters that python-docx/OOXML cannot represent.
+
+    Narrower than :func:`scrub_text`: this only removes what would make the
+    export *fail*, and never touches wording or punctuation, so it is safe to
+    call unconditionally on the way into a document. ``scrub_text`` is an
+    opt-in editorial pass and is not run during a normal build, so without this
+    a single control character from a generator aborts the whole book.
+    """
+    if not text:
+        return text
+    return _CONTROL_CHARS_RE.sub("", text)
+
+
+def strip_control_chars(obj: object) -> int:
+    """Remove XML-illegal control characters from every string field in place.
+
+    Mirrors :func:`scrub_book_text`'s traversal but does only the one thing that
+    is required for the export to succeed, so it is safe to run unconditionally
+    on every build. Path and id fields are included deliberately: a control
+    character in a path breaks the file open just as badly.
+
+    Returns the number of fields changed.
+    """
+    changed = 0
+
+    def _walk(node: object, field_name: str = "") -> object:
+        nonlocal changed
+        if isinstance(node, str):
+            cleaned = _CONTROL_CHARS_RE.sub("", node)
+            if cleaned != node:
+                changed += 1
+            return cleaned
+        if isinstance(node, list):
+            for i, item in enumerate(node):
+                node[i] = _walk(item, field_name)
+            return node
+        if isinstance(node, tuple):
+            return tuple(_walk(item, field_name) for item in node)
+        if isinstance(node, dict):
+            for key in list(node):
+                node[key] = _walk(node[key], str(key))
+            return node
+        if hasattr(node, "__dataclass_fields__"):
+            for name in node.__dataclass_fields__:
+                setattr(node, name, _walk(getattr(node, name, None), name))
+            return node
+        return node
+
+    _walk(obj)
+    return changed
+
+
 def scan_text(text: str) -> dict[str, int]:
     """Count AI-fingerprint characters in ``text``. Keys are readable names."""
     if not text:
@@ -284,6 +520,8 @@ def scrub_text(text: str) -> str:
     """
     if not text:
         return text
+    # One stray control character makes python-docx raise mid-write.
+    text = _CONTROL_CHARS_RE.sub("", text)
     for ch, repl in _INVISIBLE.items():
         text = text.replace(ch, repl)
     for ch, repl in _TYPOGRAPHIC.items():
@@ -370,18 +608,25 @@ def scrub_book_text(obj: object) -> int:
     return changed
 
 
-def strip_ai_report(book: object, job_dir: str | Path, *, apply: bool = False) -> dict:
+def strip_ai_report(book: object, job_dir: str | Path, *, apply: bool = False,
+                    width_in: float = 0.0) -> dict:
     """Scan (or clean) a book's images and prose in one pass.
 
     With ``apply=False`` this only reports, so the operator can confirm before
     any manuscript is rewritten. With ``apply=True`` it strips image metadata,
     pins DPI, and scrubs text fingerprints in place.
 
+    ``width_in`` is the width the book places its art at. Pass it and the scan
+    also measures real resolution, and ``apply`` upscales anything short of
+    ``dpi`` at that size; left at 0 only the tag and metadata are handled,
+    which under-resolution art passes while still failing KDP's preflight.
+
     The caller is responsible for persisting ``book`` and re-exporting.
     """
     job_dir = Path(job_dir)
 
-    image_problems = audit_tree(job_dir, PRINT_DPI) if job_dir.exists() else {}
+    image_problems = (audit_tree(job_dir, PRINT_DPI, width_in=width_in)
+                      if job_dir.exists() else {})
     images_total = sum(
         1 for p in job_dir.rglob("*")
         if p.is_file() and p.suffix.lower() in _RASTER_SUFFIXES
@@ -404,7 +649,7 @@ def strip_ai_report(book: object, job_dir: str | Path, *, apply: bool = False) -
 
     if apply:
         if job_dir.exists():
-            sanitize_tree(job_dir, PRINT_DPI)
+            sanitize_tree(job_dir, PRINT_DPI, width_in=width_in)
         result["text_fields_changed"] = scrub_book_text(book)
         result["applied"] = True
 
@@ -440,6 +685,20 @@ def strip_ai_docx(docx_path: str | Path, *, apply: bool = False) -> dict:
     # --- images (inspect the zip parts directly) ---
     import zipfile
 
+    # The width each image is placed at is recorded in the drawing XML, so the
+    # resolution check measures the real printed size instead of assuming one.
+    # Repeated art takes the widest placement, which is the binding constraint.
+    placed_width_in: dict[str, float] = {}
+    for shape in doc.inline_shapes:
+        try:
+            rid = shape._inline.graphic.graphicData.pic.blipFill.blip.embed
+            partname = str(doc.part.related_parts[rid].partname).lstrip("/")
+            width = shape.width / 914400.0  # EMUs per inch
+        except Exception:
+            continue
+        if width > placed_width_in.get(partname, 0.0):
+            placed_width_in[partname] = width
+
     image_problems: dict[str, list[str]] = {}
     images_total = 0
     with zipfile.ZipFile(docx_path) as zf:
@@ -452,7 +711,8 @@ def strip_ai_docx(docx_path: str | Path, *, apply: bool = False) -> dict:
                 images_total += 1
                 scratch = Path(tmp) / Path(name).name
                 scratch.write_bytes(zf.read(name))
-                problems = audit_image(scratch, PRINT_DPI)
+                problems = audit_image(scratch, PRINT_DPI,
+                                       width_in=placed_width_in.get(name, 0.0))
                 if problems:
                     image_problems[name] = problems
 
@@ -489,15 +749,20 @@ def strip_ai_docx(docx_path: str | Path, *, apply: bool = False) -> dict:
                             changed_runs += 1
     doc.save(str(docx_path))
 
-    _sanitize_docx_media(docx_path)
+    _sanitize_docx_media(docx_path, placed_width_in)
 
     result["text_fields_changed"] = changed_runs
     result["applied"] = True
     return result
 
 
-def _sanitize_docx_media(docx_path: Path) -> int:
-    """Rewrite every raster in ``word/media/`` of a .docx, preserving the zip."""
+def _sanitize_docx_media(docx_path: Path,
+                         placed_width_in: dict[str, float] | None = None) -> int:
+    """Rewrite every raster in ``word/media/`` of a .docx, preserving the zip.
+
+    ``placed_width_in`` maps each media part to the width it is placed at, so
+    an under-resolution image is upscaled and not merely re-tagged.
+    """
     import zipfile
 
     with zipfile.ZipFile(docx_path) as zf:
@@ -512,7 +777,10 @@ def _sanitize_docx_media(docx_path: Path) -> int:
                 scratch = Path(tmp) / Path(info.filename).name
                 scratch.write_bytes(data)
                 try:
-                    sanitize_for_print(scratch, PRINT_DPI)
+                    sanitize_for_print(
+                        scratch, PRINT_DPI,
+                        width_in=(placed_width_in or {}).get(info.filename, 0.0),
+                    )
                     data = scratch.read_bytes()
                     cleaned_count += 1
                 except PrintHygieneError:
@@ -538,6 +806,11 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fix", action="store_true",
                         help="rewrite offending images instead of only reporting")
     parser.add_argument("--dpi", type=int, default=PRINT_DPI)
+    parser.add_argument(
+        "--width-in", type=float, default=0.0,
+        help="Placed width in inches. Checks REAL resolution at that size, "
+             "not just the DPI tag (e.g. --width-in 4.5 for chapter art).",
+    )
     args = parser.parse_args(argv)
 
     root = Path(args.root)
@@ -546,10 +819,14 @@ def _main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.fix:
+        if args.width_in:
+            for p in sorted(root.rglob("*")):
+                if p.is_file() and p.suffix.lower() in _RASTER_SUFFIXES:
+                    upscale_for_print(p, args.width_in, dpi=args.dpi)
         touched = sanitize_tree(root, args.dpi)
         print(f"Sanitized {len(touched)} image(s) under {root}")
 
-    bad = audit_tree(root, args.dpi)
+    bad = audit_tree(root, args.dpi, width_in=args.width_in)
     total = sum(1 for p in root.rglob("*")
                 if p.is_file() and p.suffix.lower() in _RASTER_SUFFIXES)
     if bad:

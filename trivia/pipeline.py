@@ -41,6 +41,49 @@ MAX_REFILL_ROUNDS = 6
 # that make no progress bail early regardless.
 DEDUP_REPAIR_ROUNDS = 3
 
+# How many facts a chapter may finish short of its configured quota.
+#
+# A narrow chapter scope holds a finite number of genuinely distinct facts. Once
+# the refill loop has exhausted them, every further attempt returns claims the
+# no-overlap gate has already rejected, so retrying cannot converge -- the only
+# outcomes are this tolerance or discarding a book that is otherwise complete.
+# Trading an exact per-chapter count for a shippable book is the right call at
+# this margin; the shortfall is surfaced as a warning so it stays visible.
+FACT_COUNT_TOLERANCE = 2
+
+# Extra items requested per top-up round beyond the exact shortfall, so a
+# chapter needing one more fact still gets a spread of candidates to find a
+# non-colliding one among. Surplus past the shortfall is discarded.
+REFILL_SURPLUS = 5
+
+# How much of the underlying upstream error to fold into the failure message.
+# The raw text carries a full command line and STDOUT/STDERR dump; the first
+# line is the part that names the actual cause.
+UPSTREAM_DETAIL_CHARS = 300
+
+
+def _first_line(text: str) -> str:
+    """The most informative single line of a multi-line error dump.
+
+    OpenClaw failures arrive as a banner line followed by the command and a
+    STDERR block. Surfacing the banner plus the first non-empty STDERR line
+    tells the operator whether they hit a timeout, a refusal, or a crash —
+    without pasting a screenful into the error box.
+    """
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    if not lines:
+        return ""
+    head = lines[0]
+    # Pull the first line after a STDERR:/STDOUT: marker, which is where the
+    # real reason lives when the CLI itself failed.
+    for i, ln in enumerate(lines):
+        if ln.upper().startswith(("STDERR:", "STDOUT:")) and i + 1 < len(lines):
+            detail = lines[i + 1]
+            if detail and detail not in head:
+                head = f"{head} — {detail}"
+            break
+    return head[:UPSTREAM_DETAIL_CHARS]
+
 
 LogFn = Callable[[str], None]
 ProgressFn = Callable[[str, float], None]
@@ -105,9 +148,82 @@ class TriviaBuilder:
             cache=self.cache,
             ledger=self.ledger,
             session_id=self.session_id,
+            model=self.cfg.model,
             log=self.log,
         )
         return engine._extract_json_array(reply)
+
+    def _generate_prose(self, prompt: str) -> str:
+        reply = engine.call_openclaw_raw(
+            self.cfg.agent,
+            prompt,
+            local=self.cfg.local,
+            thinking=self.cfg.thinking,
+            timeout_s=self.cfg.timeout_s,
+            cache=self.cache,
+            ledger=self.ledger,
+            session_id=self.session_id,
+            model=self.cfg.model,
+            log=self.log,
+        )
+        return engine.clean_prose_reply(reply)
+
+    def _generate_front_matter(self, label: str, prompt: str) -> str:
+        """One piece of authored prose, retried once if it lands short.
+
+        Asking for 300-500 words tends to produce a tidy 150-word paragraph on
+        the first try. A single retry that names the shortfall is enough to
+        pull it up, and it costs one call rather than failing the build.
+        """
+        text = self._generate_prose(prompt)
+        count = engine.word_count(text)
+
+        if count < engine.FRONT_MATTER_MIN_WORDS:
+            self.log(
+                f"  {label} came back at {count} words; asking again for "
+                f"{engine.FRONT_MATTER_MIN_WORDS}-{engine.FRONT_MATTER_MAX_WORDS}"
+            )
+            retry = (
+                f"{prompt}\n\nYour previous attempt was only {count} words, "
+                f"which is far too short. Write the full "
+                f"{engine.FRONT_MATTER_MIN_WORDS} to "
+                f"{engine.FRONT_MATTER_MAX_WORDS} words this time. Develop the "
+                "ideas with real specifics instead of adding filler.\n"
+            )
+            longer = self._generate_prose(retry)
+            if engine.word_count(longer) > count:
+                text, count = longer, engine.word_count(longer)
+
+        if not text:
+            self.book.warnings.append(f"{label} could not be generated.")
+        elif count < engine.FRONT_MATTER_MIN_WORDS:
+            self.book.warnings.append(
+                f"{label} is {count} words, short of the "
+                f"{engine.FRONT_MATTER_MIN_WORDS}-word target."
+            )
+        else:
+            self.log(f"  {label}: {count} words")
+        return text
+
+    def generate_front_matter(self) -> None:
+        """Introduction and Conclusion, written once the chapters are known.
+
+        Both run after generation so the prose can speak to the book that
+        actually exists, not the one the config asked for. Neither is worth
+        failing a finished book over, so a provider refusal is recorded as a
+        warning and the export falls back to its generic paragraph.
+        """
+        for label, builder, attr in (
+            ("Introduction", engine.build_introduction_prompt, "introduction"),
+            ("Conclusion", engine.build_conclusion_prompt, "conclusion"),
+        ):
+            self._check_stop()
+            try:
+                prompt = builder(self.cfg, self.cfg.chapters)
+                setattr(self.book, attr, self._generate_front_matter(label, prompt))
+            except ProviderRejectionError as exc:
+                self.book.warnings.append(f"{label} refused by provider: {exc}")
+                self.log(f"  {label} refused by provider; using the default text")
 
     def _all_trivia(self) -> list[TriviaQuestion]:
         return [q for ch in self.book.chapters for q in ch.trivia]
@@ -126,19 +242,29 @@ class TriviaBuilder:
 
         self.log(f"Chapter {ch_cfg.chapter_number}: generating {target} trivia questions")
         accepted: list[TriviaQuestion] = []
+        rejected_seeds: list[str] = []
         rounds = 0
         upstream_failures = 0
+        last_upstream_error = ""
 
         while len(accepted) < target and rounds < MAX_REFILL_ROUNDS + target // engine.TRIVIA_BATCH:
             self._check_stop()
             rounds += 1
             need = target - len(accepted)
-            batch_size = min(engine.TRIVIA_BATCH, need)
+            # Over-request. Asking for exactly `need` gives the model no room
+            # to offer an alternative when a question collides, so a chapter
+            # one short would ask for 1, have it rejected, and ask again.
+            batch_size = min(engine.TRIVIA_BATCH, need + REFILL_SURPLUS)
 
             # Exclusion context: seeds used anywhere in the book so far, plus
-            # this chapter's accepted questions.
+            # this chapter's accepted questions and the ones the dedup gate has
+            # already rejected. Feeding rejects back in is what makes the next
+            # prompt differ: an identical prompt is a cache hit, so it would
+            # replay the same rejected question forever without ever reaching
+            # the provider.
             avoid = [q.fact_seed for q in self._all_trivia() if q.fact_seed]
             avoid += [q.fact_seed for q in accepted if q.fact_seed]
+            avoid += rejected_seeds
 
             prompt = engine.build_trivia_prompt(self.cfg, ch_cfg, batch_size, avoid)
             try:
@@ -152,6 +278,7 @@ class TriviaBuilder:
                 ) from exc
             except TriviaError as exc:
                 upstream_failures += 1
+                last_upstream_error = str(exc)
                 self.log(f"  batch failed ({exc}); retrying")
                 continue
 
@@ -167,6 +294,9 @@ class TriviaBuilder:
 
             prior = self._all_trivia() + accepted
             colliding = self.checker.find_collisions(parsed, prior, "trivia_vs_trivia")
+            rejected_seeds.extend(
+                q.fact_seed for q in parsed if q.id in colliding and q.fact_seed
+            )
             fresh = [q for q in parsed if q.id not in colliding]
             if colliding:
                 self.log(f"  dropped {len(colliding)} duplicate question(s)")
@@ -181,19 +311,34 @@ class TriviaBuilder:
                 hint = (
                     "Every attempt failed before any content was generated, so this "
                     "is an AI service problem, not a problem with your chapter scope "
-                    "or trivia_count. Check the batch errors above."
+                    "or trivia_count. Nothing was generated, so retrying costs "
+                    "nothing extra."
                 )
+                if last_upstream_error:
+                    hint += f" Last error: {_first_line(last_upstream_error)}"
             elif upstream_failures:
                 hint = (
                     f"{upstream_failures} of {rounds} attempts failed upstream; the "
                     "rest were rejected by validation or the dedup gate. Retry, and "
                     "if it persists widen the chapter scope or lower trivia_count."
                 )
+                if last_upstream_error:
+                    hint += f" Last upstream error: {_first_line(last_upstream_error)}"
             else:
                 hint = (
                     "Attempts succeeded but the content was rejected as duplicate or "
                     "invalid. Widen the chapter scope or lower trivia_count."
                 )
+            # Keep what was generated. These questions were paid for, and the
+            # resolve path can only top a chapter up (or let the operator lower
+            # trivia_count) if they are actually on the chapter -- discarding
+            # them here is what stranded a blocked book with 0 questions and
+            # no way forward.
+            for i, q in enumerate(accepted, start=1):
+                q.id = f"ch{ch_cfg.chapter_number}_q{i:02d}"
+            if engine.rebalance_answer_distribution(accepted):
+                self.log("  rebalanced correct-answer distribution across A-D")
+            chapter.trivia = accepted
             raise ValidationGateError(
                 f"Chapter {ch_cfg.chapter_number}: only produced {len(accepted)} of "
                 f"{target} required trivia questions after {rounds} attempts. {hint}"
@@ -220,6 +365,7 @@ class TriviaBuilder:
         accepted: list[DidYouKnowFact] = []
         rounds = 0
         upstream_failures = 0
+        last_upstream_error = ""
 
         while len(accepted) < target and rounds < MAX_REFILL_ROUNDS + target // engine.FACT_BATCH:
             self._check_stop()
@@ -248,6 +394,7 @@ class TriviaBuilder:
                 ) from exc
             except TriviaError as exc:
                 upstream_failures += 1
+                last_upstream_error = str(exc)
                 self.log(f"  batch failed ({exc}); retrying")
                 continue
 
@@ -281,19 +428,36 @@ class TriviaBuilder:
             accepted.extend(fresh[:need])
             self.log(f"  chapter {ch_cfg.chapter_number}: {len(accepted)}/{target} facts")
 
-        if len(accepted) < target:
+        shortfall = target - len(accepted)
+        if 0 < shortfall <= FACT_COUNT_TOLERANCE and upstream_failures < rounds:
+            # The scope is simply exhausted, not broken. Keep the chapter.
+            self.book.warnings.append(
+                f"Chapter {ch_cfg.chapter_number}: {len(accepted)} facts instead of "
+                f"{target}. The chapter scope did not yield more non-duplicate "
+                f"facts. Widen the scope or lower fact_count to avoid this."
+            )
+            self.log(
+                f"  chapter {ch_cfg.chapter_number}: accepting {len(accepted)}/{target} "
+                f"facts -- scope exhausted, within tolerance of {FACT_COUNT_TOLERANCE}"
+            )
+        elif len(accepted) < target:
             if upstream_failures == rounds:
                 hint = (
                     "Every attempt failed before any content was generated, so this "
                     "is an AI service problem, not a problem with your chapter scope "
-                    "or fact_count. Check the batch errors above."
+                    "or fact_count. Nothing was generated, so retrying costs nothing "
+                    "extra."
                 )
+                if last_upstream_error:
+                    hint += f" Last error: {_first_line(last_upstream_error)}"
             elif upstream_failures:
                 hint = (
                     f"{upstream_failures} of {rounds} attempts failed upstream; the "
                     "no-overlap gate rejected the rest. Retry, and if it persists "
                     "widen the scope or lower fact_count."
                 )
+                if last_upstream_error:
+                    hint += f" Last upstream error: {_first_line(last_upstream_error)}"
             else:
                 hint = (
                     "The no-overlap gate rejected the rest. Widen the chapter scope "
@@ -362,6 +526,199 @@ class TriviaBuilder:
             # Regenerate back up to the configured count.
             self.generate_chapter_facts(ch_cfg, chapter)
 
+    def top_up_short_trivia(self) -> list[str]:
+        """Extend chapters sitting under their configured trivia count.
+
+        The counterpart of top_up_short_chapters for questions. Without this a
+        chapter that came up short on trivia could never be finished: the
+        resolve path had no way to make more questions, and validate_for_export
+        requires an exact match, so the book was stranded.
+
+        Appends to what the chapter already has -- existing questions and their
+        seeds go into the exclusion list -- so nothing already paid for is
+        re-bought. Returns a note per chapter still short afterwards.
+        """
+        notes: list[str] = []
+        for ch_cfg, chapter in zip(self.cfg.chapters, self.book.chapters):
+            if ch_cfg.trivia_count <= 0:
+                continue
+            missing = ch_cfg.trivia_count - len(chapter.trivia)
+            if missing <= 0:
+                continue
+
+            self.log(
+                f"Chapter {chapter.number}: {len(chapter.trivia)}/"
+                f"{ch_cfg.trivia_count} questions; topping up {missing}"
+            )
+            added = self._extend_chapter_trivia(ch_cfg, chapter, missing)
+            self.log(
+                f"  chapter {chapter.number}: added {added}; now "
+                f"{len(chapter.trivia)}/{ch_cfg.trivia_count}"
+            )
+
+            still = ch_cfg.trivia_count - len(chapter.trivia)
+            if still > 0:
+                notes.append(
+                    f"Chapter {chapter.number}: {len(chapter.trivia)} of "
+                    f"{ch_cfg.trivia_count} questions. The scope did not yield "
+                    f"more distinct questions."
+                )
+        return notes
+
+    def _extend_chapter_trivia(
+        self, ch_cfg: ChapterConfig, chapter: Chapter, missing: int
+    ) -> int:
+        """Append up to `missing` new questions, keeping what the chapter has.
+
+        Mirrors _extend_chapter_facts: every round widens the exclusion list
+        with the kept questions and the ones the dedup gate just rejected, so
+        the prompt changes and the raw-output cache cannot replay an identical
+        reply back at us.
+        """
+        added: list[TriviaQuestion] = []
+        rejected_seeds: list[str] = []
+        rounds = 0
+
+        while len(added) < missing and rounds < MAX_REFILL_ROUNDS:
+            self._check_stop()
+            rounds += 1
+            need = missing - len(added)
+            batch_size = min(engine.TRIVIA_BATCH, need + REFILL_SURPLUS)
+
+            avoid = [q.fact_seed for q in self._all_trivia() if q.fact_seed]
+            avoid += [q.fact_seed for q in added if q.fact_seed]
+            avoid += rejected_seeds
+
+            prompt = engine.build_trivia_prompt(self.cfg, ch_cfg, batch_size, avoid)
+            try:
+                raw = self._generate_batch(prompt)
+            except ProviderRejectionError:
+                # Re-sending an identical prompt cannot clear a refusal.
+                raise
+            except TriviaError as exc:
+                self.log(f"  top-up batch failed ({exc}); retrying")
+                continue
+
+            parsed, _rejects = engine.parse_trivia_items(raw, ch_cfg.chapter_number)
+            base = len(chapter.trivia) + len(added)
+            for i, item in enumerate(parsed):
+                item.id = f"ch{ch_cfg.chapter_number}_q{base + i + 1:02d}"
+            parsed = engine.dedup_within(parsed)
+
+            prior = self._all_trivia() + added
+            colliding = self.checker.find_collisions(parsed, prior, "trivia_vs_trivia")
+            rejected_seeds.extend(
+                q.fact_seed for q in parsed if q.id in colliding and q.fact_seed
+            )
+            fresh = [q for q in parsed if q.id not in colliding]
+            if not fresh:
+                self.log(
+                    f"  no new distinct questions this round "
+                    f"({len(colliding)} rejected)"
+                )
+            added.extend(fresh[:need])
+
+        if added:
+            chapter.trivia = list(chapter.trivia) + added
+            for i, q in enumerate(chapter.trivia, start=1):
+                q.id = f"ch{ch_cfg.chapter_number}_q{i:02d}"
+            if engine.rebalance_answer_distribution(chapter.trivia):
+                self.log("  rebalanced correct-answer distribution across A-D")
+        return len(added)
+
+    def top_up_short_chapters(self) -> list[str]:
+        """Extend chapters sitting under their configured fact count.
+
+        Used by the resolve path, where a build was blocked with content already
+        generated and paid for. This appends to the facts a chapter already has
+        rather than regenerating it: the existing facts go into the exclusion
+        list, so the model is asked only for genuinely new material and the
+        draft never re-buys what it already holds.
+
+        Returns a note per chapter that is still short afterwards.
+        """
+        notes: list[str] = []
+        for ch_cfg, chapter in zip(self.cfg.chapters, self.book.chapters):
+            missing = ch_cfg.fact_count - len(chapter.facts)
+            if missing <= 0:
+                continue
+
+            self.log(
+                f"Chapter {chapter.number}: {len(chapter.facts)}/{ch_cfg.fact_count} "
+                f"facts; topping up {missing}"
+            )
+            added = self._extend_chapter_facts(ch_cfg, chapter, missing)
+            self.log(
+                f"  chapter {chapter.number}: added {added}; now "
+                f"{len(chapter.facts)}/{ch_cfg.fact_count}"
+            )
+
+            still = ch_cfg.fact_count - len(chapter.facts)
+            if still > 0:
+                notes.append(
+                    f"Chapter {chapter.number}: {len(chapter.facts)} of "
+                    f"{ch_cfg.fact_count} facts. The scope did not yield more "
+                    f"distinct facts."
+                )
+        return notes
+
+    def _extend_chapter_facts(
+        self, ch_cfg: ChapterConfig, chapter: Chapter, missing: int
+    ) -> int:
+        """Append up to `missing` new facts to a chapter, keeping what it has.
+
+        Every attempt widens the exclusion list with both the kept facts and
+        the claims the gate just rejected. Without that the prompt would repeat
+        verbatim, the raw-output cache would replay the identical reply, and the
+        retry would be spent without ever reaching the provider.
+        """
+        added: list[DidYouKnowFact] = []
+        rejected_claims: list[str] = []
+        rounds = 0
+
+        while len(added) < missing and rounds < MAX_REFILL_ROUNDS:
+            self._check_stop()
+            rounds += 1
+            need = missing - len(added)
+            # Over-request: asking for exactly the shortfall gives the model no
+            # room to offer an alternative when a claim collides.
+            batch_size = min(engine.FACT_BATCH, need + REFILL_SURPLUS)
+
+            exclusions = [q.claim_text() for q in self._all_trivia()]
+            exclusions += [f.fact for f in self._all_facts()]
+            exclusions += [f.fact for f in added]
+            exclusions += rejected_claims
+
+            prompt = engine.build_facts_prompt(self.cfg, ch_cfg, batch_size, exclusions)
+            try:
+                raw = self._generate_batch(prompt)
+            except TriviaError as exc:
+                self.log(f"  top-up batch failed ({exc}); retrying")
+                continue
+
+            parsed, _rejects = engine.parse_fact_items(raw, ch_cfg.chapter_number)
+            base = len(chapter.facts) + len(added)
+            for i, item in enumerate(parsed):
+                item.id = f"ch{ch_cfg.chapter_number}_f{base + i + 1:03d}"
+            parsed = engine.dedup_within(parsed)
+
+            existing = self._all_facts() + added
+            bad = (
+                self.checker.find_collisions(parsed, self._all_trivia(), "fact_vs_trivia")
+                | self.checker.find_collisions(parsed, existing, "fact_vs_fact")
+            )
+            rejected_claims.extend(f.fact for f in parsed if f.id in bad)
+            fresh = [f for f in parsed if f.id not in bad]
+            if not fresh:
+                self.log(f"  no new distinct facts this round ({len(bad)} rejected)")
+            added.extend(fresh[:need])
+
+        if added:
+            chapter.facts = list(chapter.facts) + added
+            for i, f in enumerate(chapter.facts, start=1):
+                f.id = f"ch{ch_cfg.chapter_number}_f{i:03d}"
+        return len(added)
+
     # -- illustrations ---------------------------------------------------
 
     def generate_illustrations(self, out_dir: Path) -> None:
@@ -427,7 +784,13 @@ class TriviaBuilder:
                     f"Chapter {chapter.number}: {len(chapter.trivia)} questions, "
                     f"config requires {ch_cfg.trivia_count}."
                 )
-            if len(chapter.facts) != ch_cfg.fact_count:
+            # Facts may run slightly under quota when a chapter scope is
+            # exhausted; see FACT_COUNT_TOLERANCE. Over quota is still a bug.
+            if not (
+                ch_cfg.fact_count - FACT_COUNT_TOLERANCE
+                <= len(chapter.facts)
+                <= ch_cfg.fact_count
+            ):
                 errors.append(
                     f"Chapter {chapter.number}: {len(chapter.facts)} facts, "
                     f"config requires {ch_cfg.fact_count}."
@@ -464,8 +827,14 @@ class TriviaBuilder:
             self.cache = engine.RawOutputCache(out_dir / "raw_cache")
             self.checker.cache = self.cache
 
-        total_steps = max(1, len(self.cfg.chapters) * 2 + 3)
+        total_steps = max(1, len(self.cfg.chapters) * 2 + 4)
         step = 0
+
+        # A chapter that comes up short must not abort the run. Chapters after
+        # it would never be generated at all, and the saved draft would be a
+        # stub the resolve path could not finish. Collect the shortfalls and
+        # report them together once every chapter has been attempted.
+        gate_failures: list[str] = []
 
         for ch_cfg in self.cfg.chapters:
             self._check_stop()
@@ -476,11 +845,21 @@ class TriviaBuilder:
             )
             self.book.chapters.append(chapter)
 
-            self.generate_chapter_trivia(ch_cfg, chapter)
+            try:
+                self.generate_chapter_trivia(ch_cfg, chapter)
+            except ValidationGateError as exc:
+                # generate_chapter_trivia keeps its partial output on the
+                # chapter before raising, so the draft stays resolvable.
+                gate_failures.append(str(exc))
+                self.log(f"  {exc}")
             step += 1
             self.progress("trivia", step / total_steps)
 
-            self.generate_chapter_facts(ch_cfg, chapter)
+            try:
+                self.generate_chapter_facts(ch_cfg, chapter)
+            except ValidationGateError as exc:
+                gate_failures.append(str(exc))
+                self.log(f"  {exc}")
             step += 1
             self.progress("facts", step / total_steps)
 
@@ -521,6 +900,10 @@ class TriviaBuilder:
                 "scope is likely too narrow to yield a fact distinct from its "
                 "questions — widen the scope or lower fact_count for the "
                 "chapters named above."
+                + (
+                    "\n\nAlso: " + "; ".join(gate_failures[:12])
+                    if gate_failures else ""
+                )
             )
 
         self._check_stop()
@@ -528,11 +911,22 @@ class TriviaBuilder:
         step += 1
         self.progress("illustrations", step / total_steps)
 
+        self._check_stop()
+        self.generate_front_matter()
+        step += 1
+        self.progress("front matter", step / total_steps)
+
         errors = self.validate_for_export()
-        if errors:
-            raise ValidationGateError(
-                "Export blocked by validation:\n- " + "\n- ".join(errors[:12])
+        if errors or gate_failures:
+            # validate_for_export already reports the resulting counts, so the
+            # per-chapter shortfall messages are appended as context (they
+            # explain *why*) rather than duplicated as separate failures.
+            detail = "Export blocked by validation:\n- " + "\n- ".join(
+                (errors or ["chapter generation fell short"])[:12]
             )
+            if gate_failures:
+                detail += "\n\nDetails:\n- " + "\n- ".join(gate_failures[:12])
+            raise ValidationGateError(detail)
 
         step += 1
         self.progress("done", 1.0)
@@ -595,6 +989,8 @@ def load_json(path: Path) -> TriviaBook:
     cfg = BookConfig.from_dict(data.get("config") or data)
     book = TriviaBook(
         config=cfg,
+        introduction=str(data.get("introduction") or ""),
+        conclusion=str(data.get("conclusion") or ""),
         warnings=list(data.get("warnings") or []),
         usage=dict(data.get("usage") or {}),
     )

@@ -3,7 +3,7 @@
   "topic": "crime scene investigation and detective work",
   "audience": "kids ages 8-12",
   "difficulty": "medium",
-  "agent": "main",
+  "agent": "puzzle-agent-1",
   "thinking": "",
   "wordsearch_grid": 13,
   "maze_cols": 14,

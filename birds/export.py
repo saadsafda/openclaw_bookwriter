@@ -35,7 +35,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt, RGBColor
 from PIL import Image
 
-from print_hygiene import PRINT_DPI, sanitize_for_print
+from print_hygiene import PRINT_DPI, sanitize_for_print, xml_safe
 
 # 6x9 trade paperback with the project's usual margins leaves this much room.
 # The plate is bounded on both axes so a tall bird cannot push its caption off
@@ -128,15 +128,19 @@ def _add_plate_page(
     embed = _flatten_to_white(image_path) if flatten else image_path
     temporary = embed != image_path
     try:
+        # The DPI guarantee is relative to the placed size, so fit comes first.
+        width_in, height_in = _fitted_size(embed)
+
         # Last line of defence before embedding, matching puzzle/export.py:
-        # guarantee 300 DPI and no AI/EXIF metadata whatever the plate's route
-        # here was.
+        # guarantee 300 DPI at the placed size and no AI/EXIF metadata whatever
+        # the plate's route here was.
         try:
-            sanitize_for_print(embed, PRINT_DPI)
+            sanitize_for_print(
+                embed, PRINT_DPI, width_in=width_in, height_in=height_in
+            )
         except Exception:
             pass
 
-        width_in, height_in = _fitted_size(embed)
         para = doc.add_paragraph()
         para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         run = para.add_run()
@@ -149,7 +153,7 @@ def _add_plate_page(
             Path(embed).unlink(missing_ok=True)
 
     # Heading 1 so the species lands in the TOC the KDP formatter builds.
-    heading = doc.add_heading(species or "Unnamed Bird", level=1)
+    heading = doc.add_heading(xml_safe(species) or "Unnamed Bird", level=1)
     heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
     return True
 
@@ -157,21 +161,21 @@ def _add_plate_page(
 def _add_title_page(doc: Document, cfg: GuideConfig) -> None:
     para = doc.add_paragraph()
     para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = para.add_run(cfg.clean_title())
+    run = para.add_run(xml_safe(cfg.clean_title()))
     run.bold = True
     run.font.size = Pt(28)
 
     if cfg.subtitle.strip():
         sub = doc.add_paragraph()
         sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        sub_run = sub.add_run(cfg.subtitle.strip())
+        sub_run = sub.add_run(xml_safe(cfg.subtitle.strip()))
         sub_run.font.size = Pt(14)
         sub_run.font.color.rgb = RGBColor(0x44, 0x44, 0x44)
 
     if cfg.author.strip():
         author = doc.add_paragraph()
         author.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        author_run = author.add_run(cfg.author.strip())
+        author_run = author.add_run(xml_safe(cfg.author.strip()))
         author_run.font.size = Pt(12)
 
 

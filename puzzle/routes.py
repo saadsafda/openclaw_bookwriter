@@ -21,6 +21,8 @@ from flask import abort, jsonify, render_template, request, send_file
 
 import db as bookdb
 from print_hygiene import strip_ai_report
+
+from .layout import FULL_IMAGE_W_IN
 from . import edit as editor
 from . import export as exporter
 from . import pipeline
@@ -47,7 +49,9 @@ MAX_LOG_LINES = 600
 class PuzzleJob:
     id: str
     config: BookConfig
-    status: str = "queued"          # queued | running | done | error | stopped
+    # partial: the build finished but a section came up short of its
+    # requested count, usually because the provider went down mid-run.
+    status: str = "queued"   # queued|running|done|partial|error|stopped
     stage: str = ""
     progress: float = 0.0
     logs: list[str] = field(default_factory=list)
@@ -124,6 +128,9 @@ def _run_build(job_id: str) -> None:
             progress=_progress,
             should_stop=lambda: job.stop_requested,
             cache_dir=out_dir / "cache",
+            # Ties the agent session to this build, so a stuck session can be
+            # traced back to the book that created it.
+            session_id=f"puzzle-{job_id}",
         )
         book = builder.build(out_dir)
         job.warnings = list(book.warnings)
@@ -142,6 +149,19 @@ def _run_build(job_id: str) -> None:
             "markdown": str(md_path),
             "docx": str(docx_path),
         }
+
+        # Print-ready interior in the reference trade format. Best-effort: the
+        # plain manuscript above is already safely on disk.
+        try:
+            interior_path = exporter.build_interior_docx(
+                book, out_dir / "puzzle_book_interior.docx"
+            )
+            job.outputs["interior"] = str(interior_path)
+            _log("Formatted 6x9 interior written")
+        except Exception as exc:  # noqa: BLE001 - report, never fail the build
+            msg = f"Interior formatting failed: {exc}"
+            _log(f"WARNING: {msg}")
+            job.warnings.append(msg)
 
         _log("Verifying every image is 300 DPI with no AI metadata")
         image_problems = exporter.verify_print_images(book, out_dir)
@@ -170,17 +190,36 @@ def _run_build(job_id: str) -> None:
         zip_path = exporter.build_handoff_zip(book, out_dir, out_dir / f"{stem}_handoff.zip")
         job.outputs["zip"] = str(zip_path)
 
-        job.status = "done"
-        job.stage = "done"
+        # A build that reached the end still is not a success if the sections
+        # came back empty. Reporting "done / 100%" over a log full of failures
+        # hid that from the operator, who had no way to tell a finished book
+        # from a shell of one without reading every warning.
+        shortfalls = []
+        for kind, got in job.counts.items():
+            section = job.config.section(kind)
+            if section.enabled and got < section.count:
+                shortfalls.append(
+                    f"{SECTION_LABELS[kind].lower()} {got}/{section.count}"
+                )
+
+        job.status = "partial" if shortfalls else "done"
+        job.stage = job.status
         job.progress = 1.0
         counts = ", ".join(
             f"{n} {SECTION_LABELS[k].lower()}" for k, n in job.counts.items() if n
         )
-        _log(f"Build complete — {counts}")
+        if shortfalls:
+            short = "; ".join(shortfalls)
+            _log(f"Build INCOMPLETE — short on {short}")
+            job.warnings.insert(
+                0, f"Book is incomplete: {short}. See the warnings below."
+            )
+        else:
+            _log(f"Build complete — {counts}")
 
         bookdb.update_puzzle_book(
             job_id,
-            status="done", stage="done", progress=1.0,
+            status=job.status, stage=job.stage, progress=1.0,
             counts_json=json.dumps(job.counts),
             estimated_pages=book.config.page_estimate().get("total_pages", 0),
             json_path=str(json_path),
@@ -579,7 +618,10 @@ def register(app) -> None:  # noqa: ANN001
         apply = bool(payload.get("apply"))
         try:
             _row, json_path, book = _load_book_for_edit(book_id)
-            result = strip_ai_report(book, json_path.parent, apply=apply)
+            # Width matters: the widest placement in puzzle/layout.py, and
+            # without it the scan only reads the DPI tag.
+            result = strip_ai_report(book, json_path.parent, apply=apply,
+                                     width_in=FULL_IMAGE_W_IN)
             if apply:
                 _save_book(book, json_path)
             return jsonify({"ok": True, **result})
@@ -850,6 +892,11 @@ def register(app) -> None:  # noqa: ANN001
                 "markdown": str(md_path),
                 "docx": str(docx_path),
             }
+            try:
+                outputs["interior"] = str(exporter.build_interior_docx(
+                    book, out_dir / "puzzle_book_interior.docx"))
+            except Exception as exc:  # noqa: BLE001 - never lose the manuscript
+                warnings.append(f"Interior formatting failed: {exc}")
             warnings.extend(exporter.verify_print_images(book, out_dir))
             try:
                 kdp = exporter.build_kdp_files(book, docx_path, out_dir)

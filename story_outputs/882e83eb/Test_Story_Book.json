@@ -1,0 +1,100 @@
+{
+  "book_title": "Test Story Book",
+  "topic": "a short test story to verify the pipeline works",
+  "audience": "general adult reader",
+  "tone": "light and simple",
+  "config": {
+    "book_title": "Test Story Book",
+    "topic": "a short test story to verify the pipeline works",
+    "audience": "general adult reader",
+    "tone": "light and simple",
+    "min_words": 300,
+    "max_words": 500,
+    "sidebar_enabled": false,
+    "sidebar_label": "The Breakdown",
+    "sidebar_instruction": "",
+    "closer_enabled": false,
+    "closer_label": "The Takeaway",
+    "closer_instruction": "",
+    "global_context": "",
+    "illustrations": false,
+    "illustrate_every_story": false,
+    "chapters": [
+      {
+        "chapter_number": 1,
+        "chapter_title": "Test Chapter",
+        "chapter_intro": "",
+        "stories": [
+          {
+            "number": 1,
+            "title": "The Lighthouse Keeper's Last Night",
+            "context": "A retiring lighthouse keeper spends his final night on duty reflecting on decades of solitary work, and one last ship passes safely thanks to his light.",
+            "who": "",
+            "year": "",
+            "where": "",
+            "sources": "",
+            "illustration_prompt_hint": "",
+            "min_words": 0,
+            "max_words": 0
+          }
+        ]
+      }
+    ],
+    "agent": "stories-agent-1",
+    "model": "anthropic/claude-opus-4-6",
+    "thinking": "",
+    "local": false,
+    "timeout_s": 600,
+    "check_duplicates": true,
+    "image_model": "gpt-image-1",
+    "image_size": "1024x1536",
+    "image_quality": "high",
+    "illustration_style_hint": ""
+  },
+  "chapters": [
+    {
+      "chapter_number": 1,
+      "chapter_title": "Test Chapter",
+      "chapter_intro": "",
+      "illustration_path": "",
+      "illustration_prompt": "",
+      "stories": [
+        {
+          "id": "s001",
+          "number": 1,
+          "chapter": 1,
+          "title": "The Lighthouse Keeper's Last Night",
+          "body": "The logbook held forty-one years of weather and nothing. Wind speed, visibility, barometric pressure, the occasional note about a gull that had flown into the glass. Tonight's entry would be his last.\n\nHe climbed the stairs the way he always did, one hand on the iron rail, counting without meaning to. Eighty-seven steps. His knees had opinions about every one of them now, opinions they'd kept to themselves for the first twenty years. The lamp room smelled the way it always smelled: salt, old metal, and the particular warmth of glass that had baked in the sun all afternoon.\n\nThe light came on at dusk, automatic these days. There had been a time when he struck the flame himself, trimmed the wick, kept the lens turning by hand-cranking the clockwork weights. That was before the electricians came, before the Coast Guard installed the automatic sensors, before someone in an office crossed the night watch off the budget. He didn't argue with any of it. The light still worked, and ships still passed.\n\nHe poured coffee from the thermos his wife had packed that morning. She'd tucked a note inside the lid, the way she sometimes did. This one said \"Come home.\" Two words that meant something different tonight than they had for four decades. All those years she'd written it as a small complaint, a gentle tug. Tonight it read as an invitation to a life he'd almost forgotten how to live.\n\nHe sat by the window and watched the dark water. Somewhere beyond the beam's reach, a container ship moved south along the coast. He knew this because the radio chattered with its position updates, a voice so calm it could have been reading a grocery list. The ship would pass close enough to see the light, but the crew wouldn't look up. Nobody looked at lighthouses anymore. They had GPS, radar, charts that updated themselves. His light was a courtesy now, a backup to the backups.\n\nBut it was on. And the ship passed.\n\nHe wrote the final entry at 0300. \"Clear skies, light wind from the southwest, visibility ten miles. One southbound vessel. No incidents.\" Forty-one years of work, and that last line could have been the first. He closed the book, rinsed his coffee cup in the small sink, and walked down the eighty-seven stairs for the last time.\n\nThe light kept turning behind him. It would keep turning tomorrow, too, with nobody watching.",
+          "sidebar": "",
+          "closer": "",
+          "context": "A retiring lighthouse keeper spends his final night on duty reflecting on decades of solitary work, and one last ship passes safely thanks to his light.",
+          "who": "",
+          "year": "",
+          "where": "",
+          "sources": "",
+          "cited_sources": [],
+          "uncertain_claims": [
+            "Specific counts such as forty-one years of service and eighty-seven stairs are narrative details for a fictional scenario, not claims about a real lighthouse or keeper"
+          ],
+          "illustration_path": "",
+          "illustration_prompt": "",
+          "word_count": 408,
+          "warnings": []
+        }
+      ]
+    }
+  ],
+  "story_count": 1,
+  "total_words": 408,
+  "warnings": [],
+  "usage": {
+    "calls": 1,
+    "cache_hits": 0,
+    "input_tokens": 3,
+    "output_tokens": 8294,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 14839,
+    "total_tokens": 8297,
+    "cost_usd": 0.300109
+  }
+}

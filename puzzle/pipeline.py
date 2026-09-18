@@ -21,6 +21,8 @@ question, this one's is a puzzle plus its rendered artwork and solution.
 from __future__ import annotations
 
 import json
+import time
+import uuid
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -40,6 +42,7 @@ from .engine import (
     Crossword,
     Cryptogram,
     Maze,
+    ProviderRejectionError,
     PuzzleBook,
     PuzzleError,
     TriviaChapter,
@@ -50,6 +53,23 @@ from .engine import (
 MAX_REFILL_ROUNDS = 5
 # Attempts to get a *layout* out of a valid word list before giving up.
 MAX_LAYOUT_ATTEMPTS = 4
+# A provider rejection is often transient (a momentary schema/payload fault),
+# so one is retried with a short backoff before the section gives up. Without
+# this a single blip took out a whole section — see build_riddles.
+PROVIDER_RETRIES = 2
+PROVIDER_BACKOFF_S = 5.0
+# Consecutive fully-refused _ask calls before the build stops asking at all.
+# A refusal costs PROVIDER_RETRIES + 1 calls and ~15s of backoff, and every
+# caller retries on top of that, so a provider that is simply down burned a
+# dozen calls and a minute of sleeping per subject while producing nothing.
+# Once this many asks in a row are refused outright the provider is treated as
+# unavailable and the remaining calls fail immediately, so the build reaches
+# its warnings in seconds instead of grinding through every section.
+PROVIDER_OUTAGE_STREAK = 3
+# How many refused _ask calls one puzzle will absorb before giving up on it.
+# _ask already retries internally, so this is a second chance at a refusal
+# that clears -- not a budget for grinding through an outage.
+PROVIDER_REFUSALS_PER_PUZZLE = 2
 
 LogFn = Callable[[str], None]
 ProgressFn = Callable[[str, float], None]
@@ -73,6 +93,7 @@ class PuzzleBuilder:
         should_stop: Optional[Callable[[], bool]] = None,
         cache_dir: Optional[Path] = None,
         seed: int = 20260731,
+        session_id: str = "",
     ) -> None:
         self.cfg = cfg
         self.log = log or _noop_log
@@ -84,6 +105,14 @@ class PuzzleBuilder:
         if cache_dir is not None:
             self.cache = engine.RawOutputCache(Path(cache_dir))
         self.book = PuzzleBook(config=cfg)
+        # Every call this build makes shares one session of its own, so a book
+        # neither inherits another build's history nor leaves its own behind in
+        # the agent's default session. See engine.call_openclaw_raw.
+        self.session_id = session_id or f"puzzle-{uuid.uuid4().hex[:12]}"
+        # Provider-outage tracking; see _ask.
+        self._refusal_streak = 0
+        self._provider_down = False
+        self._last_refusal = ""
 
     # -- helpers ---------------------------------------------------------
 
@@ -92,16 +121,66 @@ class PuzzleBuilder:
             raise PuzzleError("Build stopped by operator.")
 
     def _ask(self, prompt: str) -> list[Any]:
-        reply = engine.call_openclaw_raw(
-            self.cfg.agent,
-            prompt,
-            local=self.cfg.local,
-            thinking=self.cfg.thinking,
-            timeout_s=self.cfg.timeout_s,
-            cache=self.cache,
-            ledger=self.ledger,
-        )
-        return engine.extract_json_array(reply)
+        """One model call returning a JSON array.
+
+        Provider rejections get their own short retry with a backoff: they are
+        usually transient, and the caller's refill loop cannot distinguish them
+        from a content failure, so it would otherwise spend its whole budget
+        re-sending a prompt that fails instantly every time.
+
+        If enough consecutive asks are refused outright the provider is treated
+        as unavailable and further calls fail immediately. Retrying through an
+        outage cannot succeed, and every caller layers its own retries on top
+        of these, so without the short-circuit a downed provider cost a dozen
+        calls and a minute of sleeping per subject.
+        """
+        if self._provider_down:
+            raise ProviderRejectionError(
+                f"provider unavailable — {self._refusal_streak} consecutive "
+                f"requests were refused ({self._last_refusal}). Skipping the "
+                "remaining model calls for this build."
+            )
+
+        last: Optional[ProviderRejectionError] = None
+        for attempt in range(PROVIDER_RETRIES + 1):
+            if attempt:
+                delay = PROVIDER_BACKOFF_S * attempt
+                self.log(f"  provider refused; retrying in {delay:.0f}s")
+                time.sleep(delay)
+                self._check_stop()
+            try:
+                reply = engine.call_openclaw_raw(
+                    self.cfg.agent,
+                    prompt,
+                    local=self.cfg.local,
+                    thinking=self.cfg.thinking,
+                    timeout_s=self.cfg.timeout_s,
+                    cache=self.cache,
+                    ledger=self.ledger,
+                    session_id=self.session_id,
+                )
+            except ProviderRejectionError as exc:
+                last = exc
+                continue
+            # Any reply at all clears the streak: the provider is answering, so
+            # a later refusal starts counting again from zero rather than
+            # inheriting an old outage.
+            self._refusal_streak = 0
+            return engine.extract_json_array(reply)
+
+        self._refusal_streak += 1
+        self._last_refusal = str(last) if last is not None else "unknown error"
+        if self._refusal_streak >= PROVIDER_OUTAGE_STREAK and not self._provider_down:
+            self._provider_down = True
+            self._warn(
+                f"The AI provider refused {self._refusal_streak} requests in a "
+                f"row ({self._last_refusal}). The rest of this build's model "
+                "calls were skipped; sections that still needed content are "
+                "incomplete. This is a provider outage, not a problem with "
+                "your book settings — re-run when it recovers."
+            )
+
+        raise last if last is not None else PuzzleError("Model call failed.")
 
     def _warn(self, message: str) -> None:
         self.log(f"WARNING: {message}")
@@ -128,9 +207,22 @@ class PuzzleBuilder:
             invented = []
 
         subjects.extend(invented)
-        # Never leave a puzzle unnamed — fall back to a numbered title.
+        # Never leave a puzzle unnamed. The topic is frequently a long
+        # comma-separated list, so mine it for real subjects before falling
+        # back to a numbered label — pasting the whole list in as a "subject"
+        # produces an unusable puzzle prompt and an unreadable warning.
+        if len(subjects) < count:
+            taken = {s.strip().lower() for s in subjects}
+            for piece in engine.topic_keywords(self.cfg.topic):
+                if len(subjects) >= count:
+                    break
+                if piece.lower() not in taken:
+                    subjects.append(piece)
+                    taken.add(piece.lower())
+
+        short_topic = engine.short_topic(self.cfg.topic)
         while len(subjects) < count:
-            subjects.append(f"{self.cfg.topic} {len(subjects) + 1}")
+            subjects.append(f"{short_topic} {len(subjects) + 1}")
         return subjects[:count]
 
     # -- Section 1: picture puzzle briefs (human illustrators) -------------
@@ -221,6 +313,11 @@ class PuzzleBuilder:
 
             try:
                 raw = self._ask(engine.build_riddle_prompt(self.cfg, batch, avoid))
+            except ProviderRejectionError as exc:
+                # _ask already retried with backoff; more refill rounds would
+                # only repeat that, so stop and keep what the section has.
+                self.log(f"  riddles: provider refused ({exc})")
+                break
             except PuzzleError as exc:
                 self.log(f"  batch failed ({exc}); retrying")
                 continue
@@ -275,6 +372,7 @@ class PuzzleBuilder:
         A list can be individually valid yet still fail to place, so a layout
         failure asks for a fresh list rather than retrying the same words.
         """
+        refusals = 0
         for attempt in range(1, MAX_LAYOUT_ATTEMPTS + 1):
             prompt = engine.build_wordsearch_prompt(self.cfg, subject, size)
             if attempt > 1:
@@ -282,6 +380,17 @@ class PuzzleBuilder:
                 prompt += f"\n\nAttempt {attempt}: give a different set of words, and prefer shorter ones."
             try:
                 raw = self._ask(prompt)
+            except ProviderRejectionError as exc:
+                # _ask already retried this with backoff, so the layout budget
+                # must not be spent repeating that whole sequence -- a refused
+                # subject otherwise cost four times the calls and the sleeping
+                # for nothing. One more try covers a refusal that clears;
+                # beyond that the provider is the problem, not the word list.
+                refusals += 1
+                self.log(f"  '{subject}': provider refused ({exc})")
+                if refusals >= PROVIDER_REFUSALS_PER_PUZZLE:
+                    break
+                continue
             except PuzzleError as exc:
                 self.log(f"  '{subject}': word list failed ({exc})")
                 continue
@@ -338,6 +447,9 @@ class PuzzleBuilder:
 
             try:
                 raw = self._ask(engine.build_cryptogram_prompt(self.cfg, batch, avoid))
+            except ProviderRejectionError as exc:
+                self.log(f"  cryptograms: provider refused ({exc})")
+                break
             except PuzzleError as exc:
                 self.log(f"  batch failed ({exc}); retrying")
                 continue
@@ -390,7 +502,8 @@ class PuzzleBuilder:
             except PuzzleError as exc:
                 self._warn(f"Trivia: theme generation failed ({exc})")
         while len(themes) < chapter_count:
-            themes.append((f"{self.cfg.topic} Facts {len(themes) + 1}", ""))
+            themes.append(
+                (f"{engine.short_topic(self.cfg.topic)} Facts {len(themes) + 1}", ""))
 
         # Step 2 — questions per chapter.
         for idx, (title, scope) in enumerate(themes[:chapter_count], start=1):
@@ -411,6 +524,9 @@ class PuzzleBuilder:
                 try:
                     raw = self._ask(engine.build_trivia_question_prompt(
                         self.cfg, title, scope, need, avoid))
+                except ProviderRejectionError as exc:
+                    self.log(f"  chapter {idx}: provider refused ({exc})")
+                    break
                 except PuzzleError as exc:
                     self.log(f"  chapter {idx} batch failed ({exc}); retrying")
                     continue
@@ -462,6 +578,7 @@ class PuzzleBuilder:
                 self.log(f"  crossword {i}/{section.count}: {subject}")
 
     def _one_crossword(self, number: int, subject: str, out_dir: Path) -> Optional[Crossword]:
+        refusals = 0
         for attempt in range(1, MAX_LAYOUT_ATTEMPTS + 1):
             prompt = engine.build_crossword_prompt(self.cfg, subject)
             if attempt > 1:
@@ -471,6 +588,14 @@ class PuzzleBuilder:
                 )
             try:
                 raw = self._ask(prompt)
+            except ProviderRejectionError as exc:
+                # As in _one_word_search: _ask already retried with backoff, so
+                # the layout budget must not repeat that whole sequence.
+                refusals += 1
+                self.log(f"  '{subject}': provider refused ({exc})")
+                if refusals >= PROVIDER_REFUSALS_PER_PUZZLE:
+                    break
+                continue
             except PuzzleError as exc:
                 self.log(f"  '{subject}': word list failed ({exc})")
                 continue

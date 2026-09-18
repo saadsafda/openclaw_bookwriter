@@ -29,7 +29,7 @@ from flask import abort, jsonify, request, send_file
 import db as bookdb
 import docx_image_edit
 import openclaw_docx_writer as writer
-from print_hygiene import PrintHygieneError, strip_ai_docx
+from print_hygiene import PrintHygieneError, strip_ai_docx, xml_safe
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +288,7 @@ def _html_to_runs(paragraph, html: str) -> None:
             if paragraph.runs:
                 paragraph.runs[-1].add_break()
             continue
-        run = paragraph.add_run(text)
+        run = paragraph.add_run(xml_safe(text))
         _apply_run_spec(run, spec)
 
 
@@ -457,7 +457,7 @@ def write_blocks(path: Path, edits: list[dict[str, Any]] | dict[int, str]) -> di
         elif "text" in edit and edit["text"] is not None:
             for r in list(p.runs):
                 r._element.getparent().remove(r._element)
-            p.add_run(str(edit["text"]))
+            p.add_run(xml_safe(str(edit["text"])))
         # Paragraph-level properties (only if any provided).
         if any(k in edit for k in ("align", "list", "style", "indent")):
             _apply_paragraph_props(doc, p, edit)
@@ -592,8 +592,8 @@ def insert_or_refresh_toc(
     def _mk(text: str):
         # Insert before the anchor, or append at the document end if anchor gone.
         if anchor is not None:
-            return anchor.insert_paragraph_before(text)
-        return doc.add_paragraph(text)
+            return anchor.insert_paragraph_before(xml_safe(text))
+        return doc.add_paragraph(xml_safe(text))
 
     title = _mk(_TOC_TITLE)
     title.style = toc_style

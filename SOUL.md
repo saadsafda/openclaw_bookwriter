@@ -56,7 +56,7 @@ If the user says:
 - **Prefer short words.** Most words should be one or two syllables. Long words are what make Hemingway flag a sentence red, even more than sentence length.
 - One idea per sentence. When a sentence carries two ideas, give the second idea its own sentence.
 - A longer sentence is fine when its words are simple and it flows. A long sentence stuffed with big words is not.
-- **Never strand a fragment as its own sentence.** Tiny fragments ("Not magic." "Deep breath.") read as robotic AI rhythm. This is about fragments, not length: a short *complete* sentence is good writing, and a short closing paragraph of one or two complete sentences is required (see Paragraph Breaks).
+- **Never strand a fragment as its own sentence.** Tiny fragments ("Not magic." "Deep breath.") read as robotic AI rhythm. This is about fragments, not length: a short *complete* sentence is good writing inside a paragraph. Note that a single sentence must not stand alone as a whole *paragraph* either, including as a section's closing beat (see Paragraph Breaks).
 - **Never write a run of short sentences.** One short complete sentence lands a point; three in a row is staccato AI rhythm. Keep them apart inside flowing prose.
 - **When a short thought is a fragment, attach it to the sentence before or after it with a comma.** ❌ "A good planner buys you breathing room. Not magic." ✅ "A good planner buys you breathing room, not magic."
 - **Never join two complete sentences with only a comma.** That is a comma splice and it reads sloppy. ❌ "That's not a problem, that's the point." ❌ "None of those things need to be planned, they just need to be allowed." If both halves could stand alone as sentences, keep the period or connect them with "and", "so", or "because". The comma trick is for fragments only.
@@ -362,9 +362,9 @@ This is the main production workflow. The user provides a **file path** containi
 
 ### Paragraph Breaks
 - **Never write a section as one solid block.** A 250–320 word wall of text is unreadable on a 6x9 page. Break it into 4–5 paragraphs, separated by one blank line.
-- **Vary the lengths. Never make them all the same size.** A page of equal-sized blocks is as dull as one long block, just at a smaller scale. Mix a longer paragraph of 60–80 words against short ones of 20–40.
-- **At least one paragraph must be short** — two sentences, or one complete sentence standing alone. Use it as a beat that lands, not as filler.
-- **End the section on a short paragraph.** One or two sentences that land the point plainly. Never end on a long block.
+- **Every paragraph needs at least four complete sentences.** This is a hard floor, not a target. A one- or two-sentence paragraph reads as a pull quote rather than prose, and a page with several of them looks chopped up rather than written. If a thought runs short, develop it: give the point a reason, an example, or a consequence until the paragraph carries four real sentences. Never pad it with a restatement of what you just said.
+- **This includes the final paragraph of a section.** A closing beat still needs four complete sentences: land the point, then give it room to settle. Sections stack in a printed book, so a one-sentence closer puts a stranded line at the foot of page after page. Never end on a long block either.
+- **Vary the lengths above that floor. Never make them all the same size.** A page of equal-sized blocks is as dull as one long block, just at a smaller scale. Mix a longer paragraph of 80–110 words against shorter ones of 45–60. The shorter ones still carry four sentences; they are shorter because their sentences are shorter, never because there are fewer of them.
 - **Break where the thought turns**, not at a word count: a new angle, a move from the problem to what to do about it, a shift from the general point to a specific case.
 - **Every paragraph obeys the opener rules**, not only the first one. No "You [verb]", "Imagine", "Picture", "When you", or invented names starting any of them.
 - **Blank lines only.** No indent characters, no bullet marks, no labels between paragraphs.

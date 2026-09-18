@@ -536,11 +536,18 @@ def _run_kdp_formatting(job: Job, source_doc: Path) -> tuple[Path, Path]:
     # check would pass everything and prose would be styled as chapter titles.
     # Books created before the snapshot existed fall back to input_docx, which
     # is still correct for an already-written book (never generated into).
+    # An already-written book has no outline to speak of: the snapshot is a copy
+    # of the finished manuscript (--no-text means the writer never generated into
+    # it), so every paragraph would land in outline_topics. That does not just
+    # fail to help — it actively misleads the formatter, whose "bare outline
+    # topic" test becomes true for every line, letting short prose be styled as
+    # Heading 2. Omitting --outline falls back to the shape heuristics, which is
+    # exactly the path the formatter documents for "outline not known".
     snapshot_raw = str(cfg.get("outline_snapshot") or "")
     outline_path = Path(snapshot_raw) if snapshot_raw else (
         Path(job.input_docx) if job.input_docx else None
     )
-    if outline_path and outline_path.exists():
+    if not job.pre_written and outline_path and outline_path.exists():
         cmd.extend(["--outline", str(outline_path)])
 
     estimated_pages = int(cfg.get("estimated_pages", 0) or 0)
@@ -645,9 +652,12 @@ def _finish_generation(job: Job, output_doc: Path) -> None:
     """Shared tail of a successful (or resumed-and-now-successful) generation
     run: pick the final doc, run KDP formatting, record results.
 
-    For an already-written book (job.pre_written) the chosen behavior is
-    formatting only — the writer already applied book formatting, so skip the
-    KDP Kindle/paperback conversion here and keep the author's document as-is.
+    Every book gets Kindle and Paperback deliverables, including an
+    already-written one: the author's own final document is left untouched, and
+    the two KDP files are built from it as separate outputs. Text generation is
+    still skipped for a pre-written book (--no-text); only the conversion runs.
+    _run_kdp_formatting omits --outline in that case, since the "outline" for
+    such a book is just a copy of the finished manuscript.
     """
     with job.lock:
         final_doc = _pick_final_doc(output_doc, job.logs)
@@ -656,23 +666,20 @@ def _finish_generation(job: Job, output_doc: Path) -> None:
 
     headings = _list_image_headings(final_doc) if final_doc.exists() else []
 
+    kindle_doc, paperback_doc = _run_kdp_formatting(job, final_doc)
+    with job.lock:
+        job.headings = headings
+        job.kindle_docx = str(kindle_doc)
+        job.paperback_docx = str(paperback_doc)
+        images_on = bool(job.config.get("images", True))
+
+    _append_log(job, f"Ready. Final document: {final_doc}")
+    _append_log(job, f"Kindle output: {kindle_doc}")
+    _append_log(job, f"Paperback output: {paperback_doc}")
     if pre_written:
-        with job.lock:
-            job.headings = headings
-            images_on = bool(job.config.get("images", True))
-        _append_log(job, f"Ready. Formatted document: {final_doc}")
         extra = " Images were generated for headings that lacked one." if images_on else ""
-        _append_log(job, "Already-written book: skipped text generation and KDP "
-                         "conversion; formatting was applied." + extra)
-    else:
-        kindle_doc, paperback_doc = _run_kdp_formatting(job, final_doc)
-        with job.lock:
-            job.headings = headings
-            job.kindle_docx = str(kindle_doc)
-            job.paperback_docx = str(paperback_doc)
-        _append_log(job, f"Ready. Final document: {final_doc}")
-        _append_log(job, f"Kindle output: {kindle_doc}")
-        _append_log(job, f"Paperback output: {paperback_doc}")
+        _append_log(job, "Already-written book: skipped text generation; the "
+                         "author's document was kept as-is and converted." + extra)
 
     with job.lock:
         job.budget_paused = False
@@ -2549,7 +2556,16 @@ def download_file(job_id: str, kind: str) -> Any:
 
     target = mapping.get(kind)
     if target is None:
-        abort(404)
+        if kind in mapping:
+            # The kind is valid but this book has no such artifact. New books
+            # always get Kindle/Paperback, so this is a book written before that
+            # changed, or one whose conversion failed. Re-apply formatting builds
+            # them from the final doc without regenerating any text.
+            abort(404, description=(
+                f"No {kind} file for this book. Re-apply formatting to build it "
+                f"from the final document."
+            ))
+        abort(404, description=f"Unknown download type {kind!r}")
     if not target.exists() or not target.is_file():
         abort(404, description="File does not exist yet")
     return send_file(target, as_attachment=True)
@@ -2650,6 +2666,10 @@ _AGENT_CACHE: dict[str, Any] = {"data": None, "ts": 0.0}
 _MODEL_CACHE_TTL = 300  # seconds
 _AGENT_CACHE_TTL = 300
 
+# Whose view of the model catalog to ask for. Not a choice about which agent
+# runs a build -- that rides in each job's own config.
+MODEL_QUERY_AGENT = "main"
+
 
 @app.get("/api/openclaw-models")
 def list_openclaw_models() -> Any:
@@ -2662,8 +2682,11 @@ def list_openclaw_models() -> Any:
         return jsonify(_MODEL_CACHE["data"])
 
     try:
+        # With several agents configured, model inspection has no implicit
+        # owner and the CLI refuses to start; the catalog is the same for all
+        # of them, so any one agent can answer for the list.
         models_proc = subprocess.run(
-            ["openclaw", "models", "list", "--json"],
+            ["openclaw", "models", "list", "--agent", MODEL_QUERY_AGENT, "--json"],
             capture_output=True, text=True, timeout=60,
         )
         if models_proc.returncode != 0:
@@ -2671,7 +2694,7 @@ def list_openclaw_models() -> Any:
         models_data = json.loads(models_proc.stdout)
 
         status_proc = subprocess.run(
-            ["openclaw", "models", "status", "--json"],
+            ["openclaw", "models", "status", "--agent", MODEL_QUERY_AGENT, "--json"],
             capture_output=True, text=True, timeout=60,
         )
         default_model = ""

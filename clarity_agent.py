@@ -174,16 +174,16 @@ def fix_highlighted_sentences(
                 time.sleep(0.8)
 
                 # ── Check for paywall before doing anything else ──
+                # Only "Upgrade plan" means the AI quota is spent. "Learn more"
+                # is page chrome (it sits in the readability panel on every
+                # plan), so matching it here aborted every run on sentence one.
                 upgrade_btn = page.get_by_role(
                     "button", name="Upgrade plan", exact=True
                 )
-                learn_more_btn = page.get_by_role(
-                    "button", name="Learn more", exact=True
-                )
-                if upgrade_btn.is_visible() or learn_more_btn.is_visible():
+                if upgrade_btn.count() > 0 and upgrade_btn.first.is_visible():
                     print(
-                        "  ⚠️  Paywall button detected ('Upgrade plan' or 'Learn more') — "
-                        "free AI limit reached. Stopping fixes and saving.",
+                        "  ⚠️  Paywall button detected ('Upgrade plan') — "
+                        "AI usage limit reached. Stopping fixes and saving.",
                         flush=True,
                     )
                     # Dismiss popup

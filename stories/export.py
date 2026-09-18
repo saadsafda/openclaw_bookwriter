@@ -16,7 +16,14 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt
 
-from print_hygiene import PRINT_DPI, sanitize_for_print
+from kdp_docx_formatter import BODY_TEXT_STYLE, ensure_body_text_style
+from print_hygiene import (
+    PRINT_DPI,
+    PrintHygieneError,
+    audit_tree,
+    sanitize_for_print,
+    strip_control_chars,
+)
 
 from .engine import StoryBook
 
@@ -172,9 +179,11 @@ def build_docx(
     image_width_in: float = 4.5,
 ) -> Path:
     """Plain manuscript DOCX. Styling/sizing is left to the KDP formatter."""
+    strip_control_chars(book)
     cfg = book.config
     grouped = _has_chapters(book)
     doc = Document()
+    ensure_body_text_style(doc)
 
     # Front matter: title page.
     title_para = doc.add_paragraph()
@@ -184,11 +193,12 @@ def build_docx(
     title_run.font.size = Pt(28)
 
     if cfg.topic:
-        sub = doc.add_paragraph()
+        # Short and unpunctuated, so the formatter would read it as a heading.
+        sub = doc.add_paragraph(cfg.topic)
+        sub.style = doc.styles[BODY_TEXT_STYLE]
         sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        sub_run = sub.add_run(cfg.topic)
-        sub_run.italic = True
-        sub_run.font.size = Pt(13)
+        for run in sub.runs:
+            run.italic = True
 
     doc.add_page_break()
 
@@ -198,12 +208,20 @@ def build_docx(
             if chapter.intro:
                 doc.add_paragraph(chapter.intro)
             if chapter.illustration_path and Path(chapter.illustration_path).exists():
-                sanitize_for_print(chapter.illustration_path, PRINT_DPI)
-                pic = doc.add_paragraph()
-                pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                pic.add_run().add_picture(
-                    str(chapter.illustration_path), width=Inches(image_width_in)
-                )
+                try:
+                    sanitize_for_print(
+                        chapter.illustration_path, PRINT_DPI, width_in=image_width_in
+                    )
+                except PrintHygieneError as exc:
+                    book.warnings.append(
+                        f"Illustration skipped for chapter — {exc}"
+                    )
+                else:
+                    pic = doc.add_paragraph()
+                    pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    pic.add_run().add_picture(
+                        str(chapter.illustration_path), width=Inches(image_width_in)
+                    )
 
         for story in chapter.stories:
             # Story titles sit one level below chapter headings in a grouped
@@ -214,12 +232,20 @@ def build_docx(
             )
 
             if story.illustration_path and Path(story.illustration_path).exists():
-                sanitize_for_print(story.illustration_path, PRINT_DPI)
-                pic = doc.add_paragraph()
-                pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                pic.add_run().add_picture(
-                    str(story.illustration_path), width=Inches(image_width_in)
-                )
+                try:
+                    sanitize_for_print(
+                        story.illustration_path, PRINT_DPI, width_in=image_width_in
+                    )
+                except PrintHygieneError as exc:
+                    book.warnings.append(
+                        f"Illustration skipped for story — {exc}"
+                    )
+                else:
+                    pic = doc.add_paragraph()
+                    pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    pic.add_run().add_picture(
+                        str(story.illustration_path), width=Inches(image_width_in)
+                    )
 
             for block in story.body.split("\n\n"):
                 block = block.strip()
@@ -269,3 +295,25 @@ def build_kdp_files(
         "estimated_pages": str(estimated),
         "inside_margin_in": f"{inside:.3f}",
     }
+
+
+def verify_print_images(book: StoryBook, job_dir: Path, *,
+                        image_width_in: float = 4.5) -> list[str]:
+    """Confirm every image in ``job_dir`` is 300 DPI at its placed size.
+
+    ``image_width_in`` must match the width :func:`build_docx` places art at.
+    A DPI tag on its own is only a label -- an image with too few pixels for
+    the printed size passes a tag check and still trips KDP's preflight -- so
+    the audit measures pixels against that width.
+
+    Returns human-readable problems and records them on ``book.warnings`` so a
+    bad asset surfaces in the build log instead of reaching KDP unnoticed.
+    """
+    problems: list[str] = []
+    for path, issues in audit_tree(job_dir, PRINT_DPI, width_in=image_width_in).items():
+        rel = path.relative_to(job_dir) if path.is_relative_to(job_dir) else path
+        problems.append(f"{rel}: {'; '.join(issues)}")
+
+    for message in problems:
+        book.warnings.append(f"Print check — {message}")
+    return problems

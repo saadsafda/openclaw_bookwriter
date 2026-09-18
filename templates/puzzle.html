@@ -157,7 +157,7 @@
                 </div>
                 <div>
                     <label class="block text-xs font-medium text-slate-600 mb-1.5">OpenClaw agent</label>
-                    <input id="agent" class="field w-full rounded-xl px-3.5 py-2.5 text-sm" value="main">
+                    <input id="agent" class="field w-full rounded-xl px-3.5 py-2.5 text-sm" value="puzzle-agent-1">
                 </div>
                 <div>
                     <label class="block text-xs font-medium text-slate-600 mb-1.5">Word search grid</label>
@@ -276,6 +276,9 @@
 const $ = id => document.getElementById(id);
 let pollTimer = null;
 let currentJob = null;
+// The build this browser started, as opposed to one merely being viewed in
+// the status panel — only the former may be stopped from here.
+let startedJob = null;
 let SECTIONS = [];
 
 // The pilot book from the spec: Crime Scene Puzzle Book for Kids Ages 8-12.
@@ -362,7 +365,7 @@ function readConfig() {
         topic: $("topic").value.trim(),
         audience: $("audience").value.trim(),
         difficulty: $("difficulty").value,
-        agent: $("agent").value.trim() || "main",
+        agent: $("agent").value.trim() || "puzzle-agent-1",
         thinking: $("thinking").value,
         wordsearch_grid: parseInt($("wordsearch_grid").value, 10),
         maze_cols: parseInt($("maze_cols").value, 10),
@@ -480,8 +483,13 @@ function setStatus(s) {
     }
 
     const logs = $("logs");
-    logs.innerHTML = (s.logs || []).map(l =>
-        `<div class="log-line text-slate-300">${escapeHtml(l)}</div>`).join("");
+    // A finished build is served from the database, which does not keep the
+    // live log — say so rather than showing an unexplained empty box.
+    const lines = s.logs || [];
+    logs.innerHTML = lines.length
+        ? lines.map(l => `<div class="log-line text-slate-300">${escapeHtml(l)}</div>`).join("")
+        : `<div class="log-line text-slate-500">No live log for this build —
+             it finished in an earlier session.</div>`;
     logs.scrollTop = logs.scrollHeight;
 
     const kinds = [["zip","Handoff ZIP"],["docx","DOCX"],["paperback","Paperback"],
@@ -500,9 +508,12 @@ function setStatus(s) {
         $("downloads").classList.add("hidden");
     }
 
+    // Stop/Generate act on the build this browser started. Merely viewing
+    // another book's status must not disable the form.
     const running = s.status === "running" || s.status === "queued";
-    $("btn-stop").classList.toggle("hidden", !running);
-    $("btn-generate").disabled = running;
+    const isOwnJob = s.id === startedJob;
+    $("btn-stop").classList.toggle("hidden", !(running && isOwnJob));
+    $("btn-generate").disabled = running && isOwnJob;
 }
 
 async function poll(jobId) {
@@ -533,6 +544,8 @@ async function loadLibrary() {
         }
         const tone = {
             done: "bg-emerald-100 text-emerald-700",
+            // Finished but short on content — must not read as success.
+            partial: "bg-amber-100 text-amber-800",
             error: "bg-rose-100 text-rose-700",
             running: "bg-amber-100 text-amber-700",
             queued: "bg-slate-100 text-slate-600",
@@ -543,8 +556,8 @@ async function loadLibrary() {
             const ready = !!b.json_path;
             return `
             <div class="rounded-2xl bg-white border border-slate-900/10 p-3 flex items-center gap-3
-                        ${ready ? "hover:border-amber-400/60 cursor-pointer" : ""}"
-                 ${ready ? `data-open="${b.id}"` : ""}>
+                        hover:border-amber-400/60 cursor-pointer"
+                 data-open="${b.id}" title="Show this book's build status">
                 <div class="flex-1 min-w-0">
                     <div class="text-sm font-medium text-slate-900 truncate">${escapeHtml(b.title || "Untitled")}</div>
                     <div class="text-[11px] text-slate-500 truncate">
@@ -560,7 +573,7 @@ async function loadLibrary() {
                 ${b.zip_path ? `<a href="/api/puzzle/books/${b.id}/download/zip" data-noopen
                     class="btn-ghost rounded-lg px-2 py-1.5 text-xs" title="Download handoff zip">
                     <i class="fas fa-file-zipper"></i></a>` : ""}
-                ${b.has_config ? `<button data-id="${b.id}" data-noopen
+                ${b.has_config && b.status === "error" ? `<button data-id="${b.id}" data-noopen
                         class="lib-rerun btn-ghost rounded-lg px-2 py-1.5 text-xs text-amber-600"
                         title="Re-run this book from its saved settings">
                     <i class="fas fa-rotate-right"></i>
@@ -572,11 +585,18 @@ async function loadLibrary() {
             </div>`;
         }).join("");
 
-        // Clicking the row opens the editor, except on the action buttons.
+        // Clicking a row loads that book into the Build status panel. The
+        // pencil button is still the way into the editor.
         box.querySelectorAll("[data-open]").forEach(row => {
             row.addEventListener("click", ev => {
                 if (ev.target.closest("[data-noopen]")) return;
-                window.location.href = `/puzzle/${row.dataset.open}/edit`;
+                const id = row.dataset.open;
+                // Take over the panel: a previous build's poll would otherwise
+                // keep overwriting it with its own status.
+                if (pollTimer) clearTimeout(pollTimer);
+                currentJob = id;
+                poll(id);
+                $("status-live").scrollIntoView({ behavior: "smooth", block: "nearest" });
             });
         });
         box.querySelectorAll(".lib-del").forEach(btn => {
@@ -601,7 +621,7 @@ async function loadLibrary() {
                     if (!r.ok) { alert(data.error || ("status " + r.status)); return; }
                     // Follow the new job in the status panel, as if it had been
                     // started from the form.
-                    currentJob = data.job_id;
+                    currentJob = startedJob = data.job_id;
                     if (pollTimer) clearTimeout(pollTimer);
                     poll(currentJob);
                     loadLibrary();
@@ -628,6 +648,17 @@ $("btn-generate").addEventListener("click", async () => {
         $("form-error").classList.remove("hidden");
         return;
     }
+    // Mirrors engine.MAX_TOPIC_CHARS — the topic goes into every prompt, so a
+    // pasted keyword list makes the provider reject each call.
+    if (cfg.topic.length > 200) {
+        $("form-error").textContent =
+            `Topic is ${cfg.topic.length} characters, over the 200 limit. It is `
+            + "included in every prompt, so a long keyword list makes the AI "
+            + "provider reject the requests. Use a short phrase here, and put "
+            + "the keywords in each section's subjects box instead.";
+        $("form-error").classList.remove("hidden");
+        return;
+    }
     $("btn-generate").disabled = true;
     try {
         const r = await fetch("/api/puzzle/jobs", {
@@ -637,7 +668,7 @@ $("btn-generate").addEventListener("click", async () => {
         });
         const data = await r.json();
         if (!r.ok) throw new Error(data.error || "Could not start the build.");
-        currentJob = data.job_id;
+        currentJob = startedJob = data.job_id;
         if (pollTimer) clearTimeout(pollTimer);
         poll(currentJob);
         loadLibrary();

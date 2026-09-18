@@ -23,6 +23,7 @@ from print_hygiene import strip_ai_report
 from . import edit as editor
 from . import export as exporter
 from . import image_edit as imgedit
+from . import outline as outline_parser
 from . import pipeline
 from .engine import BookConfig, RawOutputCache, TriviaError, UsageLedger, ValidationGateError
 
@@ -31,6 +32,11 @@ from .engine import BookConfig, RawOutputCache, TriviaError, UsageLedger, Valida
 ROOT_DIR = Path(__file__).resolve().parent.parent
 TRIVIA_OUTPUT_DIR = ROOT_DIR / "trivia_outputs"
 TRIVIA_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+# Uploaded outlines are parsed and discarded; only the extracted structure is
+# kept, so this is a scratch area rather than durable storage.
+UPLOAD_DIR = TRIVIA_OUTPUT_DIR / "_uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_LOG_LINES = 600
 
@@ -71,6 +77,11 @@ class TriviaJob:
             "collisions": self.collisions[:50],
             "usage": dict(self.usage),
             "logs": self.logs[-120:],
+            # The resolve button posts the browser's chapter rows back as
+            # config overrides. Without the real config to load into the form
+            # first, those rows are whatever was last typed -- possibly another
+            # book's -- and resolving would silently rewrite this book's quotas.
+            "config": self.config.to_dict(),
         }
 
 
@@ -310,6 +321,48 @@ def register(app) -> None:  # noqa: ANN001
             "fact_total": sum(c.fact_count for c in cfg.chapters),
         })
 
+    # -- Outline import ----------------------------------------------------
+
+    @app.post("/api/trivia/parse-outline")
+    def trivia_parse_outline():  # noqa: ANN202
+        """Turn an uploaded DOCX/TXT/MD outline into editable chapter rows.
+
+        The chapter scheme usually already exists as a document, and typing it
+        into the form one box at a time is the slowest part of setting up a
+        book — so this reads the document instead.
+        """
+        file = request.files.get("file")
+        if file is None or not file.filename:
+            return jsonify({"error": "No outline file was uploaded."}), 400
+
+        suffix = Path(file.filename).suffix.lower()
+        if suffix not in {".docx", ".txt", ".md"}:
+            return jsonify({"error": "Outline must be a .docx, .txt or .md file."}), 400
+
+        path = UPLOAD_DIR / f"{uuid.uuid4().hex[:10]}{suffix}"
+        try:
+            file.save(str(path))
+            return jsonify({"ok": True, **outline_parser.parse_outline_file(path)})
+        except TriviaError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+        finally:
+            # Only the extracted structure is kept; the upload is scratch.
+            path.unlink(missing_ok=True)
+
+    @app.post("/api/trivia/parse-outline-text")
+    def trivia_parse_outline_text():  # noqa: ANN202
+        """Same parser, for an outline pasted straight into the browser."""
+        payload = request.get_json(silent=True) or {}
+        text = str(payload.get("text") or "")
+        if not text.strip():
+            return jsonify({"error": "No outline text was supplied."}), 400
+        try:
+            return jsonify({"ok": True, **outline_parser.parse_outline_text(text)})
+        except TriviaError as exc:
+            return jsonify({"error": str(exc)}), 400
+
     @app.post("/api/trivia/jobs")
     def trivia_create_job():  # noqa: ANN202
         payload = request.get_json(silent=True) or {}
@@ -424,6 +477,7 @@ def register(app) -> None:  # noqa: ANN001
                 "usage": json.loads(row.get("usage_json") or "{}"),
                 "collisions": [],
                 "logs": [],
+                "config": json.loads(row.get("config_json") or "null"),
             })
         return jsonify(job.to_status())
 
@@ -526,6 +580,17 @@ def register(app) -> None:  # noqa: ANN001
                 "chapter_title": ch.title,
                 "chapter_scope": ch.scope,
             }})
+        except TriviaError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @app.patch("/api/trivia/books/<book_id>/front-matter/<section>")
+    def trivia_edit_front_matter(book_id: str, section: str):  # noqa: ANN202
+        payload = request.get_json(silent=True) or {}
+        try:
+            _, json_path, book = _load_book_for_edit(book_id)
+            text = editor.apply_front_matter_edit(book, section, payload)
+            _save_book(book, json_path)
+            return jsonify({"ok": True, "section": section, "text": text})
         except TriviaError as exc:
             return jsonify({"error": str(exc)}), 400
 
@@ -742,7 +807,10 @@ def register(app) -> None:  # noqa: ANN001
         apply = bool(payload.get("apply"))
         try:
             _row, json_path, book = _load_book_for_edit(book_id)
-            result = strip_ai_report(book, json_path.parent, apply=apply)
+            # Width matters: trivia/export.py build_docx places art 4.5in wide, and
+            # without it the scan only reads the DPI tag.
+            result = strip_ai_report(book, json_path.parent, apply=apply,
+                                     width_in=4.5)
             if apply:
                 _save_book(book, json_path)
             return jsonify({"ok": True, **result})
@@ -826,6 +894,142 @@ def register(app) -> None:  # noqa: ANN001
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
 
+    def _apply_config_overrides(book: Any, payload: Any) -> list[str]:
+        """Fold browser-side chapter edits into a loaded draft's config.
+
+        fact_count, trivia_count and chapter_scope are honoured. trivia_count
+        used to be ignored on the theory that questions are never auto-dropped,
+        but that left a chapter short on questions with no way out at all: the
+        export gate demands an exact match, so the operator could neither raise
+        the supply nor lower the requirement. Lowering it now trims the draft
+        here (see _trim_trivia_to_quota); raising it is handled downstream by
+        top_up_short_trivia.
+
+        Chapters are matched by chapter_number, so reordering the rows in the
+        browser cannot silently retarget an edit at the wrong chapter.
+        Returns a human-readable note per applied change.
+        """
+        if not isinstance(payload, dict):
+            return []
+        rows = payload.get("chapters")
+        if not isinstance(rows, list) or not rows:
+            return []
+
+        by_number = {c.chapter_number: c for c in book.config.chapters}
+        notes: list[str] = []
+
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            try:
+                number = int(row.get("chapter_number"))
+            except (TypeError, ValueError):
+                continue
+            ch_cfg = by_number.get(number)
+            if ch_cfg is None:
+                continue
+
+            if "chapter_scope" in row:
+                scope = str(row.get("chapter_scope") or "").strip()
+                if scope and scope != ch_cfg.chapter_scope:
+                    ch_cfg.chapter_scope = scope
+                    notes.append(f"Chapter {number}: scope widened.")
+
+            for field_name in ("fact_count", "trivia_count"):
+                if row.get(field_name) in (None, ""):
+                    continue
+                try:
+                    new_count = int(row[field_name])
+                except (TypeError, ValueError):
+                    raise TriviaError(
+                        f"Chapter {number}: {field_name} must be a whole number."
+                    )
+                if new_count < 0:
+                    raise TriviaError(
+                        f"Chapter {number}: {field_name} cannot be negative."
+                    )
+                old_count = getattr(ch_cfg, field_name)
+                if new_count == old_count:
+                    continue
+                setattr(ch_cfg, field_name, new_count)
+                notes.append(
+                    f"Chapter {number}: {field_name} {old_count} -> {new_count}."
+                )
+
+        # Raising fact_count is handled downstream by top_up_short_chapters.
+        # Lowering it needs the draft trimmed here, because validate_for_export
+        # treats over-quota facts as a hard error.
+        _trim_facts_to_quota(book, notes)
+        _trim_trivia_to_quota(book, notes)
+        return notes
+
+    def _trim_trivia_to_quota(book: Any, notes: list[str]) -> None:
+        """Drop questions from any chapter now sitting over its quota.
+
+        Trimming from the tail is right here, unlike facts: questions are not
+        what the no-overlap gate rejects, so there are no "problem" ones to
+        prefer dropping. The answer spread is rebalanced afterwards because
+        validate_for_export also checks that correct answers do not cluster on
+        one letter, and cutting the tail can skew it.
+        """
+        for cfg, ch in zip(book.config.chapters, book.chapters):
+            if len(ch.trivia) <= cfg.trivia_count:
+                continue
+            dropped = len(ch.trivia) - cfg.trivia_count
+            ch.trivia[:] = ch.trivia[: cfg.trivia_count]
+            for i, q in enumerate(ch.trivia, start=1):
+                q.id = f"ch{cfg.chapter_number}_q{i:02d}"
+            pipeline.engine.rebalance_answer_distribution(ch.trivia)
+            notes.append(
+                f"Chapter {cfg.chapter_number}: dropped {dropped} question(s) "
+                f"to meet the lowered count."
+            )
+
+    def _trim_facts_to_quota(book: Any, notes: list[str]) -> None:
+        """Drop facts from any chapter now sitting over its quota.
+
+        Colliding facts are dropped first. Trimming from the tail instead would
+        leave the very facts that failed the gate in place, so a lowered
+        fact_count would not actually unblock the export -- which is the whole
+        point of lowering it.
+        """
+        over = [
+            (cfg, ch)
+            for cfg, ch in zip(book.config.chapters, book.chapters)
+            if len(ch.facts) > cfg.fact_count
+        ]
+        if not over:
+            return
+
+        # One dedup sweep over the draft as-is tells us which facts are the
+        # problem ones. This is the free heuristic stage plus whatever the
+        # cached judge verdicts already cover, so it spends nothing new.
+        flagged: set[str] = set()
+        try:
+            probe = pipeline.TriviaBuilder(book.config)
+            probe.book = book
+            for collision in probe.global_dedup_pass():
+                if collision.kind == "fact_vs_trivia":
+                    flagged.add(collision.left_id)
+                elif collision.kind == "fact_vs_fact":
+                    # Keep one side of the pair; drop the later one.
+                    flagged.add(max(collision.left_id, collision.right_id))
+        except Exception:  # noqa: BLE001
+            # A probe failure must not block the trim; fall back to tail order.
+            flagged = set()
+
+        for cfg, ch in over:
+            keep = cfg.fact_count
+            dropped = len(ch.facts) - keep
+            # Stable sort: flagged facts move to the back, order preserved
+            # otherwise, then the tail is cut.
+            ch.facts.sort(key=lambda f: f.id in flagged)
+            ch.facts[:] = ch.facts[:keep]
+            notes.append(
+                f"Chapter {cfg.chapter_number}: dropped {dropped} fact(s) to "
+                f"meet the lowered count."
+            )
+
     @app.post("/api/trivia/books/<book_id>/resolve")
     def trivia_resolve(book_id: str):  # noqa: ANN202
         """Finish a book the no-overlap gate blocked, without regenerating it.
@@ -853,6 +1057,16 @@ def register(app) -> None:  # noqa: ANN001
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": f"Could not read the saved draft: {exc}"}), 500
 
+        # The operator may have lowered fact_count (or edited a scope) in the
+        # browser after reading the gate failure -- the error message tells
+        # them to. Apply those edits to the saved draft's config before
+        # resolving, so the button does what the message promises. Absent a
+        # body, this is a no-op and the draft's own config is used.
+        try:
+            overrides = _apply_config_overrides(book, request.get_json(silent=True))
+        except TriviaError as exc:
+            return jsonify({"error": str(exc)}), 400
+
         out_dir = json_path.parent
         builder = pipeline.TriviaBuilder(book.config)
         builder.book = book
@@ -877,7 +1091,10 @@ def register(app) -> None:  # noqa: ANN001
                 detail = "; ".join(
                     f"{c.left_id} repeats {c.right_id}" for c in blocking[:5]
                 )
-                # The draft on disk stays intact, so this stays retryable.
+                # Save first: the repair rounds above regenerated facts that
+                # were paid for, and any overrides trimmed the draft. Returning
+                # without writing would discard both and re-run them next time.
+                pipeline.write_json(book, json_path)
                 return jsonify({
                     "error": (
                         f"Still blocked: {len(blocking)} fact(s) restate trivia "
@@ -885,14 +1102,31 @@ def register(app) -> None:  # noqa: ANN001
                         "fact_count for those chapters, then try again."
                     ),
                     "collisions": [c.to_dict() for c in blocking],
+                    "applied": overrides,
                 }), 409
+
+            # A build can also be blocked simply because a chapter came up
+            # short of its fact quota. Extend those chapters in place before
+            # validating, so a draft that only needs a few more facts finishes
+            # instead of demanding a full rebuild.
+            short_notes = builder.top_up_short_chapters()
+            # Questions can fall short too -- a chapter that lost its trivia to
+            # a failed batch is the most common reason a resolve stayed stuck.
+            short_notes += builder.top_up_short_trivia()
 
             errors = builder.validate_for_export()
             if errors:
-                return jsonify({
-                    "error": "Export blocked by validation:\n- "
-                             + "\n- ".join(errors[:12]),
-                }), 409
+                detail = "Export blocked by validation:\n- " + "\n- ".join(errors[:12])
+                if short_notes:
+                    detail += (
+                        "\n\nSome chapters could not be filled: "
+                        + "; ".join(short_notes)
+                        + ". Lower fact_count for those chapters, or widen their "
+                        "scope, then resolve again."
+                    )
+                # As above: keep the topped-up facts this pass paid for.
+                pipeline.write_json(book, json_path)
+                return jsonify({"error": detail, "applied": overrides}), 409
 
             stem = _safe_stem(book.config.book_title)
             pipeline.write_json(book, json_path)
@@ -907,9 +1141,18 @@ def register(app) -> None:  # noqa: ANN001
                 "json_path": str(json_path),
                 "markdown_path": str(md_path),
                 "docx_path": str(docx_path),
+                # These were frozen at submit time, so the library card kept
+                # showing the original counts after an override changed them.
+                # Report what the finished book actually contains.
+                "chapter_count": len(book.chapters),
+                "trivia_total": sum(len(c.trivia) for c in book.chapters),
+                "fact_total": sum(len(c.facts) for c in book.chapters),
+                "config_json": json.dumps(book.config.to_dict()),
             }
 
             warnings: list[str] = list(book.warnings)
+            warnings.extend(overrides)
+            warnings.extend(short_notes)
             warnings.extend(exporter.verify_print_images(book, out_dir))
 
             try:

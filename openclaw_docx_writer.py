@@ -304,19 +304,24 @@ def clear_paragraph(paragraph: Paragraph) -> None:
         p.remove(child)
 
 
-def prepare_image_for_print(image_path: Path, dpi: int = 300) -> None:
+def prepare_image_for_print(image_path: Path, dpi: int = 300,
+                            width_inches: float = 0.0) -> None:
     """Strip all EXIF/metadata and set DPI for print publishing.
 
     Shared implementation lives in print_hygiene so every image embedded in a
     DOCX gets the same guarantees as the rest of the pipeline.
+
+    ``width_inches`` is the width the image is actually placed at, and passing
+    it is what makes the 300 DPI real rather than a label: 1024px art placed
+    5.5in wide prints at 186 DPI, and KDP measures pixels, not the tag.
     """
     from print_hygiene import sanitize_for_print
 
-    sanitize_for_print(image_path, dpi)
+    sanitize_for_print(image_path, dpi, width_in=width_inches)
 
 
 def set_paragraph_image(paragraph: Paragraph, image_path: Path, width_inches: float) -> None:
-    prepare_image_for_print(image_path)
+    prepare_image_for_print(image_path, width_inches=width_inches)
     clear_paragraph(paragraph)
     run = paragraph.add_run()
     run.add_picture(str(image_path), width=Inches(width_inches))
@@ -770,25 +775,37 @@ def _paragraph_break_block(words_min: int, words_max: int) -> str:
     separator because a single newline or an indent character does not survive
     the round trip.
     """
+    # Paragraph count has to be derived from the word budget, not fixed, or it
+    # contradicts the sentence floor below. At MIN_SENTENCES_PER_PARAGRAPH
+    # sentences of roughly 14 words, a paragraph cannot come in under about 55
+    # words, so asking for "4 or 5 paragraphs" of a 250-word section demands
+    # paragraphs the floor forbids. The model resolves that contradiction by
+    # breaking the floor, which is the defect this block exists to prevent.
     midpoint = (words_min + words_max) // 2
-    if midpoint <= 140:
-        target = "2 or 3 paragraphs"
-    elif midpoint <= 260:
-        target = "3 or 4 paragraphs"
-    else:
-        target = "4 or 5 paragraphs"
+    floor_words = MIN_SENTENCES_PER_PARAGRAPH * 14
+    most = max(2, midpoint // floor_words)
+    target = f"{most - 1} or {most} paragraphs" if most > 2 else "2 paragraphs"
     return (
         f"PARAGRAPH BREAKS (required):\n"
         f"- Do NOT write the section as one solid block of text. Break it into "
         f"{target}, separated by ONE BLANK LINE between them.\n"
-        f"- Vary the paragraph lengths. Do NOT make them all the same size: a "
-        f"page of equal-sized blocks is as dull as one long block. Mix a longer "
-        f"paragraph of 60 to 80 words with short ones of 20 to 40 words.\n"
-        f"- At least one paragraph in the section must be SHORT: two sentences, "
-        f"or even one full sentence standing alone as its own paragraph. Use it "
-        f"as a beat that lands, not as filler.\n"
-        f"- Prefer ending the section on a short paragraph, one or two sentences "
-        f"that land the point plainly. Do not end on a long block.\n"
+        f"- EVERY paragraph must contain AT LEAST "
+        f"{MIN_SENTENCES_PER_PARAGRAPH} complete sentences. This is a hard "
+        f"floor, not a target. A one- or two-sentence paragraph reads as a pull "
+        f"quote rather than prose, and a page with several of them looks "
+        f"chopped up. If a thought runs short, develop it: give the point a "
+        f"reason, an example, or a consequence until the paragraph carries "
+        f"{MIN_SENTENCES_PER_PARAGRAPH} real sentences. Do NOT pad it with a "
+        f"restatement of what you just said.\n"
+        f"- This applies to the FINAL paragraph too. A closing beat still needs "
+        f"{MIN_SENTENCES_PER_PARAGRAPH} sentences: land the point, then give it "
+        f"room to settle. Do not end on a long block either.\n"
+        f"- Vary the paragraph lengths above that floor. Do NOT make them all "
+        f"the same size: a page of equal-sized blocks is as dull as one long "
+        f"block. Mix a longer paragraph of 80 to 110 words against shorter ones "
+        f"of 45 to 60 words. The shorter ones still carry "
+        f"{MIN_SENTENCES_PER_PARAGRAPH} sentences; they are shorter because "
+        f"their sentences are shorter, never because there are fewer of them.\n"
         f"- Break where the thought actually turns: a new angle, a shift from the "
         f"problem to what to do about it, a move from the general point to a "
         f"specific case. Do not break at an arbitrary word count.\n"
@@ -897,8 +914,8 @@ def build_prompt(
         f"not a complete sentence, attach it to the sentence before or after it "
         f"with a comma (write 'A good planner buys you breathing room, not magic.' "
         f"not '...breathing room. Not magic.'). This is about fragments only: a "
-        f"short COMPLETE sentence is good writing, and a short paragraph of one or "
-        f"two complete sentences is required by the paragraph rules above.\n"
+        f"short COMPLETE sentence is good writing inside a paragraph that meets "
+        f"the sentence floor in the paragraph rules above.\n"
         f"{_STRUCTURE_BANS}"
         f"- NO dense sentences full of long words; they score 'very hard to read'. Keep the "
         f"wording simple and split heavy sentences.\n"
@@ -966,8 +983,8 @@ def build_subheading_prompt(
         f"not a complete sentence, attach it to the sentence before or after it "
         f"with a comma (write 'A good planner buys you breathing room, not magic.' "
         f"not '...breathing room. Not magic.'). This is about fragments only: a "
-        f"short COMPLETE sentence is good writing, and a short paragraph of one or "
-        f"two complete sentences is required by the paragraph rules above.\n"
+        f"short COMPLETE sentence is good writing inside a paragraph that meets "
+        f"the sentence floor in the paragraph rules above.\n"
         f"{_STRUCTURE_BANS}"
         f"- NO dense sentences full of long words; they score 'very hard to read'. Keep the "
         f"wording simple and split heavy sentences.\n"
@@ -1462,6 +1479,144 @@ _SPLICE_FIX_RE = re.compile(
     r"(?:\bnot|n't)\b[^,.!?\n]{0,60}),\s*(?P<pron2>(?P=pron))\b",
     re.IGNORECASE,
 )
+
+
+# A paragraph that is a single sentence reads as a pull quote on a printed page
+# rather than as prose, and a two-sentence paragraph is still a thin slab on a
+# 6x9 page. Four is the floor: enough to state a point, develop it and land it.
+# No paragraph is exempt, including a section's last — sections stack, so an
+# exempt closer strands a short line at the foot of page after page.
+#
+# Raising this floor trades against the "vary the paragraph lengths" rule in
+# _paragraph_break_block: the short beat that rule asks for is now a four-
+# sentence paragraph of short sentences rather than a one- or two-sentence one.
+MIN_SENTENCES_PER_PARAGRAPH = 4
+
+# A lone sentence this long fills several printed lines and does not read as a
+# stranded fragment, so length earns an exemption.
+LONE_SENTENCE_WORD_EXEMPTION = 30
+
+# Abbreviations whose trailing period does not end a sentence, so that
+# "the U.S. Army" is not counted as two sentences.
+_SENTENCE_ABBREVIATIONS = (
+    "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "mt", "lt", "sgt",
+    "capt", "gen", "gov", "sen", "rep", "col", "adm", "rev", "hon",
+    "inc", "ltd", "co", "corp", "vs", "etc", "e.g", "i.e", "approx",
+    "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct",
+    "nov", "dec", "no", "vol", "fig", "u.s", "u.k", "a.m", "p.m",
+)
+
+
+def split_sentences(text: str) -> list[str]:
+    """Split prose into sentences without breaking on abbreviations/initials."""
+    if not text or not text.strip():
+        return []
+    # Normalise line endings first: a CRLF file would otherwise never match the
+    # paragraph/sentence boundaries below.
+    normalised = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    # Protect "..." and the ellipsis character: they are intra-sentence pauses,
+    # not sentence ends, and splitting on them undercounts a lone sentence as
+    # two and lets it escape the check.
+    guarded = normalised.replace("...", "\x00E\x00").replace("\u2026", "\x00U\x00")
+    parts = re.split(r"(?<=[.!?])[\"\')\]]*\s+", guarded)
+    merged: list[str] = []
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        if merged:
+            prev = merged[-1]
+            last_word = re.split(r"[\s(\[]", prev.rstrip())[-1].rstrip(".").lower()
+            if prev.endswith(".") and (
+                last_word in _SENTENCE_ABBREVIATIONS or len(last_word) == 1
+            ):
+                merged[-1] = f"{prev} {part}"
+                continue
+        merged.append(part)
+    return [p.replace("\x00E\x00", "...").replace("\x00U\x00", "\u2026")
+            for p in merged]
+
+
+def _split_paragraphs(text: str) -> list[str]:
+    """Blank-line separated paragraphs, CRLF-safe.
+
+    Splitting on a bare "\\n\\n" silently misses every paragraph break in a
+    CRLF file, so nothing is ever flagged there.
+    """
+    if not text:
+        return []
+    normalised = text.replace("\r\n", "\n").replace("\r", "\n")
+    return [p for p in re.split(r"\n\s*\n", normalised) if p.strip()]
+
+
+def find_lone_sentence_paragraphs(text: str) -> list[str]:
+    """Paragraphs that stand alone as one short sentence and should not.
+
+    The closing paragraph used to be exempt, on the theory that a final beat may
+    stand alone. In a printed book the sections stack, so every exempt closer is
+    another stranded line on the page and a chapter shows several. The only
+    exemption left is a single sentence long enough to fill several printed
+    lines, which does not read as a pull quote.
+
+    A whole section that is one single sentence has nothing to merge into, so it
+    is left alone rather than flagged as unfixable.
+    """
+    paragraphs = _split_paragraphs(text)
+    if len(paragraphs) < 2:
+        return []
+    flagged: list[str] = []
+    for para in paragraphs:
+        stripped = para.strip()
+        if len(split_sentences(stripped)) >= MIN_SENTENCES_PER_PARAGRAPH:
+            continue
+        if len(stripped.split()) >= LONE_SENTENCE_WORD_EXEMPTION:
+            continue
+        flagged.append(stripped)
+    return flagged
+
+
+def merge_lone_sentence_paragraphs(text: str) -> str:
+    """Fold single-sentence paragraphs into the paragraph that follows them.
+
+    Free, deterministic, no API call — the same class of last-resort mechanical
+    fix as :func:`fix_comma_splices`, which matters because generation retries
+    are disabled for cost.
+
+    Merging forward rather than backward is deliberate: a lone sentence almost
+    always introduces what comes next ("Into that adventure came Bud."), so
+    attaching it to the following paragraph preserves the author's intent. A
+    flagged paragraph at the end of the text has nothing to merge into, so it
+    is folded backward instead, which is now the common case: closing beats are
+    no longer exempt, because stacked sections put one on every page.
+    """
+    paragraphs = [p.strip() for p in _split_paragraphs(text)]
+    if len(paragraphs) < 2:
+        return text
+
+    def _is_lone(para: str, idx: int, total: int) -> bool:
+        if len(split_sentences(para)) >= MIN_SENTENCES_PER_PARAGRAPH:
+            return False
+        return len(para.split()) < LONE_SENTENCE_WORD_EXEMPTION
+
+    out: list[str] = []
+    pending: list[str] = []
+    total = len(paragraphs)
+    for i, para in enumerate(paragraphs):
+        if _is_lone(para, i, total):
+            pending.append(para)
+            continue
+        if pending:
+            para = " ".join(pending + [para])
+            pending = []
+        out.append(para)
+
+    # Anything still pending had no following paragraph: attach it backward.
+    if pending:
+        if out:
+            out[-1] = " ".join([out[-1]] + pending)
+        else:
+            out = [" ".join(pending)]
+    return "\n\n".join(out)
 
 
 def fix_comma_splices(text: str) -> str:
@@ -2111,6 +2266,16 @@ def _generate_clean_paragraph_once(
     elif find_invented_name_opener(generated):
         print("  opener check: invented-character opener (retries off) "
               "— not rewritten", flush=True)
+
+    # Lone-sentence paragraphs: fixed mechanically and for free, so this runs
+    # regardless of whether retries are enabled. A single sentence standing as
+    # its own paragraph reads as a pull quote on a 6x9 page.
+    stranded = find_lone_sentence_paragraphs(generated)
+    if stranded:
+        print(f'  paragraph fix: {len(stranded)} one-sentence paragraph(s) '
+              f'("{stranded[0][:50]}…") — merged into the following paragraph',
+              flush=True)
+        generated = merge_lone_sentence_paragraphs(generated)
 
     return generated
 
@@ -2949,6 +3114,17 @@ def main() -> int:
                 print("  cached text contains a banned pattern — regenerating", flush=True)
                 cached = None
             if cached is not None:
+                # Cached text never passed through generate_clean_paragraph's
+                # gates, and entries written before the lone-sentence merge
+                # existed still carry stranded single sentences. The merge is
+                # mechanical and free, so the cache is repaired in place rather
+                # than paying to regenerate the section.
+                stranded = find_lone_sentence_paragraphs(cached)
+                if stranded:
+                    cached = merge_lone_sentence_paragraphs(cached)
+                    cache.set(cache_key, cached)
+                    print(f"  cached text had {len(stranded)} one-sentence "
+                          f"paragraph(s) — merged and cache updated", flush=True)
                 generated = cached
                 print("  text from cache", flush=True)
             else:
@@ -3128,6 +3304,9 @@ def main() -> int:
                 # output gets the same enforcement. If a banned pattern survives
                 # the mechanical fix, keep the pre-scrub (already gated) doc.
                 cleaned = fix_comma_splices(cleaned)
+                # The scrub rewrites paragraphs, so it can reintroduce lone
+                # sentences the generation pass already merged.
+                cleaned = merge_lone_sentence_paragraphs(cleaned)
                 scrub_leftovers = find_template_sentences(cleaned)
                 if scrub_leftovers:
                     raise RuntimeError(

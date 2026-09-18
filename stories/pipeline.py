@@ -91,6 +91,7 @@ class StoryBuilder:
             cache=self.cache,
             ledger=self.ledger,
             session_id=self.session_id,
+            model=self.cfg.model,
             log=self.log,
         )
 
@@ -441,6 +442,7 @@ def generate_outline(
                 f"{already}"
             ).strip()
 
+        # No model override: proposing researchable stories is recall, not prose.
         reply = engine.call_openclaw_raw(
             agent,
             engine.build_outline_prompt(book_title, topic, need, extra),
