@@ -107,7 +107,11 @@ class TestBug2CorruptImageAbortsExport:
 class TestBug3CrlfBypassedTheCheck:
     """Splitting on "\\n\\n" missed every paragraph break in a CRLF file."""
 
-    CRLF = "One. Two.\r\n\r\nAlone.\r\n\r\nEnd."
+    # Every paragraph but "Alone." clears MIN_SENTENCES_PER_PARAGRAPH, so the
+    # test stays pinned to the CRLF bug rather than the sentence floor.
+    CRLF = ("One. Two. Three. Four.\r\n\r\n"
+            "Alone.\r\n\r\n"
+            "Five. Six. Seven. Eight.")
 
     def test_docx_writer_detects_it(self):
         assert find_lone_sentence_paragraphs(self.CRLF) == ["Alone."]
@@ -140,7 +144,11 @@ class TestBug4EllipsisMiscounted:
         assert len(se.split_sentences("He waited... then went.")) == 1
 
     def test_a_lone_ellipsis_paragraph_is_caught(self):
-        body = "He waited... then went.\n\nReal one. With two.\n\nEnd."
+        # The other paragraphs clear MIN_SENTENCES_PER_PARAGRAPH so the only
+        # thing this can flag is the ellipsis paragraph.
+        body = ("He waited... then went.\n\n"
+                "Real one. With two. And three. And four.\n\n"
+                "End one. End two. End three. End four.")
         assert find_lone_sentence_paragraphs(body) == ["He waited... then went."]
 
     def test_real_sentence_breaks_still_split(self):

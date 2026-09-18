@@ -45,15 +45,24 @@ class TestAgreesWithTheCode:
 
     def test_paragraph_minimum_matches_the_validator(self, text):
         from stories import engine as se
-        assert se.MIN_SENTENCES_PER_PARAGRAPH == 2
-        # Both prose agents must state the same floor the gate enforces.
+        assert se.MIN_SENTENCES_PER_PARAGRAPH == 4
+        # Both prose agents must state the same floor the gate enforces, in
+        # words, because that is how the model reads it.
+        spelled = {2: "two", 3: "three", 4: "four", 5: "five"}[
+            se.MIN_SENTENCES_PER_PARAGRAPH
+        ]
         for name in ("writer", "stories"):
-            assert "at least two complete sentences" in text[name].lower(), name
+            assert f"at least {spelled} complete sentences" in text[name].lower(), name
 
-    def test_closing_paragraph_exemption_is_stated(self, text):
+    def test_no_soul_still_grants_the_closing_beat_exemption(self, text):
+        """An exempt closer strands a line at the foot of every page."""
         for name in ("writer", "stories"):
             body = text[name].lower()
+            # The rule must still speak to the final paragraph...
             assert "final paragraph" in body, name
+            # ...but only to say it is bound by the same floor.
+            assert "may be a single sentence" not in body, name
+            assert "the one exception" not in body, name
 
     def test_story_word_band_matches_the_config(self, text):
         from stories import engine as se

@@ -67,13 +67,17 @@ Vary the sizes deliberately: a longer paragraph of 60 to 80 words against
 shorter ones of 20 to 40. A page of equal blocks is as dull as one long block,
 only smaller.
 
-**Every paragraph needs at least two complete sentences.** A single sentence
-standing alone reads as a pull quote, not prose, and a page with three of them
-looks chopped up rather than written. If a thought is one sentence long, join it
-to its neighbour or give it a second sentence that earns its place.
+**Every paragraph needs at least four complete sentences.** This is a hard
+floor, not a target. A one- or two-sentence paragraph reads as a pull quote, not
+prose, and a page with several of them looks chopped up rather than written. If
+a thought runs short, develop it: give the point a reason, an example, or a
+consequence until the paragraph carries four real sentences. Never pad it with a
+restatement of what you just said.
 
-The one exception is the final paragraph of a section, which may be a single
-sentence that lands the point. Never end on a long block.
+This includes the final paragraph of a section, which needs its four sentences
+too: land the point, then give it room to settle. Sections stack in a printed
+book, so a one-sentence closer strands a short line at the foot of page after
+page. Never end on a long block either.
 
 Break where the thought turns, not at a word count: a new angle, a move from the
 problem to what to do about it, a shift from the general to the specific.

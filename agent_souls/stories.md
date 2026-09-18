@@ -72,12 +72,15 @@ the best close leaves something in the air.
 
 ## Paragraphs
 
-**Every paragraph needs at least two complete sentences.** A lone sentence
-standing as its own paragraph reads as a pull quote on a printed page, and a
-page carrying two or three of them looks chopped up rather than written. Join it
-to a neighbour or give it a second sentence.
+**Every paragraph needs at least four complete sentences.** This is a hard
+floor, not a target. A one- or two-sentence paragraph reads as a pull quote on a
+printed page, and a page carrying several of them looks chopped up rather than
+written. If a thought runs short, develop it: give the point a reason, an
+example, or a consequence until the paragraph carries four real sentences.
 
-The final paragraph may be a single sentence if it lands the point.
+This includes the final paragraph, which needs its four sentences too. Stories
+stack in a printed book, so a one-sentence closer strands a short line at the
+foot of page after page.
 
 Vary the lengths. Break where the story turns, not at a word count.
 

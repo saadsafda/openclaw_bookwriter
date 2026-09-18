@@ -43,8 +43,10 @@ class TestPromptTeachesCraft:
         assert marker in prompt, f"no guidance on {topic}"
 
     def test_still_carries_every_hard_constraint(self, prompt):
+        from stories import engine as se
         for rule in ("Between 300 and 500 words", "Real events only",
-                     "at least 2 complete sentences", "Match the tone"):
+                     f"at least {se.MIN_SENTENCES_PER_PARAGRAPH} complete "
+                     f"sentences", "Match the tone"):
             assert rule in prompt
 
     def test_bans_comma_splices_and_dashes(self, prompt):

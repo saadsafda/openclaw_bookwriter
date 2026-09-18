@@ -70,9 +70,10 @@ MAX_STORY_ATTEMPTS = 4
 OPENER_WORDS = 6
 MAX_OPENER_REPEATS = 2
 
-# A lone sentence reads as a pull quote, not prose. The closing paragraph is
-# the one place it earns its place, so the last paragraph is exempt.
-MIN_SENTENCES_PER_PARAGRAPH = 2
+# A lone sentence reads as a pull quote, not prose, and a two-sentence paragraph
+# is still a thin slab on a printed page. Four is the floor: enough to state a
+# point, develop it and land it. No paragraph is exempt, including the last.
+MIN_SENTENCES_PER_PARAGRAPH = 4
 
 # A lone sentence this long fills several printed lines, so it is not stranded.
 LONE_SENTENCE_WORD_EXEMPTION = 30
@@ -947,8 +948,10 @@ def build_story_prompt(
         f"4a. Every paragraph must contain at least "
         f"{MIN_SENTENCES_PER_PARAGRAPH} complete sentences. Never leave a "
         "single sentence standing alone as its own paragraph: it reads as a "
-        "pull quote, not prose. The only exception is the final paragraph, "
-        "which may be one sentence that lands the point.\n"
+        f"pull quote, not prose. This includes the final paragraph, which must "
+        f"also carry at least {MIN_SENTENCES_PER_PARAGRAPH} sentences. If a "
+        f"paragraph runs short, develop the thought rather than padding it "
+        f"with a restatement.\n"
         "5. Do not address the reader as 'you', and do not editorialize about "
         "the book itself.\n"
         f"6. Match the tone: {cfg.tone}.\n"
@@ -1172,15 +1175,20 @@ def split_paragraphs(text: str) -> list[str]:
 def lone_sentence_paragraphs(body: str) -> list[int]:
     """Indices of paragraphs that are a single sentence and should not be.
 
-    The final paragraph is exempt: ending on one plain sentence that lands the
-    point is deliberate style, not a defect. A long single sentence is exempt
-    too, because it fills the line and does not read as a stranded fragment.
+    The closing paragraph used to be exempt on the theory that ending on one
+    plain sentence is deliberate style. Stories stack in a printed book, so that
+    exemption put a stranded line at the foot of page after page. A long single
+    sentence is still exempt, because it fills the line and does not read as a
+    stranded fragment.
+
+    A body that is a single paragraph has nothing to merge into, so it is not
+    flagged.
     """
     paragraphs = split_paragraphs(body)
+    if len(paragraphs) < 2:
+        return []
     flagged: list[int] = []
     for i, para in enumerate(paragraphs):
-        if i == len(paragraphs) - 1:
-            continue  # closing beat may stand alone
         if len(split_sentences(para)) >= MIN_SENTENCES_PER_PARAGRAPH:
             continue
         if len(para.split()) >= LONE_SENTENCE_WORD_EXEMPTION:
@@ -1243,8 +1251,8 @@ def check_story_quality(
         preview = paragraphs[stranded[0]][:60] if paragraphs else ""
         problems.append(
             f"{len(stranded)} one-sentence paragraph(s) that must be merged or "
-            f"expanded, e.g. \"{preview}\" — every paragraph except the last "
-            f"needs at least {MIN_SENTENCES_PER_PARAGRAPH} sentences"
+            f"expanded, e.g. \"{preview}\" — every paragraph, including the "
+            f"last, needs at least {MIN_SENTENCES_PER_PARAGRAPH} sentences"
         )
 
     return problems

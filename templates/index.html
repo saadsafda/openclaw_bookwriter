@@ -1004,6 +1004,53 @@
                 return '<i class="fas fa-circle text-gray-600 text-[10px]"></i>';
             }
 
+            // Older saved books may have a final document but no KDP files yet.
+            // Their download links build the missing files on first click.
+            function setDownloadItem(elId, jobId, kind, path, cacheBust, finalPath) {
+                const el = document.getElementById(elId);
+                if (!el) return;
+                el.dataset.jobId = jobId;
+                const canBuild = (kind === "kindle" || kind === "paperback") && !!finalPath;
+                el.dataset.buildOnDownload = !path && canBuild ? "true" : "false";
+                if (path || canBuild) {
+                    el.href = `/api/jobs/${jobId}/download/${kind}`
+                        + (cacheBust ? `?t=${Date.now()}` : "");
+                    el.classList.remove("opacity-40", "pointer-events-none");
+                    el.removeAttribute("aria-disabled");
+                    el.title = path ? "" : "Build and download this file";
+                } else {
+                    el.removeAttribute("href");
+                    el.classList.add("opacity-40", "pointer-events-none");
+                    el.setAttribute("aria-disabled", "true");
+                    el.title = "No finished document is available for this book.";
+                }
+            }
+
+            ["downloadKindle", "downloadPaperback"].forEach(elId => {
+                document.getElementById(elId).addEventListener("click", async (event) => {
+                    const el = event.currentTarget;
+                    if (el.dataset.buildOnDownload !== "true") return;
+                    event.preventDefault();
+                    if (el.dataset.building === "true") return;
+                    const jobId = el.dataset.jobId;
+                    el.dataset.building = "true";
+                    el.title = "Building Kindle and paperback files…";
+                    try {
+                        const response = await fetch(`/api/jobs/${jobId}/reapply-format`, { method: "POST" });
+                        const data = await response.json();
+                        if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+                        setDownloadItem("downloadKindle", jobId, "kindle", data.kindle_docx, true);
+                        setDownloadItem("downloadPaperback", jobId, "paperback", data.paperback_docx, true);
+                        window.location.href = el.href;
+                    } catch (error) {
+                        addMessage("bot", `<span class="text-red-500">Could not build download: ${escapeHtml(error.message)}</span>`);
+                        el.title = "Build and download this file";
+                    } finally {
+                        el.dataset.building = "false";
+                    }
+                });
+            });
+
             let historyBooks = [];
             let historySearchQuery = "";
             const historyMode = isLongBookMode ? "long-book" : "standard";
@@ -1246,10 +1293,10 @@
                     const dl = document.getElementById("downloadLinks");
                     if (book.status === "success" && book.final_docx) {
                         dl.classList.remove("hidden");
-                        document.getElementById("downloadInput").href = `/api/jobs/${bookId}/download/input`;
-                        document.getElementById("downloadFinal").href = `/api/jobs/${bookId}/download/final`;
-                        document.getElementById("downloadKindle").href = `/api/jobs/${bookId}/download/kindle`;
-                        document.getElementById("downloadPaperback").href = `/api/jobs/${bookId}/download/paperback`;
+                        setDownloadItem("downloadInput", bookId, "input", book.input_docx);
+                        setDownloadItem("downloadFinal", bookId, "final", book.final_docx);
+                        setDownloadItem("downloadKindle", bookId, "kindle", book.kindle_docx, false, book.final_docx);
+                        setDownloadItem("downloadPaperback", bookId, "paperback", book.paperback_docx, false, book.final_docx);
                     } else {
                         dl.classList.add("hidden");
                     }
@@ -1928,10 +1975,10 @@
                             
                             if (status.status === 'success' && status.final_docx) {
                                 document.getElementById("downloadLinks").classList.remove("hidden");
-                                document.getElementById("downloadInput").href = `/api/jobs/${state.jobId}/download/input`;
-                                document.getElementById("downloadFinal").href = `/api/jobs/${state.jobId}/download/final`;
-                                document.getElementById("downloadKindle").href = `/api/jobs/${state.jobId}/download/kindle`;
-                                document.getElementById("downloadPaperback").href = `/api/jobs/${state.jobId}/download/paperback`;
+                                setDownloadItem("downloadInput", state.jobId, "input", status.input_docx);
+                                setDownloadItem("downloadFinal", state.jobId, "final", status.final_docx);
+                                setDownloadItem("downloadKindle", state.jobId, "kindle", status.kindle_docx, false, status.final_docx);
+                                setDownloadItem("downloadPaperback", state.jobId, "paperback", status.paperback_docx, false, status.final_docx);
                             }
                         }
 
@@ -2676,11 +2723,10 @@
                     }
                     closeQrModal();
                     addMessage("bot", `<span class="text-emerald-600 font-semibold"><i class="fas fa-check-circle mr-1"></i> QR code attached to last page.</span><br><span class="text-xs text-gray-500">Final, Kindle and Paperback files have been refreshed — download again to get the updated copies.</span>`);
-                    // Cache-bust the download links by appending a timestamp
-                    const ts = Date.now();
-                    document.getElementById("downloadFinal").href = `/api/jobs/${state.jobId}/download/final?t=${ts}`;
-                    document.getElementById("downloadKindle").href = `/api/jobs/${state.jobId}/download/kindle?t=${ts}`;
-                    document.getElementById("downloadPaperback").href = `/api/jobs/${state.jobId}/download/paperback?t=${ts}`;
+                    // Cache-bust the download links; the QR attach rebuilt all three.
+                    setDownloadItem("downloadFinal", state.jobId, "final", data.final_docx, true);
+                    setDownloadItem("downloadKindle", state.jobId, "kindle", data.kindle_docx, true);
+                    setDownloadItem("downloadPaperback", state.jobId, "paperback", data.paperback_docx, true);
                 } catch (e) {
                     addMessage("bot", `<span class="text-red-500 font-bold">Error:</span> ${escapeHtml(e.message)}`);
                 } finally {
@@ -2945,9 +2991,8 @@
                             clearInterval(waitForDone);
                             btnLandingQr.disabled = false;
                             if (st.status === "success") {
-                                const ts = Date.now();
-                                document.getElementById("downloadKindle").href = `/api/jobs/${state.jobId}/download/kindle?t=${ts}`;
-                                document.getElementById("downloadPaperback").href = `/api/jobs/${state.jobId}/download/paperback?t=${ts}`;
+                                setDownloadItem("downloadKindle", state.jobId, "kindle", st.kindle_docx, true);
+                                setDownloadItem("downloadPaperback", state.jobId, "paperback", st.paperback_docx, true);
                             }
                         }
                     }, 2000);
@@ -2972,9 +3017,8 @@
                         const data = await r.json();
                         if (!r.ok) throw new Error(data.error || `Request failed (${r.status})`);
                         addMessage("bot", `<span class="text-emerald-600 font-semibold"><i class="fas fa-check-circle mr-1"></i> Formatting re-applied.</span><br><span class="text-xs text-gray-500">Kindle and Paperback files have been rebuilt — download again to get the updated copies.</span>`);
-                        const ts = Date.now();
-                        document.getElementById("downloadKindle").href = `/api/jobs/${state.jobId}/download/kindle?t=${ts}`;
-                        document.getElementById("downloadPaperback").href = `/api/jobs/${state.jobId}/download/paperback?t=${ts}`;
+                        setDownloadItem("downloadKindle", state.jobId, "kindle", data.kindle_docx, true);
+                        setDownloadItem("downloadPaperback", state.jobId, "paperback", data.paperback_docx, true);
                     } catch (e) {
                         addMessage("bot", `<span class="text-red-500 font-bold">Error:</span> ${escapeHtml(e.message)}`);
                     } finally {

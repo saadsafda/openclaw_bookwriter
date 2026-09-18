@@ -775,31 +775,37 @@ def _paragraph_break_block(words_min: int, words_max: int) -> str:
     separator because a single newline or an indent character does not survive
     the round trip.
     """
+    # Paragraph count has to be derived from the word budget, not fixed, or it
+    # contradicts the sentence floor below. At MIN_SENTENCES_PER_PARAGRAPH
+    # sentences of roughly 14 words, a paragraph cannot come in under about 55
+    # words, so asking for "4 or 5 paragraphs" of a 250-word section demands
+    # paragraphs the floor forbids. The model resolves that contradiction by
+    # breaking the floor, which is the defect this block exists to prevent.
     midpoint = (words_min + words_max) // 2
-    if midpoint <= 140:
-        target = "2 or 3 paragraphs"
-    elif midpoint <= 260:
-        target = "3 or 4 paragraphs"
-    else:
-        target = "4 or 5 paragraphs"
+    floor_words = MIN_SENTENCES_PER_PARAGRAPH * 14
+    most = max(2, midpoint // floor_words)
+    target = f"{most - 1} or {most} paragraphs" if most > 2 else "2 paragraphs"
     return (
         f"PARAGRAPH BREAKS (required):\n"
         f"- Do NOT write the section as one solid block of text. Break it into "
         f"{target}, separated by ONE BLANK LINE between them.\n"
-        f"- Vary the paragraph lengths. Do NOT make them all the same size: a "
-        f"page of equal-sized blocks is as dull as one long block. Mix a longer "
-        f"paragraph of 60 to 80 words with short ones of 20 to 40 words.\n"
-        f"- At least one paragraph in the section must be SHORT: two or three "
-        f"sentences. Use it as a beat that lands, not as filler.\n"
-        f"- NEVER leave a single sentence standing alone as its own paragraph. "
-        f"On a printed page it reads as a pull quote rather than prose, and a "
-        f"page with several of them looks chopped up. Every paragraph must "
-        f"contain AT LEAST TWO complete sentences. If a thought is only one "
-        f"sentence long, join it to the paragraph beside it or give it a second "
-        f"sentence.\n"
-        f"- The ONLY exception is the final paragraph of the section, which may "
-        f"be a single sentence that lands the point plainly. Do not end on a "
-        f"long block.\n"
+        f"- EVERY paragraph must contain AT LEAST "
+        f"{MIN_SENTENCES_PER_PARAGRAPH} complete sentences. This is a hard "
+        f"floor, not a target. A one- or two-sentence paragraph reads as a pull "
+        f"quote rather than prose, and a page with several of them looks "
+        f"chopped up. If a thought runs short, develop it: give the point a "
+        f"reason, an example, or a consequence until the paragraph carries "
+        f"{MIN_SENTENCES_PER_PARAGRAPH} real sentences. Do NOT pad it with a "
+        f"restatement of what you just said.\n"
+        f"- This applies to the FINAL paragraph too. A closing beat still needs "
+        f"{MIN_SENTENCES_PER_PARAGRAPH} sentences: land the point, then give it "
+        f"room to settle. Do not end on a long block either.\n"
+        f"- Vary the paragraph lengths above that floor. Do NOT make them all "
+        f"the same size: a page of equal-sized blocks is as dull as one long "
+        f"block. Mix a longer paragraph of 80 to 110 words against shorter ones "
+        f"of 45 to 60 words. The shorter ones still carry "
+        f"{MIN_SENTENCES_PER_PARAGRAPH} sentences; they are shorter because "
+        f"their sentences are shorter, never because there are fewer of them.\n"
         f"- Break where the thought actually turns: a new angle, a shift from the "
         f"problem to what to do about it, a move from the general point to a "
         f"specific case. Do not break at an arbitrary word count.\n"
@@ -908,8 +914,8 @@ def build_prompt(
         f"not a complete sentence, attach it to the sentence before or after it "
         f"with a comma (write 'A good planner buys you breathing room, not magic.' "
         f"not '...breathing room. Not magic.'). This is about fragments only: a "
-        f"short COMPLETE sentence is good writing, and a short paragraph of one or "
-        f"two complete sentences is required by the paragraph rules above.\n"
+        f"short COMPLETE sentence is good writing inside a paragraph that meets "
+        f"the sentence floor in the paragraph rules above.\n"
         f"{_STRUCTURE_BANS}"
         f"- NO dense sentences full of long words; they score 'very hard to read'. Keep the "
         f"wording simple and split heavy sentences.\n"
@@ -977,8 +983,8 @@ def build_subheading_prompt(
         f"not a complete sentence, attach it to the sentence before or after it "
         f"with a comma (write 'A good planner buys you breathing room, not magic.' "
         f"not '...breathing room. Not magic.'). This is about fragments only: a "
-        f"short COMPLETE sentence is good writing, and a short paragraph of one or "
-        f"two complete sentences is required by the paragraph rules above.\n"
+        f"short COMPLETE sentence is good writing inside a paragraph that meets "
+        f"the sentence floor in the paragraph rules above.\n"
         f"{_STRUCTURE_BANS}"
         f"- NO dense sentences full of long words; they score 'very hard to read'. Keep the "
         f"wording simple and split heavy sentences.\n"
@@ -1476,9 +1482,15 @@ _SPLICE_FIX_RE = re.compile(
 
 
 # A paragraph that is a single sentence reads as a pull quote on a printed page
-# rather than as prose. Two sentences is the floor; a section's last paragraph
-# is exempt because ending on one plain sentence is deliberate style.
-MIN_SENTENCES_PER_PARAGRAPH = 2
+# rather than as prose, and a two-sentence paragraph is still a thin slab on a
+# 6x9 page. Four is the floor: enough to state a point, develop it and land it.
+# No paragraph is exempt, including a section's last — sections stack, so an
+# exempt closer strands a short line at the foot of page after page.
+#
+# Raising this floor trades against the "vary the paragraph lengths" rule in
+# _paragraph_break_block: the short beat that rule asks for is now a four-
+# sentence paragraph of short sentences rather than a one- or two-sentence one.
+MIN_SENTENCES_PER_PARAGRAPH = 4
 
 # A lone sentence this long fills several printed lines and does not read as a
 # stranded fragment, so length earns an exemption.
@@ -1540,14 +1552,20 @@ def _split_paragraphs(text: str) -> list[str]:
 def find_lone_sentence_paragraphs(text: str) -> list[str]:
     """Paragraphs that stand alone as one short sentence and should not.
 
-    The final paragraph is exempt (a closing beat may stand alone), as is any
-    single sentence long enough to fill several printed lines.
+    The closing paragraph used to be exempt, on the theory that a final beat may
+    stand alone. In a printed book the sections stack, so every exempt closer is
+    another stranded line on the page and a chapter shows several. The only
+    exemption left is a single sentence long enough to fill several printed
+    lines, which does not read as a pull quote.
+
+    A whole section that is one single sentence has nothing to merge into, so it
+    is left alone rather than flagged as unfixable.
     """
     paragraphs = _split_paragraphs(text)
+    if len(paragraphs) < 2:
+        return []
     flagged: list[str] = []
-    for i, para in enumerate(paragraphs):
-        if i == len(paragraphs) - 1:
-            continue
+    for para in paragraphs:
         stripped = para.strip()
         if len(split_sentences(stripped)) >= MIN_SENTENCES_PER_PARAGRAPH:
             continue
@@ -1568,15 +1586,14 @@ def merge_lone_sentence_paragraphs(text: str) -> str:
     always introduces what comes next ("Into that adventure came Bud."), so
     attaching it to the following paragraph preserves the author's intent. A
     flagged paragraph at the end of the text has nothing to merge into, so it
-    is folded backward instead.
+    is folded backward instead, which is now the common case: closing beats are
+    no longer exempt, because stacked sections put one on every page.
     """
     paragraphs = [p.strip() for p in _split_paragraphs(text)]
     if len(paragraphs) < 2:
         return text
 
     def _is_lone(para: str, idx: int, total: int) -> bool:
-        if idx == total - 1:
-            return False  # closing beat may stand alone
         if len(split_sentences(para)) >= MIN_SENTENCES_PER_PARAGRAPH:
             return False
         return len(para.split()) < LONE_SENTENCE_WORD_EXEMPTION
@@ -3097,6 +3114,17 @@ def main() -> int:
                 print("  cached text contains a banned pattern — regenerating", flush=True)
                 cached = None
             if cached is not None:
+                # Cached text never passed through generate_clean_paragraph's
+                # gates, and entries written before the lone-sentence merge
+                # existed still carry stranded single sentences. The merge is
+                # mechanical and free, so the cache is repaired in place rather
+                # than paying to regenerate the section.
+                stranded = find_lone_sentence_paragraphs(cached)
+                if stranded:
+                    cached = merge_lone_sentence_paragraphs(cached)
+                    cache.set(cache_key, cached)
+                    print(f"  cached text had {len(stranded)} one-sentence "
+                          f"paragraph(s) — merged and cache updated", flush=True)
                 generated = cached
                 print("  text from cache", flush=True)
             else:
